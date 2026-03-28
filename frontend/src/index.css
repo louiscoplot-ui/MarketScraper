@@ -4,7 +4,8 @@
   padding: 0;
 }
 
-:root {
+/* ─── Theme: Dark (default) ─── */
+:root, [data-theme="dark"] {
   --bg: #0d1117;
   --surface: #161b22;
   --surface2: #1c2128;
@@ -13,16 +14,80 @@
   --text: #e6edf3;
   --text-muted: #7d8590;
   --text-dim: #484f58;
-
   --todo-color: #3b82f6;
-  --todo-bg: rgba(59, 130, 246, 0.12);
+  --todo-bg: rgba(59,130,246,0.12);
   --idea-color: #a78bfa;
-  --idea-bg: rgba(167, 139, 250, 0.12);
+  --idea-bg: rgba(167,139,250,0.12);
   --call-color: #34d399;
-  --call-bg: rgba(52, 211, 153, 0.12);
+  --call-bg: rgba(52,211,153,0.12);
   --note-color: #fbbf24;
-  --note-bg: rgba(251, 191, 36, 0.12);
+  --note-bg: rgba(251,191,36,0.12);
+  --radius: 10px;
+  --radius-sm: 6px;
+}
 
+/* ─── Theme: Cream ─── */
+[data-theme="cream"] {
+  --bg: #f5f0e8;
+  --surface: #fffdf8;
+  --surface2: #f0ebe0;
+  --border: #ddd5c8;
+  --border-focus: #c8773a;
+  --text: #2d2318;
+  --text-muted: #7a6e65;
+  --text-dim: #b0a89e;
+  --todo-color: #2563eb;
+  --todo-bg: rgba(37,99,235,0.08);
+  --idea-color: #7c3aed;
+  --idea-bg: rgba(124,58,237,0.08);
+  --call-color: #059669;
+  --call-bg: rgba(5,150,105,0.08);
+  --note-color: #b45309;
+  --note-bg: rgba(180,83,9,0.08);
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+/* ─── Theme: Forest ─── */
+[data-theme="forest"] {
+  --bg: #0c1a0e;
+  --surface: #122016;
+  --surface2: #1a2d1e;
+  --border: #2a4a2e;
+  --border-focus: #4ade80;
+  --text: #d4edd8;
+  --text-muted: #7aab80;
+  --text-dim: #3d6b44;
+  --todo-color: #4ade80;
+  --todo-bg: rgba(74,222,128,0.1);
+  --idea-color: #86efac;
+  --idea-bg: rgba(134,239,172,0.1);
+  --call-color: #34d399;
+  --call-bg: rgba(52,211,153,0.1);
+  --note-color: #fde68a;
+  --note-bg: rgba(253,230,138,0.1);
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+/* ─── Theme: Dusk ─── */
+[data-theme="dusk"] {
+  --bg: #0f0d1a;
+  --surface: #171428;
+  --surface2: #1e1a30;
+  --border: #342e52;
+  --border-focus: #a78bfa;
+  --text: #ede9ff;
+  --text-muted: #8b84b8;
+  --text-dim: #4a4470;
+  --todo-color: #818cf8;
+  --todo-bg: rgba(129,140,248,0.12);
+  --idea-color: #c084fc;
+  --idea-bg: rgba(192,132,252,0.12);
+  --call-color: #34d399;
+  --call-bg: rgba(52,211,153,0.12);
+  --note-color: #fb923c;
+  --note-bg: rgba(251,146,60,0.12);
   --radius: 10px;
   --radius-sm: 6px;
 }
@@ -543,6 +608,33 @@ html, body {
 
 .btn-delete:hover {
   color: #f85149;
+}
+
+/* ─── Theme dots ─── */
+
+.theme-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.theme-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.theme-dot:hover {
+  transform: scale(1.2);
+}
+
+.theme-dot.active {
+  border-color: var(--text);
+  transform: scale(1.15);
 }
 
 /* ─── Language selector ─── */

@@ -110,6 +110,13 @@ function ItemCard({ item, onToggle, onToggleSubtask, onDelete }) {
   );
 }
 
+const THEMES = [
+  { id: "dark",   label: "Dark",   color: "#30363d" },
+  { id: "cream",  label: "Cream",  color: "#c8773a" },
+  { id: "forest", label: "Forest", color: "#4ade80" },
+  { id: "dusk",   label: "Dusk",   color: "#a78bfa" },
+];
+
 export default function App() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -117,9 +124,19 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [error, setError] = useState(null);
-  const [language, setLanguage] = useState("french");
+  const [language, setLanguage] = useState(() => localStorage.getItem("bd-lang") || "french");
+  const [theme, setTheme] = useState(() => localStorage.getItem("bd-theme") || "dark");
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("bd-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("bd-lang", language);
+  }, [language]);
 
   const fetchItems = useCallback(async () => {
     try {
@@ -269,6 +286,17 @@ export default function App() {
         {items.length > 0 && (
           <span className="header-count">{items.length} {items.length > 1 ? t.entries : t.entry}</span>
         )}
+        <div className="theme-dots">
+          {THEMES.map((th) => (
+            <button
+              key={th.id}
+              className={`theme-dot${theme === th.id ? " active" : ""}`}
+              style={{ background: th.color }}
+              onClick={() => setTheme(th.id)}
+              title={th.label}
+            />
+          ))}
+        </div>
         <select
           className="lang-select"
           value={language}
