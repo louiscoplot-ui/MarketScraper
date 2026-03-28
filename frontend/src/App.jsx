@@ -15,6 +15,16 @@ const FILTERS = [
   { key: "note",      label: "Notes" },
 ];
 
+const T = {
+  french:     { placeholder: "Vide ta tête ici… (Entrée pour analyser)", analyse: "Analyser", analysing: "Analyse…", confirm: "✓ Confirmer", discard: "Ignorer", preview: "Aperçu", chars: "car.", all: "Tout", todo: "To-do", ideas: "Idées", calls: "Calls", notes: "Notes", empty: "Aucune entrée.", emptySub: "Tape quelque chose ci-dessus et analyse !", inCat: " dans cette catégorie", entry: "entrée", entries: "entrées" },
+  english:    { placeholder: "Dump your thoughts here… (Enter to analyse)", analyse: "Analyse", analysing: "Analysing…", confirm: "✓ Confirm", discard: "Dismiss", preview: "Preview", chars: "chars", all: "All", todo: "To-do", ideas: "Ideas", calls: "Calls", notes: "Notes", empty: "No entries.", emptySub: "Type something above and analyse!", inCat: " in this category", entry: "entry", entries: "entries" },
+  spanish:    { placeholder: "Vacía tu cabeza aquí… (Enter para analizar)", analyse: "Analizar", analysing: "Analizando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Vista previa", chars: "car.", all: "Todo", todo: "Tarea", ideas: "Ideas", calls: "Llamadas", notes: "Notas", empty: "Sin entradas.", emptySub: "¡Escribe algo arriba y analiza!", inCat: " en esta categoría", entry: "entrada", entries: "entradas" },
+  italian:    { placeholder: "Svuota la testa qui… (Invio per analizzare)", analyse: "Analizza", analysing: "Analisi…", confirm: "✓ Conferma", discard: "Ignora", preview: "Anteprima", chars: "car.", all: "Tutto", todo: "To-do", ideas: "Idee", calls: "Chiamate", notes: "Note", empty: "Nessuna voce.", emptySub: "Scrivi qualcosa sopra e analizza!", inCat: " in questa categoria", entry: "voce", entries: "voci" },
+  portuguese: { placeholder: "Esvazie sua cabeça aqui… (Enter para analisar)", analyse: "Analisar", analysing: "Analisando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Pré-visualização", chars: "car.", all: "Tudo", todo: "Tarefa", ideas: "Ideias", calls: "Chamadas", notes: "Notas", empty: "Sem entradas.", emptySub: "Digite algo acima e analise!", inCat: " nesta categoria", entry: "entrada", entries: "entradas" },
+  chinese:    { placeholder: "在此清空思绪…（按Enter分析）", analyse: "分析", analysing: "分析中…", confirm: "✓ 确认", discard: "忽略", preview: "预览", chars: "字", all: "全部", todo: "待办", ideas: "想法", calls: "通话", notes: "笔记", empty: "暂无内容。", emptySub: "在上方输入内容并分析！", inCat: "（此类别）", entry: "条", entries: "条" },
+  russian:    { placeholder: "Выгрузи мысли сюда… (Enter для анализа)", analyse: "Анализ", analysing: "Анализ…", confirm: "✓ Сохранить", discard: "Отмена", preview: "Просмотр", chars: "симв.", all: "Все", todo: "Задача", ideas: "Идеи", calls: "Звонки", notes: "Заметки", empty: "Нет записей.", emptySub: "Введите что-нибудь выше и нажмите анализ!", inCat: " в этой категории", entry: "запись", entries: "записей" },
+};
+
 const LANGUAGES = [
   { code: "french",     label: "FR — Français" },
   { code: "english",    label: "EN — English" },
@@ -235,6 +245,16 @@ export default function App() {
     fetchItems();
   };
 
+  const t = T[language] || T.french;
+
+  const FILTERS_T = [
+    { key: "all",       label: t.all },
+    { key: "todo",      label: t.todo },
+    { key: "idea",      label: t.ideas },
+    { key: "call_note", label: t.calls },
+    { key: "note",      label: t.notes },
+  ];
+
   const totalByType = FILTERS.slice(1).reduce((acc, f) => {
     acc[f.key] = items.filter((i) => i.type === f.key).length;
     return acc;
@@ -247,7 +267,7 @@ export default function App() {
         <span style={{ fontSize: 28 }}>🧠</span>
         <h1>Braindump</h1>
         {items.length > 0 && (
-          <span className="header-count">{items.length} entrée{items.length > 1 ? "s" : ""}</span>
+          <span className="header-count">{items.length} {items.length > 1 ? t.entries : t.entry}</span>
         )}
         <select
           className="lang-select"
@@ -264,7 +284,7 @@ export default function App() {
       <div className="capture-card">
         <textarea
           className="capture-textarea"
-          placeholder="Vide ta tête ici... (Entrée pour analyser)"
+          placeholder={t.placeholder}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -272,11 +292,11 @@ export default function App() {
         />
         <div className="capture-footer">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span className="char-count">{text.length} car.</span>
+            <span className="char-count">{text.length} {t.chars}</span>
             <button
               className={`btn-mic${listening ? " active" : ""}`}
               onClick={toggleVoice}
-              title={listening ? "Arrêter l'écoute" : "Dicter"}
+              title={listening ? "Stop" : "Dictate"}
             >
               {listening ? "⏹" : "🎙"}
             </button>
@@ -289,10 +309,10 @@ export default function App() {
             {loading ? (
               <>
                 <span className="spinner" />
-                Analyse…
+                {t.analysing}
               </>
             ) : (
-              <>✨ Analyser</>
+              <>✨ {t.analyse}</>
             )}
           </button>
         </div>
@@ -309,7 +329,7 @@ export default function App() {
       {preview && (
         <div className="preview-card">
           <div className="preview-header">
-            <span className="preview-label">Aperçu</span>
+            <span className="preview-label">{t.preview}</span>
             <Badge type={preview.type} />
           </div>
           <div className="preview-body">
@@ -325,10 +345,10 @@ export default function App() {
           </div>
           <div className="preview-actions">
             <button className="btn-confirm" onClick={confirm}>
-              ✓ Confirmer
+              {t.confirm}
             </button>
             <button className="btn-discard" onClick={() => setPreview(null)}>
-              Ignorer
+              {t.discard}
             </button>
           </div>
         </div>
@@ -336,7 +356,7 @@ export default function App() {
 
       {/* Filter bar */}
       <div className="filter-bar">
-        {FILTERS.map((f) => (
+        {FILTERS_T.map((f) => (
           <button
             key={f.key}
             className={`filter-btn${filter === f.key ? ` active ${f.key}` : ""}`}
@@ -355,10 +375,8 @@ export default function App() {
         {items.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📭</div>
-            <div>Aucune entrée{filter !== "all" ? " dans cette catégorie" : ""}.</div>
-            <div style={{ marginTop: 6, opacity: 0.7 }}>
-              Tape quelque chose ci-dessus et analyse !
-            </div>
+            <div>{filter !== "all" ? t.empty.replace(".", "") + t.inCat + "." : t.empty}</div>
+            <div style={{ marginTop: 6, opacity: 0.7 }}>{t.emptySub}</div>
           </div>
         ) : (
           items.map((item) => (
