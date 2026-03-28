@@ -121,7 +121,7 @@ const THEMES = [
 export default function App() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState(null);
+  const [previews, setPreviews] = useState([]);
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [error, setError] = useState(null);
@@ -238,7 +238,7 @@ export default function App() {
     if (!text.trim() || loading) return;
     setLoading(true);
     setError(null);
-    setPreview(null);
+    setPreviews([]);
     try {
       const res = await fetch("/api/process", {
         method: "POST",
@@ -249,7 +249,7 @@ export default function App() {
       if (data.error) {
         setError(data.error);
       } else {
-        setPreview(data);
+        setPreviews(Array.isArray(data) ? data : [data]);
       }
     } catch {
       setError("Impossible de contacter le backend.");
@@ -259,14 +259,16 @@ export default function App() {
   };
 
   const confirm = async () => {
-    if (!preview) return;
+    if (!previews.length) return;
     try {
-      await fetch("/api/items", {
-        method: "POST",
-        headers: authHeaders,
-        body: JSON.stringify(preview),
-      });
-      setPreview(null);
+      await Promise.all(previews.map((p) =>
+        fetch("/api/items", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(p),
+        })
+      ));
+      setPreviews([]);
       setText("");
       fetchItems();
     } catch {
@@ -411,28 +413,33 @@ export default function App() {
       )}
 
       {/* Preview */}
-      {preview && (
+      {previews.length > 0 && (
         <div className="preview-card">
           <div className="preview-header">
             <span className="preview-label">{t.preview}</span>
-            <Badge type={preview.type} />
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{previews.length} note{previews.length > 1 ? "s" : ""}</span>
           </div>
-          <div className="preview-body">
-            <div className="preview-title">{preview.title}</div>
-            <div className="preview-content">{preview.content}</div>
-            {preview.subtasks && preview.subtasks.length > 0 && (
-              <div className="preview-subtasks">
-                {preview.subtasks.map((st, i) => (
-                  <div className="subtask-preview" key={i}>{st}</div>
-                ))}
+          {previews.map((preview, idx) => (
+            <div key={idx} className="preview-body" style={idx > 0 ? { borderTop: "1px solid var(--border)" } : {}}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Badge type={preview.type} />
               </div>
-            )}
-          </div>
+              <div className="preview-title">{preview.title}</div>
+              <div className="preview-content">{preview.content}</div>
+              {preview.subtasks && preview.subtasks.length > 0 && (
+                <div className="preview-subtasks">
+                  {preview.subtasks.map((st, i) => (
+                    <div className="subtask-preview" key={i}>{st}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
           <div className="preview-actions">
             <button className="btn-confirm" onClick={confirm}>
               {t.confirm}
             </button>
-            <button className="btn-discard" onClick={() => setPreview(null)}>
+            <button className="btn-discard" onClick={() => setPreviews([])}>
               {t.discard}
             </button>
           </div>

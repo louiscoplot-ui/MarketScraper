@@ -15,7 +15,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, sslmode="require")
     return conn
 
 
@@ -90,24 +90,25 @@ def process_text():
     prompt = f"""You are a smart note-taking assistant. Always respond in {language}. The user gives you a raw braindump (messy, vague, incomplete sentences, abbreviations).
 
 Your job:
-1. Detect the type:
-   - "todo": actionable task(s) to complete
-   - "idea": creative idea, concept, project idea, something to explore
+1. Split the input into SEPARATE items if it contains multiple distinct thoughts, tasks or ideas. Each distinct action or idea = one item.
+2. For each item, detect the type:
+   - "todo": actionable task to complete
+   - "idea": creative idea, concept, something to explore
    - "call_note": notes from a phone call or meeting
-   - "note": general info, reference, reminder, something to remember
-2. Create a clean, concise title (max 60 characters)
-3. Reformulate the content clearly (keep the same language as the input)
-4. If it's a "todo" with multiple distinct actions, extract up to 5 subtasks
+   - "note": general info, reference, reminder
+3. Create a clean concise title (max 60 chars) for each
+4. Reformulate clearly in {language}
+5. For "todo" items with sub-steps, add up to 5 subtasks
 
-Return ONLY valid JSON with no markdown fences:
-{{
-  "type": "todo" | "idea" | "call_note" | "note",
-  "title": "short clean title",
-  "content": "reformulated content",
-  "subtasks": ["subtask 1", "subtask 2"]
-}}
-
-If there are no subtasks, return "subtasks": []
+Return ONLY a valid JSON array (even if just one item), no markdown fences:
+[
+  {{
+    "type": "todo" | "idea" | "call_note" | "note",
+    "title": "short clean title",
+    "content": "reformulated content",
+    "subtasks": []
+  }}
+]
 
 Raw input:
 {raw_text}"""
@@ -124,6 +125,9 @@ Raw input:
             if response_text.startswith("json"):
                 response_text = response_text[4:]
         result = json.loads(response_text)
+        # Normalize to always return array
+        if isinstance(result, dict):
+            result = [result]
         return jsonify(result)
     except json.JSONDecodeError as e:
         return jsonify({"error": f"AI returned invalid JSON: {str(e)}"}), 500
