@@ -170,18 +170,22 @@ export default function App() {
   }, [language]);
 
   const fetchItems = useCallback(async () => {
+    if (!token) return;
     try {
-      const res = await fetch(`/api/items?type=${filter}`, { headers: authHeaders });
+      const res = await fetch(`/api/items?type=${filter}`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) { logout(); return; }
       const data = await res.json();
       setItems(Array.isArray(data) ? data : []);
     } catch {
       // ignore fetch errors for list
     }
-  }, [filter]);
+  }, [filter, token]);
 
   useEffect(() => {
-    fetchItems();
-  }, [fetchItems]);
+    if (token) fetchItems();
+  }, [fetchItems, token]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
