@@ -82,6 +82,11 @@ def get_user_id():
     return None
 
 
+@app.route("/", methods=["GET"])
+def root():
+    return "OK", 200
+
+
 @app.route("/api/ping", methods=["GET"])
 def ping():
     return jsonify({"status": "alive"})
