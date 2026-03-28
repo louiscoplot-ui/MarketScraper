@@ -18,7 +18,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, sslmode="require", connect_timeout=10)
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, connect_timeout=10)
     return conn
 
 
@@ -80,6 +80,11 @@ def get_user_id():
     except Exception:
         pass
     return None
+
+
+@app.route("/api/ping", methods=["GET"])
+def ping():
+    return jsonify({"status": "alive"})
 
 
 @app.route("/api/health", methods=["GET"])
