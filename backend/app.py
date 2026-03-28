@@ -50,7 +50,11 @@ def init_db():
     conn.close()
 
 
-init_db()
+try:
+    init_db()
+    print("DB initialized OK")
+except Exception as e:
+    print(f"WARNING: init_db failed: {e}")
 
 
 def get_user_id():
@@ -76,6 +80,20 @@ def get_user_id():
     except Exception:
         pass
     return None
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) as n FROM items")
+        count = cur.fetchone()["n"]
+        cur.close()
+        conn.close()
+        return jsonify({"status": "ok", "items_count": count, "db": "connected"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/process", methods=["POST"])

@@ -268,11 +268,13 @@ export default function App() {
           body: JSON.stringify(p),
         })
       ));
-      const failed = results.find((r) => r.status === 401);
-      if (failed) {
-        logout();
-        setError("Session expirée — reconnecte-toi.");
-        return;
+      for (const r of results) {
+        if (r.status === 401) { logout(); setError("Session expirée — reconnecte-toi."); return; }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          setError(`Erreur sauvegarde: ${err.error || r.status}`);
+          return;
+        }
       }
       setPreviews([]);
       setText("");
