@@ -1,29 +1,30 @@
 import os
 import json
-import sqlite3
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import anthropic
 import requests as http_requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
 CORS(app)
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "braindump.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 
 def init_db():
     conn = get_db()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id TEXT NOT NULL DEFAULT 'anonymous',
             type TEXT NOT NULL,
             title TEXT NOT NULL,
@@ -33,7 +34,7 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS subtask_status (
             item_id INTEGER,
             subtask_index INTEGER,
@@ -41,13 +42,12 @@ def init_db():
             PRIMARY KEY (item_id, subtask_index)
         )
     """)
-    # Add user_id column if it doesn't exist (migration)
-    try:
-        conn.execute("ALTER TABLE items ADD COLUMN user_id TEXT NOT NULL DEFAULT 'anonymous'")
-    except Exception:
-        pass
     conn.commit()
+    cur.close()
     conn.close()
+
+
+init_db()
 
 
 def get_user_id():
@@ -139,31 +139,25 @@ def get_items():
 
     filter_type = request.args.get("type", "all")
     conn = get_db()
+    cur = conn.cursor()
 
     if filter_type == "all":
-        rows = conn.execute(
-            "SELECT * FROM items WHERE user_id = ? ORDER BY created_at DESC", (user_id,)
-        ).fetchall()
+        cur.execute("SELECT * FROM items WHERE user_id = %s ORDER BY created_at DESC", (user_id,))
     else:
-        rows = conn.execute(
-            "SELECT * FROM items WHERE user_id = ? AND type = ? ORDER BY created_at DESC",
-            (user_id, filter_type),
-        ).fetchall()
+        cur.execute("SELECT * FROM items WHERE user_id = %s AND type = %s ORDER BY created_at DESC", (user_id, filter_type))
 
+    rows = cur.fetchall()
     result = []
     for row in rows:
         item = dict(row)
         item["subtasks"] = json.loads(item["subtasks"])
         item["completed"] = bool(item["completed"])
-        statuses = conn.execute(
-            "SELECT subtask_index, completed FROM subtask_status WHERE item_id = ?",
-            (item["id"],),
-        ).fetchall()
-        item["subtask_status"] = {
-            str(r["subtask_index"]): bool(r["completed"]) for r in statuses
-        }
+        cur.execute("SELECT subtask_index, completed FROM subtask_status WHERE item_id = %s", (item["id"],))
+        statuses = cur.fetchall()
+        item["subtask_status"] = {str(r["subtask_index"]): bool(r["completed"]) for r in statuses}
         result.append(item)
 
+    cur.close()
     conn.close()
     return jsonify(result)
 
@@ -176,19 +170,14 @@ def create_item():
 
     data = request.json
     conn = get_db()
-    cursor = conn.execute(
-        "INSERT INTO items (user_id, type, title, content, subtasks, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (
-            user_id,
-            data["type"],
-            data["title"],
-            data["content"],
-            json.dumps(data.get("subtasks", [])),
-            datetime.now().isoformat(),
-        ),
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO items (user_id, type, title, content, subtasks, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (user_id, data["type"], data["title"], data["content"], json.dumps(data.get("subtasks", [])), datetime.now().isoformat()),
     )
+    item_id = cur.fetchone()["id"]
     conn.commit()
-    item_id = cursor.lastrowid
+    cur.close()
     conn.close()
     return jsonify({"id": item_id, "success": True})
 
@@ -201,20 +190,19 @@ def update_item(item_id):
 
     data = request.json
     conn = get_db()
+    cur = conn.cursor()
 
     if "completed" in data and "subtask_index" not in data:
-        conn.execute(
-            "UPDATE items SET completed = ? WHERE id = ? AND user_id = ?",
-            (int(data["completed"]), item_id, user_id),
-        )
+        cur.execute("UPDATE items SET completed = %s WHERE id = %s AND user_id = %s", (int(data["completed"]), item_id, user_id))
 
     if "subtask_index" in data:
-        conn.execute(
-            "INSERT OR REPLACE INTO subtask_status (item_id, subtask_index, completed) VALUES (?, ?, ?)",
+        cur.execute(
+            "INSERT INTO subtask_status (item_id, subtask_index, completed) VALUES (%s, %s, %s) ON CONFLICT (item_id, subtask_index) DO UPDATE SET completed = EXCLUDED.completed",
             (item_id, data["subtask_index"], int(data["completed"])),
         )
 
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
@@ -226,14 +214,14 @@ def delete_item(item_id):
         return jsonify({"error": "Unauthorized"}), 401
 
     conn = get_db()
-    conn.execute("DELETE FROM items WHERE id = ? AND user_id = ?", (item_id, user_id))
-    conn.execute("DELETE FROM subtask_status WHERE item_id = ?", (item_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM items WHERE id = %s AND user_id = %s", (item_id, user_id))
+    cur.execute("DELETE FROM subtask_status WHERE item_id = %s", (item_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
-
-init_db()
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
