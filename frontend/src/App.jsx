@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const TYPE_META = {
   todo:      { label: "To-do",    icon: "✓",  badgeClass: "badge-todo" },
@@ -13,6 +13,16 @@ const FILTERS = [
   { key: "idea",      label: "Idées" },
   { key: "call_note", label: "Calls" },
   { key: "note",      label: "Notes" },
+];
+
+const LANGUAGES = [
+  { code: "french",     label: "FR" },
+  { code: "english",    label: "EN" },
+  { code: "spanish",    label: "ES" },
+  { code: "italian",    label: "IT" },
+  { code: "portuguese", label: "PT" },
+  { code: "chinese",    label: "ZH" },
+  { code: "russian",    label: "RU" },
 ];
 
 function formatDate(iso) {
@@ -97,6 +107,9 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [error, setError] = useState(null);
+  const [language, setLanguage] = useState("french");
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef(null);
 
   const fetchItems = useCallback(async () => {
     try {
@@ -113,10 +126,50 @@ export default function App() {
   }, [fetchItems]);
 
   const handleKeyDown = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       analyse();
     }
+  };
+
+  const toggleVoice = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("La reconnaissance vocale n'est pas supportée par ce navigateur.");
+      return;
+    }
+
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = language === "french" ? "fr-FR"
+      : language === "english" ? "en-US"
+      : language === "spanish" ? "es-ES"
+      : language === "italian" ? "it-IT"
+      : language === "portuguese" ? "pt-PT"
+      : language === "chinese" ? "zh-CN"
+      : language === "russian" ? "ru-RU"
+      : "fr-FR";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    recognition.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .map((r) => r[0].transcript)
+        .join(" ");
+      setText((prev) => (prev ? prev + " " + transcript : transcript));
+    };
+
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
   };
 
   const analyse = async () => {
@@ -128,7 +181,7 @@ export default function App() {
       const res = await fetch("/api/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, language }),
       });
       const data = await res.json();
       if (data.error) {
@@ -137,7 +190,7 @@ export default function App() {
         setPreview(data);
       }
     } catch {
-      setError("Impossible de contacter le backend. Vérifiez qu'il tourne sur le port 5000.");
+      setError("Impossible de contacter le backend.");
     } finally {
       setLoading(false);
     }
@@ -196,20 +249,40 @@ export default function App() {
         {items.length > 0 && (
           <span className="header-count">{items.length} entrée{items.length > 1 ? "s" : ""}</span>
         )}
+        <div className="lang-selector">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l.code}
+              className={`lang-btn${language === l.code ? " active" : ""}`}
+              onClick={() => setLanguage(l.code)}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Capture zone */}
       <div className="capture-card">
         <textarea
           className="capture-textarea"
-          placeholder="Vide ta tête ici... (Ctrl+Entrée pour analyser)"
+          placeholder="Vide ta tête ici... (Entrée pour analyser)"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           autoFocus
         />
         <div className="capture-footer">
-          <span className="char-count">{text.length} caractères</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span className="char-count">{text.length} car.</span>
+            <button
+              className={`btn-mic${listening ? " active" : ""}`}
+              onClick={toggleVoice}
+              title={listening ? "Arrêter l'écoute" : "Dicter"}
+            >
+              {listening ? "⏹" : "🎙"}
+            </button>
+          </div>
           <button
             className="btn-analyse"
             onClick={analyse}
@@ -218,7 +291,7 @@ export default function App() {
             {loading ? (
               <>
                 <span className="spinner" />
-                Analyse en cours…
+                Analyse…
               </>
             ) : (
               <>✨ Analyser</>

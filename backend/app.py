@@ -47,6 +47,7 @@ def init_db():
 def process_text():
     data = request.json
     raw_text = data.get("text", "").strip()
+    language = data.get("language", "french")
 
     if not raw_text:
         return jsonify({"error": "No text provided"}), 400
@@ -57,7 +58,7 @@ def process_text():
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    prompt = f"""You are a smart note-taking assistant. The user gives you a raw braindump in French or English (messy, vague, incomplete sentences, abbreviations).
+    prompt = f"""You are a smart note-taking assistant. Always respond in {language}. The user gives you a raw braindump (messy, vague, incomplete sentences, abbreviations).
 
 Your job:
 1. Detect the type:

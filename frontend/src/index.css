@@ -545,6 +545,67 @@ html, body {
   color: #f85149;
 }
 
+/* ─── Language selector ─── */
+
+.lang-selector {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.lang-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.03em;
+}
+
+.lang-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.lang-btn.active {
+  background: var(--border-focus);
+  border-color: var(--border-focus);
+  color: white;
+}
+
+/* ─── Mic button ─── */
+
+.btn-mic {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text-muted);
+}
+
+.btn-mic:hover {
+  border-color: var(--text-dim);
+}
+
+.btn-mic.active {
+  background: rgba(248, 81, 73, 0.15);
+  border-color: #f85149;
+  animation: pulse 1.2s ease infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 /* ─── Scrollbar ─── */
 
 ::-webkit-scrollbar { width: 6px; }
