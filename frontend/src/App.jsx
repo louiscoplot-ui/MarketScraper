@@ -16,13 +16,13 @@ const FILTERS = [
 ];
 
 const LANGUAGES = [
-  { code: "french",     label: "FR" },
-  { code: "english",    label: "EN" },
-  { code: "spanish",    label: "ES" },
-  { code: "italian",    label: "IT" },
-  { code: "portuguese", label: "PT" },
-  { code: "chinese",    label: "ZH" },
-  { code: "russian",    label: "RU" },
+  { code: "french",     label: "FR — Français" },
+  { code: "english",    label: "EN — English" },
+  { code: "spanish",    label: "ES — Español" },
+  { code: "italian",    label: "IT — Italiano" },
+  { code: "portuguese", label: "PT — Português" },
+  { code: "chinese",    label: "ZH — 中文" },
+  { code: "russian",    label: "RU — Русский" },
 ];
 
 function formatDate(iso) {
