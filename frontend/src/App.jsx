@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useGoogleLogin, googleLogout } from "@react-oauth/google";
+import DropLogo from "./DropLogo";
 
 const TYPE_META = {
   todo:      { label: "To-do",    icon: "✓",  badgeClass: "badge-todo" },
@@ -316,7 +317,7 @@ export default function App() {
     return (
       <div className="login-screen">
         <div className="login-card">
-          <span style={{ fontSize: 48 }}>🧠</span>
+          <DropLogo size={72} />
           <h1 className="login-title">Drople</h1>
           <p className="login-sub">Capture tes idées, tâches et notes en quelques secondes.</p>
           <button className="btn-google" onClick={() => login()}>
@@ -361,7 +362,7 @@ export default function App() {
     <div className="app">
       {/* Header */}
       <div className="header">
-        <span style={{ fontSize: 28 }}>🧠</span>
+        <DropLogo size={28} />
         <h1>Drople</h1>
         {items.length > 0 && (
           <span className="header-count">{items.length} {items.length > 1 ? t.entries : t.entry}</span>
