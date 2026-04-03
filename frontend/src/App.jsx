@@ -120,7 +120,31 @@ function Badge({ type }) {
   );
 }
 
+function formatDueDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00");
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((d - today) / 86400000);
+  if (diff < 0) return { label: `En retard (${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })})`, urgent: true };
+  if (diff === 0) return { label: "Aujourd'hui", urgent: true };
+  if (diff === 1) return { label: "Demain", urgent: false };
+  return { label: d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }), urgent: false };
+}
+
+function calendarUrl(item) {
+  const title = encodeURIComponent(item.title);
+  const details = encodeURIComponent(item.content || "");
+  if (!item.due_date) return null;
+  const d = item.due_date.replace(/-/g, "");
+  const next = item.due_date.split("-").map(Number);
+  next[2] += 1;
+  const dEnd = next.map((n, i) => String(n).padStart(i === 0 ? 4 : 2, "0")).join("");
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${d}/${dEnd}&details=${details}`;
+}
+
 function ItemCard({ item, onToggle, onToggleSubtask, onDelete }) {
+  const due = formatDueDate(item.due_date);
+  const calUrl = calendarUrl(item);
   return (
     <div className={`item-card${item.completed ? " completed" : ""}`}>
       <div className="item-card-header">
@@ -135,15 +159,21 @@ function ItemCard({ item, onToggle, onToggleSubtask, onDelete }) {
           <div className="item-meta">
             <Badge type={item.type} />
             <span className="item-date">{formatDate(item.created_at)}</span>
+            {due && (
+              <span className={`item-due${due.urgent ? " urgent" : ""}`}>
+                📅 {due.label}
+              </span>
+            )}
           </div>
         </div>
-        <button
-          className="btn-delete"
-          onClick={() => onDelete(item.id)}
-          title="Supprimer"
-        >
-          ×
-        </button>
+        <div className="item-actions">
+          {calUrl && (
+            <a className="btn-calendar" href={calUrl} target="_blank" rel="noreferrer" title="Ajouter au calendrier">
+              📅
+            </a>
+          )}
+          <button className="btn-delete" onClick={() => onDelete(item.id)} title="Supprimer">×</button>
+        </div>
       </div>
 
       {item.content && (
@@ -156,12 +186,8 @@ function ItemCard({ item, onToggle, onToggleSubtask, onDelete }) {
             const done = item.subtask_status?.[String(i)] || false;
             return (
               <div className="subtask-row" key={i}>
-                <input
-                  type="checkbox"
-                  className="subtask-checkbox"
-                  checked={done}
-                  onChange={() => onToggleSubtask(item.id, i, done)}
-                />
+                <input type="checkbox" className="subtask-checkbox" checked={done}
+                  onChange={() => onToggleSubtask(item.id, i, done)} />
                 <span className={`subtask-label${done ? " done" : ""}`}>{st}</span>
               </div>
             );
@@ -180,10 +206,20 @@ const THEMES = [
   { id: "fiesta",  label: "Fiesta",  color: "#ff2d78" },
 ];
 
+const VAPID_PUBLIC_KEY = "BKEZ57KJVXJ0FM64niTIXaVv14kr4-hQsw2tEst0ujasRkKMXKLEi2Q_ovhhz4FxwhDZVh7dHt3CXODxG-4_0kw";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
 export default function App() {
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [previews, setPreviews] = useState([]);
+  const [previewDates, setPreviewDates] = useState({});
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all");
   const [error, setError] = useState(null);
@@ -199,6 +235,24 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("bd-user") || "null"); } catch { return null; }
   });
 
+  const subscribePush = async (accessToken) => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(sub.toJSON()),
+      });
+    } catch {}
+  };
+
   const login = useGoogleLogin({
     onSuccess: async (res) => {
       const t = res.access_token;
@@ -209,6 +263,7 @@ export default function App() {
       setUser(profile);
       localStorage.setItem("bd-token", t);
       localStorage.setItem("bd-user", JSON.stringify(profile));
+      subscribePush(t);
     },
   });
 
@@ -334,11 +389,11 @@ export default function App() {
   const confirm = async () => {
     if (!previews.length) return;
     try {
-      const results = await Promise.all(previews.map((p) =>
+      const results = await Promise.all(previews.map((p, idx) =>
         fetch("/api/items", {
           method: "POST",
           headers: authHeaders,
-          body: JSON.stringify(p),
+          body: JSON.stringify({ ...p, due_date: previewDates[idx] || null }),
         })
       ));
       for (const r of results) {
@@ -350,6 +405,7 @@ export default function App() {
         }
       }
       setPreviews([]);
+      setPreviewDates({});
       setText("");
       fetchItems();
     } catch {
@@ -555,6 +611,16 @@ export default function App() {
                   ))}
                 </div>
               )}
+              <div className="preview-due">
+                <label className="preview-due-label">📅 Échéance (optionnel)</label>
+                <input
+                  type="date"
+                  className="preview-date-input"
+                  value={previewDates[idx] || ""}
+                  min={new Date().toISOString().split("T")[0]}
+                  onChange={e => setPreviewDates(d => ({ ...d, [idx]: e.target.value }))}
+                />
+              </div>
             </div>
           ))}
           <div className="preview-actions">
