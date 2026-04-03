@@ -425,6 +425,10 @@ export default function App() {
   const [hiddenTypes, setHiddenTypes] = useState(() => {
     try { return JSON.parse(localStorage.getItem("drople-hidden-types") || "[]"); } catch { return []; }
   });
+  const [filterOrder, setFilterOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("drople-filter-order") || "null"); } catch { return null; }
+  });
+  const dragFilterKey = useRef(null);
   const wsRef = useRef(null);
   const pendingJoinToken = useRef(
     new URLSearchParams(window.location.search).get("join")
@@ -862,7 +866,7 @@ export default function App() {
     );
   }
 
-  const FILTERS_T = [
+  const BASE_FILTERS = [
     { key: "all",       label: t.all },
     { key: "urgent",    label: "🔴 Urgent" },
     { key: "todo",      label: t.todo },
@@ -871,6 +875,41 @@ export default function App() {
     { key: "note",      label: t.notes },
     { key: "done",      label: t.done || "Fait" },
   ].filter(f => !hiddenTypes.includes(f.key));
+
+  const FILTERS_T = filterOrder
+    ? [...BASE_FILTERS].sort((a, b) => {
+        const ai = filterOrder.indexOf(a.key);
+        const bi = filterOrder.indexOf(b.key);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      })
+    : BASE_FILTERS;
+
+  const moveFilter = (key, dir) => {
+    const keys = FILTERS_T.map(f => f.key);
+    const idx = keys.indexOf(key);
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= keys.length) return;
+    [keys[idx], keys[newIdx]] = [keys[newIdx], keys[idx]];
+    setFilterOrder(keys);
+    localStorage.setItem("drople-filter-order", JSON.stringify(keys));
+  };
+
+  const handleFilterDrop = (targetKey) => {
+    const dragKey = dragFilterKey.current;
+    if (!dragKey || dragKey === targetKey) return;
+    const keys = FILTERS_T.map(f => f.key);
+    const fromIdx = keys.indexOf(dragKey);
+    const toIdx = keys.indexOf(targetKey);
+    if (fromIdx === -1 || toIdx === -1) return;
+    keys.splice(fromIdx, 1);
+    keys.splice(toIdx, 0, dragKey);
+    dragFilterKey.current = null;
+    setFilterOrder(keys);
+    localStorage.setItem("drople-filter-order", JSON.stringify(keys));
+  };
 
   const activeItems = items.filter(i => !i.completed);
   const doneItems = items.filter(i => i.completed);
@@ -1207,23 +1246,26 @@ export default function App() {
               {/* Base type filters — can be hidden */}
               <div className="cat-section-label">{t.baseTypes || "Types de base"}</div>
               <div className="cat-chips" style={{ marginBottom: 12 }}>
-                {[
-                  { key: "todo",      label: t.todo,  color: "var(--todo-color)" },
-                  { key: "idea",      label: t.ideas, color: "var(--idea-color)" },
-                  { key: "call_note", label: t.calls, color: "var(--call-color)" },
-                  { key: "note",      label: t.notes, color: "var(--note-color)" },
-                ].map(({ key, label, color }) => (
-                  <span key={key}
-                    className={`tag-chip${hiddenTypes.includes(key) ? " hidden-type" : ""}`}
-                    style={{ background: color + "22", color, border: `1px solid ${color}55` }}>
-                    {label}
-                    <button className="tag-remove"
-                      title={hiddenTypes.includes(key) ? (t.restoreTypes || "Restaurer") : (t.hideType || "Masquer")}
-                      onClick={() => toggleHiddenType(key)}>
-                      {hiddenTypes.includes(key) ? "↩" : "×"}
-                    </button>
-                  </span>
-                ))}
+                {FILTERS_T.filter(f => f.key !== "all").map(({ key, label }) => {
+                  const colorMap = { todo: "var(--todo-color)", idea: "var(--idea-color)", call_note: "var(--call-color)", note: "var(--note-color)", urgent: "#e63946", done: "var(--text-muted)" };
+                  const color = colorMap[key] || "var(--text-muted)";
+                  return (
+                    <span key={key}
+                      className={`tag-chip filter-order-chip${hiddenTypes.includes(key) ? " hidden-type" : ""}`}
+                      style={{ background: color + "22", color, border: `1px solid ${color}55` }}>
+                      <button className="tag-move-btn" onClick={() => moveFilter(key, -1)} title="↑">‹</button>
+                      {label}
+                      <button className="tag-move-btn" onClick={() => moveFilter(key, 1)} title="↓">›</button>
+                      {key !== "urgent" && key !== "done" && (
+                        <button className="tag-remove"
+                          title={hiddenTypes.includes(key) ? (t.restoreTypes || "Restaurer") : (t.hideType || "Masquer")}
+                          onClick={() => toggleHiddenType(key)}>
+                          {hiddenTypes.includes(key) ? "↩" : "×"}
+                        </button>
+                      )}
+                    </span>
+                  );
+                })}
               </div>
               {/* All custom tags (from items + userCategories) */}
               <div className="cat-section-label">{t.categories || "Catégories"}</div>
@@ -1491,6 +1533,10 @@ export default function App() {
           {FILTERS_T.map((f) => (
             <button
               key={f.key}
+              draggable
+              onDragStart={() => { dragFilterKey.current = f.key; }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleFilterDrop(f.key)}
               className={`filter-btn${filter === f.key ? ` active ${f.key}` : ""}`}
               onClick={() => setFilter(f.key)}
             >
