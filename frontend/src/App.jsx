@@ -18,13 +18,13 @@ const FILTERS = [
 ];
 
 const T = {
-  french:     { placeholder: "Vide ta tête ici… (Entrée pour analyser)", analyse: "Analyser", analysing: "Analyse…", confirm: "✓ Confirmer", discard: "Ignorer", preview: "Aperçu", chars: "car.", all: "Tout", todo: "To-do", ideas: "Idées", calls: "Calls", notes: "Notes", done: "Fait", empty: "Aucune entrée.", emptySub: "Tape quelque chose ci-dessus et analyse !", inCat: " dans cette catégorie", entry: "entrée", entries: "entrées", calendar: "Calendrier", categories: "Catégories", noDateItems: "Aucun élément avec une date.", addCat: "Ajouter une catégorie…" },
-  english:    { placeholder: "Dump your thoughts here… (Enter to analyse)", analyse: "Analyse", analysing: "Analysing…", confirm: "✓ Confirm", discard: "Dismiss", preview: "Preview", chars: "chars", all: "All", todo: "To-do", ideas: "Ideas", calls: "Calls", notes: "Notes", done: "Done", empty: "No entries.", emptySub: "Type something above and analyse!", inCat: " in this category", entry: "entry", entries: "entries", calendar: "Calendar", categories: "Categories", noDateItems: "No items with a date.", addCat: "Add a category…" },
-  spanish:    { placeholder: "Vacía tu cabeza aquí… (Enter para analizar)", analyse: "Analizar", analysing: "Analizando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Vista previa", chars: "car.", all: "Todo", todo: "Tarea", ideas: "Ideas", calls: "Llamadas", notes: "Notas", done: "Hecho", empty: "Sin entradas.", emptySub: "¡Escribe algo arriba y analiza!", inCat: " en esta categoría", entry: "entrada", entries: "entradas", calendar: "Calendario", categories: "Categorías", noDateItems: "Sin elementos con fecha.", addCat: "Añadir categoría…" },
-  italian:    { placeholder: "Svuota la testa qui… (Invio per analizzare)", analyse: "Analizza", analysing: "Analisi…", confirm: "✓ Conferma", discard: "Ignora", preview: "Anteprima", chars: "car.", all: "Tutto", todo: "To-do", ideas: "Idee", calls: "Chiamate", notes: "Note", done: "Fatto", empty: "Nessuna voce.", emptySub: "Scrivi qualcosa sopra e analizza!", inCat: " in questa categoria", entry: "voce", entries: "voci", calendar: "Calendario", categories: "Categorie", noDateItems: "Nessun elemento con data.", addCat: "Aggiungi categoria…" },
-  portuguese: { placeholder: "Esvazie sua cabeça aqui… (Enter para analisar)", analyse: "Analisar", analysing: "Analisando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Pré-visualização", chars: "car.", all: "Tudo", todo: "Tarefa", ideas: "Ideias", calls: "Chamadas", notes: "Notas", done: "Feito", empty: "Sem entradas.", emptySub: "Digite algo acima e analise!", inCat: " nesta categoria", entry: "entrada", entries: "entradas", calendar: "Calendário", categories: "Categorias", noDateItems: "Sem itens com data.", addCat: "Adicionar categoria…" },
-  chinese:    { placeholder: "在此清空思绪…（按Enter分析）", analyse: "分析", analysing: "分析中…", confirm: "✓ 确认", discard: "忽略", preview: "预览", chars: "字", all: "全部", todo: "待办", ideas: "想法", calls: "通话", notes: "笔记", done: "完成", empty: "暂无内容。", emptySub: "在上方输入内容并分析！", inCat: "（此类别）", entry: "条", entries: "条", calendar: "日历", categories: "分类", noDateItems: "没有带日期的项目。", addCat: "添加分类…" },
-  russian:    { placeholder: "Выгрузи мысли сюда… (Enter для анализа)", analyse: "Анализ", analysing: "Анализ…", confirm: "✓ Сохранить", discard: "Отмена", preview: "Просмотр", chars: "симв.", all: "Все", todo: "Задача", ideas: "Идеи", calls: "Звонки", notes: "Заметки", done: "Готово", empty: "Нет записей.", emptySub: "Введите что-нибудь выше и нажмите анализ!", inCat: " в этой категории", entry: "запись", entries: "записей", calendar: "Календарь", categories: "Категории", noDateItems: "Нет элементов с датой.", addCat: "Добавить категорию…" },
+  french:     { placeholder: "Balance tes idées ici… l'IA les réécrit et classe automatiquement. (Entrée pour analyser)", analyse: "Analyser", analysing: "Analyse…", confirm: "✓ Confirmer", discard: "Ignorer", preview: "Aperçu", chars: "car.", all: "Tout", todo: "To-do", ideas: "Idées", calls: "Calls", notes: "Notes", done: "Fait", empty: "Aucune entrée.", emptySub: "Tape quelque chose ci-dessus et analyse !", inCat: " dans cette catégorie", entry: "entrée", entries: "entrées", calendar: "Calendrier", categories: "Catégories", noDateItems: "Aucun élément avec une date.", addCat: "Ajouter une catégorie…", personal: "Personnel", newGroup: "+ Nouveau groupe", joinCode: "🔑 Rejoindre avec un code", createGroup: "Créer", join: "Rejoindre", codePlaceholder: "Code (ex: XK7P2M)…", groupName: "Nom du groupe…", deleteGroupConfirm: "Supprimer ce groupe ? Les items resteront accessibles en perso.", dueDate: "📅 Échéance (optionnel)", tagLabel: "🏷 Catégorie", tagPlaceholder: "Ajouter… (Entrée)", noCats: "Aucune catégorie personnalisée.", list: "Liste", help: "Aide", today: "Aujourd'hui", overdue: "En retard" },
+  english:    { placeholder: "Dump your thoughts here… the AI will rewrite and organise them for you. (Enter to analyse)", analyse: "Analyse", analysing: "Analysing…", confirm: "✓ Confirm", discard: "Dismiss", preview: "Preview", chars: "chars", all: "All", todo: "To-do", ideas: "Ideas", calls: "Calls", notes: "Notes", done: "Done", empty: "No entries.", emptySub: "Type something above and analyse!", inCat: " in this category", entry: "entry", entries: "entries", calendar: "Calendar", categories: "Categories", noDateItems: "No items with a date.", addCat: "Add a category…", personal: "Personal", newGroup: "+ New group", joinCode: "🔑 Join with a code", createGroup: "Create", join: "Join", codePlaceholder: "Code (e.g. XK7P2M)…", groupName: "Group name…", deleteGroupConfirm: "Delete this group? Items will remain in personal space.", dueDate: "📅 Due date (optional)", tagLabel: "🏷 Category", tagPlaceholder: "Add… (Enter)", noCats: "No custom categories.", list: "List", help: "Help", today: "Today", overdue: "Overdue" },
+  spanish:    { placeholder: "Suelta tus ideas aquí… la IA las reescribirá y organizará. (Enter para analizar)", analyse: "Analizar", analysing: "Analizando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Vista previa", chars: "car.", all: "Todo", todo: "Tarea", ideas: "Ideas", calls: "Llamadas", notes: "Notas", done: "Hecho", empty: "Sin entradas.", emptySub: "¡Escribe algo arriba y analiza!", inCat: " en esta categoría", entry: "entrada", entries: "entradas", calendar: "Calendario", categories: "Categorías", noDateItems: "Sin elementos con fecha.", addCat: "Añadir categoría…", personal: "Personal", newGroup: "+ Nuevo grupo", joinCode: "🔑 Unirse con código", createGroup: "Crear", join: "Unirse", codePlaceholder: "Código (ej: XK7P2M)…", groupName: "Nombre del grupo…", deleteGroupConfirm: "¿Eliminar este grupo?", dueDate: "📅 Fecha límite (opcional)", tagLabel: "🏷 Categoría", tagPlaceholder: "Añadir… (Enter)", noCats: "Sin categorías personalizadas.", list: "Lista", help: "Ayuda", today: "Hoy", overdue: "Retrasado" },
+  italian:    { placeholder: "Svuota la testa qui… l'IA riscriverà e organizzerà tutto. (Invio per analizzare)", analyse: "Analizza", analysing: "Analisi…", confirm: "✓ Conferma", discard: "Ignora", preview: "Anteprima", chars: "car.", all: "Tutto", todo: "To-do", ideas: "Idee", calls: "Chiamate", notes: "Note", done: "Fatto", empty: "Nessuna voce.", emptySub: "Scrivi qualcosa sopra e analizza!", inCat: " in questa categoria", entry: "voce", entries: "voci", calendar: "Calendario", categories: "Categorie", noDateItems: "Nessun elemento con data.", addCat: "Aggiungi categoria…", personal: "Personale", newGroup: "+ Nuovo gruppo", joinCode: "🔑 Unisciti con codice", createGroup: "Crea", join: "Unisciti", codePlaceholder: "Codice (es: XK7P2M)…", groupName: "Nome del gruppo…", deleteGroupConfirm: "Eliminare questo gruppo?", dueDate: "📅 Scadenza (opzionale)", tagLabel: "🏷 Categoria", tagPlaceholder: "Aggiungi… (Invio)", noCats: "Nessuna categoria personalizzata.", list: "Lista", help: "Aiuto", today: "Oggi", overdue: "In ritardo" },
+  portuguese: { placeholder: "Despeje suas ideias aqui… a IA vai reescrever e organizar tudo. (Enter para analisar)", analyse: "Analisar", analysing: "Analisando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Pré-visualização", chars: "car.", all: "Tudo", todo: "Tarefa", ideas: "Ideias", calls: "Chamadas", notes: "Notas", done: "Feito", empty: "Sem entradas.", emptySub: "Digite algo acima e analise!", inCat: " nesta categoria", entry: "entrada", entries: "entradas", calendar: "Calendário", categories: "Categorias", noDateItems: "Sem itens com data.", addCat: "Adicionar categoria…", personal: "Pessoal", newGroup: "+ Novo grupo", joinCode: "🔑 Entrar com código", createGroup: "Criar", join: "Entrar", codePlaceholder: "Código (ex: XK7P2M)…", groupName: "Nome do grupo…", deleteGroupConfirm: "Excluir este grupo?", dueDate: "📅 Prazo (opcional)", tagLabel: "🏷 Categoria", tagPlaceholder: "Adicionar… (Enter)", noCats: "Sem categorias personalizadas.", list: "Lista", help: "Ajuda", today: "Hoje", overdue: "Atrasado" },
+  chinese:    { placeholder: "在此清空思绪… AI将自动改写并分类。（按Enter分析）", analyse: "分析", analysing: "分析中…", confirm: "✓ 确认", discard: "忽略", preview: "预览", chars: "字", all: "全部", todo: "待办", ideas: "想法", calls: "通话", notes: "笔记", done: "完成", empty: "暂无内容。", emptySub: "在上方输入内容并分析！", inCat: "（此类别）", entry: "条", entries: "条", calendar: "日历", categories: "分类", noDateItems: "没有带日期的项目。", addCat: "添加分类…", personal: "个人", newGroup: "+ 新建群组", joinCode: "🔑 用代码加入", createGroup: "创建", join: "加入", codePlaceholder: "代码（如：XK7P2M）…", groupName: "群组名称…", deleteGroupConfirm: "删除此群组？", dueDate: "📅 截止日期（可选）", tagLabel: "🏷 分类", tagPlaceholder: "添加…（回车）", noCats: "暂无自定义分类。", list: "列表", help: "帮助", today: "今天", overdue: "已逾期" },
+  russian:    { placeholder: "Выгрузи мысли сюда… ИИ перепишет и упорядочит всё автоматически. (Enter для анализа)", analyse: "Анализ", analysing: "Анализ…", confirm: "✓ Сохранить", discard: "Отмена", preview: "Просмотр", chars: "симв.", all: "Все", todo: "Задача", ideas: "Идеи", calls: "Звонки", notes: "Заметки", done: "Готово", empty: "Нет записей.", emptySub: "Введите что-нибудь выше и нажмите анализ!", inCat: " в этой категории", entry: "запись", entries: "записей", calendar: "Календарь", categories: "Категории", noDateItems: "Нет элементов с датой.", addCat: "Добавить категорию…", personal: "Личное", newGroup: "+ Новая группа", joinCode: "🔑 Войти по коду", createGroup: "Создать", join: "Войти", codePlaceholder: "Код (напр.: XK7P2M)…", groupName: "Название группы…", deleteGroupConfirm: "Удалить эту группу?", dueDate: "📅 Срок (необязательно)", tagLabel: "🏷 Категория", tagPlaceholder: "Добавить… (Enter)", noCats: "Нет пользовательских категорий.", list: "Список", help: "Помощь", today: "Сегодня", overdue: "Просрочено" },
 };
 
 const LANGUAGES = [
@@ -231,6 +231,54 @@ function ItemCard({ item, onToggle, onToggleSubtask, onDelete, onToggleUrgent })
   );
 }
 
+const FAQ_ITEMS = [
+  {
+    q: "Comment télécharger Drople sur iPhone ?",
+    a: "Ouvre dropleapp.com dans Safari → appuie sur le bouton Partager (📤) → «Ajouter à l'écran d'accueil» → Ajouter. Drople s'installe comme une vraie appli.",
+  },
+  {
+    q: "How to install on Android?",
+    a: "Open dropleapp.com in Chrome → tap the ⋮ menu → 'Add to Home screen' or 'Install app'. Drople installs like a native app.",
+  },
+  {
+    q: "Comment ça marche ?",
+    a: "Tu tapes (ou dictes) n'importe quoi — idée brouillon, tâche, note de réunion. L'IA analyse, reformule, et classe automatiquement en To-do, Idée, Call ou Note.",
+  },
+  {
+    q: "À quoi servent les catégories ?",
+    a: "Ce sont tes étiquettes personnelles (ex: «Perso», «Travail», «Santé»). Une fois créées, l'IA les assigne automatiquement à chaque nouvelle note selon le contenu.",
+  },
+  {
+    q: "Comment inviter quelqu'un dans un groupe ?",
+    a: "Crée un groupe via le menu en haut → clique 🔗 à côté du groupe → partage le code à 6 lettres ou le lien. Ton collègue entre le code dans «Rejoindre avec un code».",
+  },
+  {
+    q: "Mes données sont-elles sécurisées ?",
+    a: "Oui. Chaque compte est lié à ton Google ID. Seul toi (et les membres de tes groupes partagés) pouvez voir tes notes.",
+  },
+  {
+    q: "Comment fonctionnent les rappels ?",
+    a: "Active les notifications au premier lancement. Drople t'envoie un rappel chaque matin à 9h pour tes tâches du jour, en retard, ou restées sans suite depuis 5 jours.",
+  },
+  {
+    q: "Puis-je changer la langue ?",
+    a: "Oui, clique sur le sélecteur de langue en haut à droite. L'IA reformulera ensuite tes notes dans la langue choisie.",
+  },
+];
+
+function FaqItem({ q, a }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="faq-item">
+      <button className="faq-question" onClick={() => setOpen(o => !o)}>
+        <span>{q}</span>
+        <span className="faq-arrow">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && <div className="faq-answer">{a}</div>}
+    </div>
+  );
+}
+
 const THEMES = [
   { id: "dark",    label: "Dark",    color: "#30363d" },
   { id: "cream",   label: "Cream",   color: "#c8773a" },
@@ -285,6 +333,9 @@ export default function App() {
   });
   const [newCatInput, setNewCatInput] = useState("");
   const [activeView, setActiveView] = useState("list"); // "list" | "calendar"
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [calSelectedDay, setCalSelectedDay] = useState(null);
+  const [showFAQ, setShowFAQ] = useState(() => !localStorage.getItem("drople-faq-seen"));
   const wsRef = useRef(null);
   const pendingJoinToken = useRef(
     new URLSearchParams(window.location.search).get("join")
@@ -377,7 +428,7 @@ export default function App() {
   };
 
   const deleteWorkspace = async (wsId) => {
-    if (!confirm("Supprimer ce groupe ? Les items resteront accessibles en perso.")) return;
+    if (!window.confirm(t.deleteGroupConfirm || "Supprimer ce groupe ?")) return;
     await fetch(`/api/workspaces/${wsId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -546,13 +597,20 @@ export default function App() {
       const res = await fetch("/api/process", {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ text, language: getLangName(language) }),
+        body: JSON.stringify({ text, language: getLangName(language), categories: userCategories }),
       });
       const data = await res.json();
       if (data.error) {
         setError(data.error);
       } else {
-        setPreviews(Array.isArray(data) ? data : [data]);
+        const items = Array.isArray(data) ? data : [data];
+        setPreviews(items);
+        // Pre-fill tags from AI response
+        const initialTags = {};
+        items.forEach((item, idx) => {
+          if (item.tags && item.tags.length > 0) initialTags[idx] = item.tags;
+        });
+        if (Object.keys(initialTags).length > 0) setPreviewTags(initialTags);
       }
     } catch {
       setError("Impossible de contacter le backend.");
@@ -561,7 +619,7 @@ export default function App() {
     }
   };
 
-  const confirm = async () => {
+  const confirmPreviews = async () => {
     if (!previews.length) return;
     try {
       const results = await Promise.all(previews.map((p, idx) =>
@@ -704,14 +762,14 @@ export default function App() {
         {/* Workspace switcher */}
         <div className="ws-switcher" ref={wsRef}>
           <button className="ws-btn" onClick={() => { setWsOpen(o => !o); setShowJoin(false); setShowCreateWs(false); }}>
-            {currentWs ? `👥 ${currentWs.name}` : "👤 Personnel"}
+            {currentWs ? `👥 ${currentWs.name}` : `👤 ${t.personal}`}
             <span className="ws-chevron">▾</span>
           </button>
           {wsOpen && (
             <div className="ws-menu">
               <div className={`ws-option${!workspaceId ? " active" : ""}`}
                 onClick={() => { setWorkspaceId(null); setWsOpen(false); setItems([]); }}>
-                👤 Personnel
+                👤 {t.personal}
               </div>
               {workspaces.map(ws => (
                 <div key={ws.id} className={`ws-option${workspaceId === ws.id ? " active" : ""}`}
@@ -731,25 +789,25 @@ export default function App() {
               <div className="ws-divider" />
               {showCreateWs ? (
                 <div className="ws-create">
-                  <input className="ws-name-input" placeholder="Nom du groupe…" value={newWsName}
+                  <input className="ws-name-input" placeholder={t.groupName} value={newWsName}
                     onChange={e => setNewWsName(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") createWorkspace(); if (e.key === "Escape") setShowCreateWs(false); }}
                     autoFocus />
-                  <button className="ws-create-btn" onClick={createWorkspace}>Créer</button>
+                  <button className="ws-create-btn" onClick={createWorkspace}>{t.createGroup}</button>
                 </div>
               ) : showJoin ? (
                 <div className="ws-create">
-                  <input className="ws-name-input" placeholder="Code (ex: XK7P2M)…"
+                  <input className="ws-name-input" placeholder={t.codePlaceholder}
                     value={joinCode} onChange={e => { setJoinCode(e.target.value.toUpperCase()); setJoinError(""); }}
                     onKeyDown={e => { if (e.key === "Enter") joinByCode(); if (e.key === "Escape") setShowJoin(false); }}
                     maxLength={6} autoFocus />
-                  <button className="ws-create-btn" onClick={joinByCode}>Rejoindre</button>
+                  <button className="ws-create-btn" onClick={joinByCode}>{t.join}</button>
                   {joinError && <span className="ws-join-error">{joinError}</span>}
                 </div>
               ) : (
                 <>
-                  <div className="ws-option ws-new" onClick={() => { setShowCreateWs(true); setShowJoin(false); }}>+ Nouveau groupe</div>
-                  <div className="ws-option ws-new" onClick={() => { setShowJoin(true); setShowCreateWs(false); }}>🔑 Rejoindre avec un code</div>
+                  <div className="ws-option ws-new" onClick={() => { setShowCreateWs(true); setShowJoin(false); }}>{t.newGroup}</div>
+                  <div className="ws-option ws-new" onClick={() => { setShowJoin(true); setShowCreateWs(false); }}>{t.joinCode}</div>
                 </>
               )}
             </div>
@@ -775,6 +833,8 @@ export default function App() {
             <button className="invite-close-btn" onClick={() => setInviteInfo(null)}>×</button>
           </div>
         )}
+
+        <button className="btn-faq" onClick={() => setShowFAQ(true)} title={t.help || "Aide / FAQ"}>?</button>
 
         <button className="btn-logout" onClick={logout} title="Se déconnecter">
           {user?.picture
@@ -893,7 +953,7 @@ export default function App() {
                 </div>
               )}
               <div className="preview-due">
-                <label className="preview-due-label">📅 Échéance (optionnel)</label>
+                <label className="preview-due-label">{t.dueDate || "📅 Échéance (optionnel)"}</label>
                 <input
                   type="date"
                   className="preview-date-input"
@@ -911,10 +971,10 @@ export default function App() {
                   ))}
                 </div>
                 <div className="tag-input-wrap">
-                  <span className="preview-due-label">🏷 Catégorie</span>
+                  <span className="preview-due-label">{t.tagLabel || "🏷 Catégorie"}</span>
                   <input
                     className="tag-input"
-                    placeholder="Ajouter… (Entrée)"
+                    placeholder={t.tagPlaceholder || "Ajouter… (Entrée)"}
                     value={tagInputs[idx] || ""}
                     onChange={e => setTagInputs(ti => ({ ...ti, [idx]: e.target.value }))}
                     onKeyDown={e => {
@@ -951,7 +1011,7 @@ export default function App() {
             </div>
           ))}
           <div className="preview-actions">
-            <button className="btn-confirm" onClick={confirm}>
+            <button className="btn-confirm" onClick={confirmPreviews}>
               {t.confirm}
             </button>
             <button className="btn-discard" onClick={() => setPreviews([])}>
@@ -966,7 +1026,7 @@ export default function App() {
         <button
           className={`view-tab${activeView === "list" ? " active" : ""}`}
           onClick={() => setActiveView("list")}
-        >📋 {t.all}</button>
+        >📋 {t.list || "Liste"}</button>
         <button
           className={`view-tab${activeView === "calendar" ? " active" : ""}`}
           onClick={() => setActiveView("calendar")}
@@ -989,7 +1049,7 @@ export default function App() {
             <div className="modal-body">
               <div className="cat-chips">
                 {userCategories.length === 0 && (
-                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Aucune catégorie personnalisée.</span>
+                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{t.noCats || "Aucune catégorie personnalisée."}</span>
                 )}
                 {userCategories.map(cat => (
                   <TagChip key={cat} tag={cat} onRemove={() => saveCategories(userCategories.filter(c => c !== cat))} />
@@ -1020,56 +1080,142 @@ export default function App() {
         </div>
       )}
 
-      {/* Calendar view */}
-      {activeView === "calendar" ? (
-        <div className="calendar-view">
-          {calendarItems.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-icon">📅</div>
-              <div>{t.noDateItems || "Aucun élément avec une date."}</div>
+      {/* FAQ Modal */}
+      {showFAQ && (
+        <div className="modal-overlay" onClick={() => { setShowFAQ(false); localStorage.setItem("drople-faq-seen", "1"); }}>
+          <div className="modal-card faq-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span>❓ FAQ &amp; Aide</span>
+              <button className="modal-close" onClick={() => { setShowFAQ(false); localStorage.setItem("drople-faq-seen", "1"); }}>×</button>
             </div>
-          ) : (
-            Object.entries(calendarGroups).map(([date, groupItems]) => {
-              const d = new Date(date + "T00:00:00");
-              const today = new Date(); today.setHours(0,0,0,0);
-              const diff = Math.round((d - today) / 86400000);
-              const isPast = diff < 0;
-              const isToday = diff === 0;
-              return (
-                <div key={date} className={`cal-group${isPast ? " past" : isToday ? " today" : ""}`}>
-                  <div className="cal-date-header">
-                    <span className="cal-date-label">
-                      {isToday ? "Aujourd'hui" : isPast ? `En retard — ` : ""}
-                      {d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long" })}
-                    </span>
-                    {isPast && <span className="cal-overdue-badge">En retard</span>}
-                    {isToday && <span className="cal-today-badge">Aujourd'hui</span>}
-                  </div>
-                  <div className="cal-items">
-                    {groupItems.map(item => (
-                      <div key={item.id} className={`cal-item${item.completed ? " completed" : ""}${item.urgent ? " urgent-card" : ""}`}>
-                        <input type="checkbox" className="item-checkbox" checked={item.completed}
-                          onChange={() => toggleItem(item.id, item.completed)} />
-                        <div className="cal-item-body">
-                          <div className="item-title">
-                            {item.urgent && <span className="badge-urgent">URGENT</span>}
-                            {item.title}
-                          </div>
-                          <div className="item-meta">
-                            <Badge type={item.type} />
-                            {item.tags && item.tags.length > 0 && item.tags.map(tag => <TagChip key={tag} tag={tag} />)}
-                          </div>
-                        </div>
-                        <button className="btn-delete" onClick={() => deleteItem(item.id)}>×</button>
-                      </div>
-                    ))}
-                  </div>
+            <div className="faq-install-banner">
+              <div className="faq-install-item">
+                <span className="faq-install-icon">🍎</span>
+                <div>
+                  <strong>iPhone</strong> — Safari → <span className="faq-key">📤 Partager</span> → <span className="faq-key">Ajouter à l'écran d'accueil</span>
                 </div>
-              );
-            })
-          )}
+              </div>
+              <div className="faq-install-item">
+                <span className="faq-install-icon">🤖</span>
+                <div>
+                  <strong>Android</strong> — Chrome → <span className="faq-key">⋮</span> → <span className="faq-key">Ajouter à l'écran d'accueil</span> ou <span className="faq-key">Installer l'application</span>
+                </div>
+              </div>
+            </div>
+            <div className="faq-list">
+              {FAQ_ITEMS.map((item, i) => (
+                <FaqItem key={i} q={item.q} a={item.a} />
+              ))}
+            </div>
+            <div className="faq-footer">
+              <button className="faq-dismiss-btn" onClick={() => { setShowFAQ(false); localStorage.setItem("drople-faq-seen", "1"); }}>
+                Compris, fermer ✓
+              </button>
+            </div>
+          </div>
         </div>
-      ) : null}
+      )}
+
+      {/* Calendar view — monthly grid */}
+      {activeView === "calendar" && (() => {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const { year, month } = calMonth;
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        // Start grid on Monday
+        const startDow = (firstDay.getDay() + 6) % 7; // 0=Mon
+        const totalCells = Math.ceil((startDow + lastDay.getDate()) / 7) * 7;
+        const cells = Array.from({ length: totalCells }, (_, i) => {
+          const dayNum = i - startDow + 1;
+          return dayNum >= 1 && dayNum <= lastDay.getDate() ? dayNum : null;
+        });
+        const dayLabels = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+        const monthName = firstDay.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+        const selectedDayItems = calSelectedDay
+          ? (calendarGroups[`${year}-${String(month+1).padStart(2,"0")}-${String(calSelectedDay).padStart(2,"0")}`] || [])
+          : [];
+        return (
+          <div className="calendar-view">
+            <div className="cal-nav">
+              <button className="cal-nav-btn" onClick={() => {
+                const d = new Date(year, month - 1, 1);
+                setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+                setCalSelectedDay(null);
+              }}>‹</button>
+              <span className="cal-month-label">{monthName}</span>
+              <button className="cal-nav-btn" onClick={() => {
+                const d = new Date(year, month + 1, 1);
+                setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+                setCalSelectedDay(null);
+              }}>›</button>
+            </div>
+            <div className="cal-grid">
+              {dayLabels.map(d => <div key={d} className="cal-day-header">{d}</div>)}
+              {cells.map((dayNum, i) => {
+                if (!dayNum) return <div key={i} className="cal-cell empty" />;
+                const dateStr = `${year}-${String(month+1).padStart(2,"0")}-${String(dayNum).padStart(2,"0")}`;
+                const dayItems = calendarGroups[dateStr] || [];
+                const cellDate = new Date(year, month, dayNum);
+                const isToday = cellDate.getTime() === today.getTime();
+                const isPast = cellDate < today && dayItems.length > 0;
+                const isSelected = calSelectedDay === dayNum;
+                const hasUrgent = dayItems.some(i => i.urgent && !i.completed);
+                const pendingCount = dayItems.filter(i => !i.completed).length;
+                return (
+                  <div
+                    key={i}
+                    className={`cal-cell${isToday ? " today" : ""}${isPast ? " past" : ""}${isSelected ? " selected" : ""}${dayItems.length > 0 ? " has-items" : ""}`}
+                    onClick={() => dayItems.length > 0 ? setCalSelectedDay(isSelected ? null : dayNum) : null}
+                  >
+                    <span className="cal-day-num">{dayNum}</span>
+                    {pendingCount > 0 && (
+                      <span className={`cal-dot${hasUrgent ? " urgent" : isPast ? " past" : ""}`}>{pendingCount}</span>
+                    )}
+                    {dayItems.length > 0 && dayItems.every(i => i.completed) && (
+                      <span className="cal-dot done">✓</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {calSelectedDay && selectedDayItems.length > 0 && (
+              <div className="cal-day-panel">
+                <div className="cal-date-header">
+                  <span className="cal-date-label">
+                    {new Date(year, month, calSelectedDay).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                  </span>
+                  <button className="modal-close" onClick={() => setCalSelectedDay(null)}>×</button>
+                </div>
+                <div className="cal-items">
+                  {selectedDayItems.map(item => (
+                    <div key={item.id} className={`cal-item${item.completed ? " completed" : ""}${item.urgent ? " urgent-card" : ""}`}>
+                      <input type="checkbox" className="item-checkbox" checked={item.completed}
+                        onChange={() => toggleItem(item.id, item.completed)} />
+                      <div className="cal-item-body">
+                        <div className="item-title">
+                          {item.urgent && <span className="badge-urgent">URGENT</span>}
+                          {item.title}
+                        </div>
+                        <div className="item-meta">
+                          <Badge type={item.type} />
+                          {item.tags && item.tags.length > 0 && item.tags.map(tag => <TagChip key={tag} tag={tag} />)}
+                        </div>
+                      </div>
+                      <button className="btn-delete" onClick={() => deleteItem(item.id)}>×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {calendarItems.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-icon">📅</div>
+                <div>{t.noDateItems || "Aucun élément avec une date."}</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Filter bar + Items (list view) */}
       {activeView === "list" && <>

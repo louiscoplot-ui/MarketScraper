@@ -1210,22 +1210,111 @@ html, body {
   border-style: dashed;
 }
 
-/* ─── Calendar view ─── */
+/* ─── Calendar view (grid) ─── */
 
 .calendar-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
-.cal-group {
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.cal-month-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: capitalize;
+}
+.cal-nav-btn {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
 }
-.cal-group.today { border-color: var(--border-focus); }
-.cal-group.past { opacity: 0.75; border-color: #f85149; }
+.cal-nav-btn:hover { border-color: var(--border-focus); color: var(--text); }
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.cal-day-header {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cal-cell {
+  min-height: 52px;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: default;
+  transition: background 0.1s;
+  position: relative;
+  border: 1px solid transparent;
+}
+.cal-cell.has-items { cursor: pointer; }
+.cal-cell.has-items:hover { background: var(--surface2); border-color: var(--border); }
+.cal-cell.empty { background: transparent; cursor: default; }
+.cal-cell.today .cal-day-num {
+  background: var(--border-focus);
+  color: white;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cal-cell.past.has-items { border-color: rgba(248,81,73,0.3); }
+.cal-cell.selected { background: var(--surface2); border-color: var(--border-focus); }
+
+.cal-day-num {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.cal-dot {
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--border-focus);
+  color: white;
+  border-radius: 10px;
+  padding: 1px 5px;
+  min-width: 18px;
+  text-align: center;
+}
+.cal-dot.urgent { background: #e53e3e; }
+.cal-dot.past { background: #f97316; }
+.cal-dot.done { background: #238636; }
 
 .cal-date-header {
   display: flex;
@@ -1234,6 +1323,7 @@ html, body {
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface2);
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .cal-date-label {
@@ -1241,31 +1331,20 @@ html, body {
   font-weight: 600;
   color: var(--text);
   flex: 1;
+  text-transform: capitalize;
 }
 
-.cal-overdue-badge {
-  font-size: 10px;
-  font-weight: 700;
-  background: rgba(248,81,73,0.15);
-  color: #f85149;
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-
-.cal-today-badge {
-  font-size: 10px;
-  font-weight: 700;
-  background: rgba(var(--border-focus), 0.15);
-  color: var(--border-focus);
-  border-radius: 4px;
-  padding: 1px 6px;
+.cal-day-panel {
+  background: var(--surface);
   border: 1px solid var(--border-focus);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeIn 0.15s ease;
 }
 
 .cal-items {
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 .cal-item {
@@ -1550,4 +1629,126 @@ html, body {
     padding-top: calc(16px + env(safe-area-inset-top));
     padding-bottom: calc(100px + env(safe-area-inset-bottom));
   }
+
+  .cal-grid { gap: 2px; }
+  .cal-cell { min-height: 44px; padding: 2px; }
+  .cal-day-num { font-size: 11px; width: 18px; height: 18px; }
+  .cal-dot { font-size: 9px; padding: 1px 3px; }
 }
+
+/* ─── FAQ ─── */
+
+.btn-faq {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-faq:hover { border-color: var(--border-focus); color: var(--text); }
+
+.faq-card {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  max-width: 500px;
+}
+
+.faq-install-banner {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.faq-install-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.faq-install-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.faq-key {
+  display: inline-block;
+  background: var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.faq-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+
+.faq-item {
+  border-bottom: 1px solid var(--border);
+}
+.faq-item:last-child { border-bottom: none; }
+
+.faq-question {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 11px 18px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s;
+}
+.faq-question:hover { background: var(--surface2); }
+
+.faq-arrow {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.faq-answer {
+  padding: 0 18px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+
+.faq-footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+}
+
+.faq-dismiss-btn {
+  background: var(--border-focus);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.faq-dismiss-btn:hover { opacity: 0.88; }

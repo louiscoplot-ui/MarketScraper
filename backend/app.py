@@ -471,12 +471,20 @@ def process_text():
     data = request.json
     raw_text = data.get("text", "").strip()
     language = data.get("language", "french")
+    categories = data.get("categories", [])
     if not raw_text:
         return jsonify({"error": "No text provided"}), 400
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
     client = anthropic.Anthropic(api_key=api_key)
+
+    categories_instruction = ""
+    if categories:
+        cat_list = ", ".join(f'"{c}"' for c in categories)
+        categories_instruction = f"""
+6. TAGS: The user has defined these personal categories: [{cat_list}]. For each item, assign 0-3 relevant tags from this list (exact spelling). Only use tags from this list. Return them in a "tags" array."""
+
     prompt = f"""You are a smart note-taking assistant. Always respond in {language}. The user gives you a raw drop of thoughts (messy, vague, incomplete sentences, abbreviations).
 
 Your job:
@@ -488,7 +496,7 @@ Your job:
    - "note": general info, reference, reminder
 3. Create a clean concise title (max 60 chars) for each
 4. Reformulate clearly in {language}
-5. For "todo" items with sub-steps, add up to 5 subtasks
+5. For "todo" items with sub-steps, add up to 5 subtasks{categories_instruction}
 
 Return ONLY a valid JSON array (even if just one item), no markdown fences:
 [
@@ -496,7 +504,8 @@ Return ONLY a valid JSON array (even if just one item), no markdown fences:
     "type": "todo" | "idea" | "call_note" | "note",
     "title": "short clean title",
     "content": "reformulated content",
-    "subtasks": []
+    "subtasks": [],
+    "tags": []
   }}
 ]
 
