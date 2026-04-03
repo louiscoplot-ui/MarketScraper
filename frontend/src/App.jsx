@@ -18,13 +18,13 @@ const FILTERS = [
 ];
 
 const T = {
-  french:     { placeholder: "Vide ta tête ici… (Entrée pour analyser)", analyse: "Analyser", analysing: "Analyse…", confirm: "✓ Confirmer", discard: "Ignorer", preview: "Aperçu", chars: "car.", all: "Tout", todo: "To-do", ideas: "Idées", calls: "Calls", notes: "Notes", done: "Fait", empty: "Aucune entrée.", emptySub: "Tape quelque chose ci-dessus et analyse !", inCat: " dans cette catégorie", entry: "entrée", entries: "entrées" },
-  english:    { placeholder: "Dump your thoughts here… (Enter to analyse)", analyse: "Analyse", analysing: "Analysing…", confirm: "✓ Confirm", discard: "Dismiss", preview: "Preview", chars: "chars", all: "All", todo: "To-do", ideas: "Ideas", calls: "Calls", notes: "Notes", done: "Done", empty: "No entries.", emptySub: "Type something above and analyse!", inCat: " in this category", entry: "entry", entries: "entries" },
-  spanish:    { placeholder: "Vacía tu cabeza aquí… (Enter para analizar)", analyse: "Analizar", analysing: "Analizando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Vista previa", chars: "car.", all: "Todo", todo: "Tarea", ideas: "Ideas", calls: "Llamadas", notes: "Notas", done: "Hecho", empty: "Sin entradas.", emptySub: "¡Escribe algo arriba y analiza!", inCat: " en esta categoría", entry: "entrada", entries: "entradas" },
-  italian:    { placeholder: "Svuota la testa qui… (Invio per analizzare)", analyse: "Analizza", analysing: "Analisi…", confirm: "✓ Conferma", discard: "Ignora", preview: "Anteprima", chars: "car.", all: "Tutto", todo: "To-do", ideas: "Idee", calls: "Chiamate", notes: "Note", done: "Fatto", empty: "Nessuna voce.", emptySub: "Scrivi qualcosa sopra e analizza!", inCat: " in questa categoria", entry: "voce", entries: "voci" },
-  portuguese: { placeholder: "Esvazie sua cabeça aqui… (Enter para analisar)", analyse: "Analisar", analysing: "Analisando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Pré-visualização", chars: "car.", all: "Tudo", todo: "Tarefa", ideas: "Ideias", calls: "Chamadas", notes: "Notas", done: "Feito", empty: "Sem entradas.", emptySub: "Digite algo acima e analise!", inCat: " nesta categoria", entry: "entrada", entries: "entradas" },
-  chinese:    { placeholder: "在此清空思绪…（按Enter分析）", analyse: "分析", analysing: "分析中…", confirm: "✓ 确认", discard: "忽略", preview: "预览", chars: "字", all: "全部", todo: "待办", ideas: "想法", calls: "通话", notes: "笔记", done: "完成", empty: "暂无内容。", emptySub: "在上方输入内容并分析！", inCat: "（此类别）", entry: "条", entries: "条" },
-  russian:    { placeholder: "Выгрузи мысли сюда… (Enter для анализа)", analyse: "Анализ", analysing: "Анализ…", confirm: "✓ Сохранить", discard: "Отмена", preview: "Просмотр", chars: "симв.", all: "Все", todo: "Задача", ideas: "Идеи", calls: "Звонки", notes: "Заметки", done: "Готово", empty: "Нет записей.", emptySub: "Введите что-нибудь выше и нажмите анализ!", inCat: " в этой категории", entry: "запись", entries: "записей" },
+  french:     { placeholder: "Vide ta tête ici… (Entrée pour analyser)", analyse: "Analyser", analysing: "Analyse…", confirm: "✓ Confirmer", discard: "Ignorer", preview: "Aperçu", chars: "car.", all: "Tout", todo: "To-do", ideas: "Idées", calls: "Calls", notes: "Notes", done: "Fait", empty: "Aucune entrée.", emptySub: "Tape quelque chose ci-dessus et analyse !", inCat: " dans cette catégorie", entry: "entrée", entries: "entrées", calendar: "Calendrier", categories: "Catégories", noDateItems: "Aucun élément avec une date.", addCat: "Ajouter une catégorie…" },
+  english:    { placeholder: "Dump your thoughts here… (Enter to analyse)", analyse: "Analyse", analysing: "Analysing…", confirm: "✓ Confirm", discard: "Dismiss", preview: "Preview", chars: "chars", all: "All", todo: "To-do", ideas: "Ideas", calls: "Calls", notes: "Notes", done: "Done", empty: "No entries.", emptySub: "Type something above and analyse!", inCat: " in this category", entry: "entry", entries: "entries", calendar: "Calendar", categories: "Categories", noDateItems: "No items with a date.", addCat: "Add a category…" },
+  spanish:    { placeholder: "Vacía tu cabeza aquí… (Enter para analizar)", analyse: "Analizar", analysing: "Analizando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Vista previa", chars: "car.", all: "Todo", todo: "Tarea", ideas: "Ideas", calls: "Llamadas", notes: "Notas", done: "Hecho", empty: "Sin entradas.", emptySub: "¡Escribe algo arriba y analiza!", inCat: " en esta categoría", entry: "entrada", entries: "entradas", calendar: "Calendario", categories: "Categorías", noDateItems: "Sin elementos con fecha.", addCat: "Añadir categoría…" },
+  italian:    { placeholder: "Svuota la testa qui… (Invio per analizzare)", analyse: "Analizza", analysing: "Analisi…", confirm: "✓ Conferma", discard: "Ignora", preview: "Anteprima", chars: "car.", all: "Tutto", todo: "To-do", ideas: "Idee", calls: "Chiamate", notes: "Note", done: "Fatto", empty: "Nessuna voce.", emptySub: "Scrivi qualcosa sopra e analizza!", inCat: " in questa categoria", entry: "voce", entries: "voci", calendar: "Calendario", categories: "Categorie", noDateItems: "Nessun elemento con data.", addCat: "Aggiungi categoria…" },
+  portuguese: { placeholder: "Esvazie sua cabeça aqui… (Enter para analisar)", analyse: "Analisar", analysing: "Analisando…", confirm: "✓ Confirmar", discard: "Ignorar", preview: "Pré-visualização", chars: "car.", all: "Tudo", todo: "Tarefa", ideas: "Ideias", calls: "Chamadas", notes: "Notas", done: "Feito", empty: "Sem entradas.", emptySub: "Digite algo acima e analise!", inCat: " nesta categoria", entry: "entrada", entries: "entradas", calendar: "Calendário", categories: "Categorias", noDateItems: "Sem itens com data.", addCat: "Adicionar categoria…" },
+  chinese:    { placeholder: "在此清空思绪…（按Enter分析）", analyse: "分析", analysing: "分析中…", confirm: "✓ 确认", discard: "忽略", preview: "预览", chars: "字", all: "全部", todo: "待办", ideas: "想法", calls: "通话", notes: "笔记", done: "完成", empty: "暂无内容。", emptySub: "在上方输入内容并分析！", inCat: "（此类别）", entry: "条", entries: "条", calendar: "日历", categories: "分类", noDateItems: "没有带日期的项目。", addCat: "添加分类…" },
+  russian:    { placeholder: "Выгрузи мысли сюда… (Enter для анализа)", analyse: "Анализ", analysing: "Анализ…", confirm: "✓ Сохранить", discard: "Отмена", preview: "Просмотр", chars: "симв.", all: "Все", todo: "Задача", ideas: "Идеи", calls: "Звонки", notes: "Заметки", done: "Готово", empty: "Нет записей.", emptySub: "Введите что-нибудь выше и нажмите анализ!", inCat: " в этой категории", entry: "запись", entries: "записей", calendar: "Календарь", categories: "Категории", noDateItems: "Нет элементов с датой.", addCat: "Добавить категорию…" },
 };
 
 const LANGUAGES = [
@@ -274,8 +274,17 @@ export default function App() {
   const [wsOpen, setWsOpen] = useState(false);
   const [showCreateWs, setShowCreateWs] = useState(false);
   const [newWsName, setNewWsName] = useState("");
-  const [inviteLink, setInviteLink] = useState(null);
+  const [inviteInfo, setInviteInfo] = useState(null); // { link, short_code }
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joinError, setJoinError] = useState("");
+  const [showJoin, setShowJoin] = useState(false);
+  const [showCatManager, setShowCatManager] = useState(false);
+  const [userCategories, setUserCategories] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("drople-cats") || "[]"); } catch { return []; }
+  });
+  const [newCatInput, setNewCatInput] = useState("");
+  const [activeView, setActiveView] = useState("list"); // "list" | "calendar"
   const wsRef = useRef(null);
   const pendingJoinToken = useRef(
     new URLSearchParams(window.location.search).get("join")
@@ -315,18 +324,71 @@ export default function App() {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.ok) {
-      const { token: invToken } = await res.json();
-      const base = window.location.origin;
-      setInviteLink(`${base}?join=${invToken}`);
+      const { token: invToken, short_code } = await res.json();
+      setInviteInfo({ link: `${window.location.origin}?join=${invToken}`, short_code });
       setInviteCopied(false);
     }
   };
 
-  const copyInvite = () => {
-    if (!inviteLink) return;
-    navigator.clipboard.writeText(inviteLink);
-    setInviteCopied(true);
+  const copyInviteCode = () => {
+    if (!inviteInfo) return;
+    navigator.clipboard.writeText(inviteInfo.short_code);
+    setInviteCopied("code");
     setTimeout(() => setInviteCopied(false), 2500);
+  };
+
+  const copyInviteLink = () => {
+    if (!inviteInfo) return;
+    navigator.clipboard.writeText(inviteInfo.link);
+    setInviteCopied("link");
+    setTimeout(() => setInviteCopied(false), 2500);
+  };
+
+  const joinByCode = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (!code) return;
+    setJoinError("");
+    const res = await fetch("/api/workspaces/join-by-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code }),
+    });
+    if (res.ok) {
+      const ws = await res.json();
+      setWorkspaces(prev => [...prev, ws]);
+      setWorkspaceId(ws.id);
+      setJoinCode("");
+      setShowJoin(false);
+      setWsOpen(false);
+      setItems([]);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setJoinError(err.error || "Code invalide");
+    }
+  };
+
+  const leaveWorkspace = async (wsId) => {
+    await fetch(`/api/workspaces/${wsId}/leave`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setWorkspaces(prev => prev.filter(w => w.id !== wsId));
+    if (workspaceId === wsId) { setWorkspaceId(null); setItems([]); }
+  };
+
+  const deleteWorkspace = async (wsId) => {
+    if (!confirm("Supprimer ce groupe ? Les items resteront accessibles en perso.")) return;
+    await fetch(`/api/workspaces/${wsId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setWorkspaces(prev => prev.filter(w => w.id !== wsId));
+    if (workspaceId === wsId) { setWorkspaceId(null); setItems([]); }
+  };
+
+  const saveCategories = (cats) => {
+    setUserCategories(cats);
+    localStorage.setItem("drople-cats", JSON.stringify(cats));
   };
 
   const subscribePush = async (accessToken) => {
@@ -600,6 +662,7 @@ export default function App() {
   const activeItems = items.filter(i => !i.completed);
   const doneItems = items.filter(i => i.completed);
   const urgentItems = activeItems.filter(i => i.urgent);
+  const allTags = [...new Set(items.flatMap(i => i.tags || []))].sort();
 
   const filteredItems = filter === "done"
     ? doneItems
@@ -612,7 +675,19 @@ export default function App() {
           : activeItems.filter(i => i.type === filter);
 
   const currentWs = workspaces.find(w => w.id === workspaceId) || null;
-  const allTags = [...new Set(items.flatMap(i => i.tags || []))].sort();
+
+  // Calendar view: all items with a due_date, sorted chronologically
+  const calendarItems = [...items]
+    .filter(i => i.due_date)
+    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+
+  // Group by date for calendar view
+  const calendarGroups = calendarItems.reduce((acc, item) => {
+    const key = item.due_date;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(item);
+    return acc;
+  }, {});
 
   const totalByType = FILTERS.slice(1).reduce((acc, f) => {
     acc[f.key] = activeItems.filter((i) => i.type === f.key).length;
@@ -628,7 +703,7 @@ export default function App() {
 
         {/* Workspace switcher */}
         <div className="ws-switcher" ref={wsRef}>
-          <button className="ws-btn" onClick={() => setWsOpen(o => !o)}>
+          <button className="ws-btn" onClick={() => { setWsOpen(o => !o); setShowJoin(false); setShowCreateWs(false); }}>
             {currentWs ? `👥 ${currentWs.name}` : "👤 Personnel"}
             <span className="ws-chevron">▾</span>
           </button>
@@ -642,12 +717,18 @@ export default function App() {
                 <div key={ws.id} className={`ws-option${workspaceId === ws.id ? " active" : ""}`}
                   onClick={() => { setWorkspaceId(ws.id); setWsOpen(false); setItems([]); }}>
                   👥 {ws.name}
-                  {ws.is_owner && (
-                    <button className="ws-invite-btn" onClick={e => { e.stopPropagation(); generateInvite(ws.id); setWsOpen(false); }}
-                      title="Générer un lien d'invitation">🔗</button>
-                  )}
+                  <div className="ws-actions" onClick={e => e.stopPropagation()}>
+                    {ws.is_owner
+                      ? <>
+                          <button className="ws-action-btn" title="Inviter" onClick={() => { generateInvite(ws.id); setWsOpen(false); }}>🔗</button>
+                          <button className="ws-action-btn" title="Supprimer le groupe" onClick={() => deleteWorkspace(ws.id)}>🗑</button>
+                        </>
+                      : <button className="ws-action-btn" title="Quitter le groupe" onClick={() => leaveWorkspace(ws.id)}>🚪</button>
+                    }
+                  </div>
                 </div>
               ))}
+              <div className="ws-divider" />
               {showCreateWs ? (
                 <div className="ws-create">
                   <input className="ws-name-input" placeholder="Nom du groupe…" value={newWsName}
@@ -656,24 +737,42 @@ export default function App() {
                     autoFocus />
                   <button className="ws-create-btn" onClick={createWorkspace}>Créer</button>
                 </div>
-              ) : (
-                <div className="ws-option ws-new" onClick={() => setShowCreateWs(true)}>
-                  + Nouveau groupe
+              ) : showJoin ? (
+                <div className="ws-create">
+                  <input className="ws-name-input" placeholder="Code (ex: XK7P2M)…"
+                    value={joinCode} onChange={e => { setJoinCode(e.target.value.toUpperCase()); setJoinError(""); }}
+                    onKeyDown={e => { if (e.key === "Enter") joinByCode(); if (e.key === "Escape") setShowJoin(false); }}
+                    maxLength={6} autoFocus />
+                  <button className="ws-create-btn" onClick={joinByCode}>Rejoindre</button>
+                  {joinError && <span className="ws-join-error">{joinError}</span>}
                 </div>
+              ) : (
+                <>
+                  <div className="ws-option ws-new" onClick={() => { setShowCreateWs(true); setShowJoin(false); }}>+ Nouveau groupe</div>
+                  <div className="ws-option ws-new" onClick={() => { setShowJoin(true); setShowCreateWs(false); }}>🔑 Rejoindre avec un code</div>
+                </>
               )}
             </div>
           )}
         </div>
 
-        {/* Invite link banner */}
-        {inviteLink && (
+        {/* Invite info banner */}
+        {inviteInfo && (
           <div className="invite-banner">
-            <span className="invite-banner-label">Lien d'invitation :</span>
-            <span className="invite-banner-url">{inviteLink}</span>
-            <button className="invite-copy-btn" onClick={copyInvite}>
-              {inviteCopied ? "✓ Copié !" : "Copier"}
-            </button>
-            <button className="invite-close-btn" onClick={() => setInviteLink(null)}>×</button>
+            <div className="invite-banner-code">
+              <span className="invite-code-label">Code :</span>
+              <span className="invite-code-value">{inviteInfo.short_code}</span>
+              <button className="invite-copy-btn" onClick={copyInviteCode}>
+                {inviteCopied === "code" ? "✓" : "Copier"}
+              </button>
+            </div>
+            <div className="invite-banner-link">
+              <span className="invite-banner-label">ou le lien :</span>
+              <button className="invite-copy-btn" onClick={copyInviteLink}>
+                {inviteCopied === "link" ? "✓ Copié !" : "Copier le lien"}
+              </button>
+            </div>
+            <button className="invite-close-btn" onClick={() => setInviteInfo(null)}>×</button>
           </div>
         )}
 
@@ -862,64 +961,176 @@ export default function App() {
         </div>
       )}
 
-      {/* Filter bar */}
-      <div className="filter-bar">
-        {FILTERS_T.map((f) => (
-          <button
-            key={f.key}
-            className={`filter-btn${filter === f.key ? ` active ${f.key}` : ""}`}
-            onClick={() => setFilter(f.key)}
-          >
-            {f.label}
-            {f.key === "done" && doneItems.length > 0 && (
-              <span style={{ marginLeft: 5, opacity: 0.75 }}>{doneItems.length}</span>
-            )}
-            {f.key === "urgent" && urgentItems.length > 0 && (
-              <span style={{ marginLeft: 5, opacity: 0.75 }}>{urgentItems.length}</span>
-            )}
-            {f.key !== "all" && f.key !== "done" && f.key !== "urgent" && totalByType[f.key] > 0 && (
-              <span style={{ marginLeft: 5, opacity: 0.75 }}>{totalByType[f.key]}</span>
-            )}
-          </button>
-        ))}
-        {allTags.map(tag => {
-          const color = tagColor(tag);
-          const count = activeItems.filter(i => (i.tags || []).includes(tag)).length;
-          return (
-            <button
-              key={tag}
-              className={`filter-btn tag-filter-btn${filter === tag ? " active" : ""}`}
-              style={filter === tag ? { background: color + "33", color, borderColor: color } : { borderColor: color + "66", color }}
-              onClick={() => setFilter(tag)}
-            >
-              🏷 {tag}
-              {count > 0 && <span style={{ marginLeft: 5, opacity: 0.75 }}>{count}</span>}
-            </button>
-          );
-        })}
+      {/* View tabs: List / Calendar */}
+      <div className="view-tabs">
+        <button
+          className={`view-tab${activeView === "list" ? " active" : ""}`}
+          onClick={() => setActiveView("list")}
+        >📋 {t.all}</button>
+        <button
+          className={`view-tab${activeView === "calendar" ? " active" : ""}`}
+          onClick={() => setActiveView("calendar")}
+        >📅 {t.calendar || "Calendrier"}</button>
+        <button
+          className="view-tab view-tab-cats"
+          onClick={() => setShowCatManager(true)}
+          title={t.categories || "Catégories"}
+        >🏷 {t.categories || "Catégories"}</button>
       </div>
 
-      {/* Items */}
-      <div className="items-list">
-        {filteredItems.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-icon">📭</div>
-            <div>{filter !== "all" ? t.empty.replace(".", "") + t.inCat + "." : t.empty}</div>
-            <div style={{ marginTop: 6, opacity: 0.7 }}>{t.emptySub}</div>
+      {/* Categories Manager Modal */}
+      {showCatManager && (
+        <div className="modal-overlay" onClick={() => setShowCatManager(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span>🏷 {t.categories || "Catégories"}</span>
+              <button className="modal-close" onClick={() => setShowCatManager(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="cat-chips">
+                {userCategories.length === 0 && (
+                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Aucune catégorie personnalisée.</span>
+                )}
+                {userCategories.map(cat => (
+                  <TagChip key={cat} tag={cat} onRemove={() => saveCategories(userCategories.filter(c => c !== cat))} />
+                ))}
+              </div>
+              <div className="cat-add-row">
+                <input
+                  className="cat-add-input"
+                  placeholder={t.addCat || "Ajouter une catégorie…"}
+                  value={newCatInput}
+                  onChange={e => setNewCatInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && newCatInput.trim()) {
+                      const c = newCatInput.trim();
+                      if (!userCategories.includes(c)) saveCategories([...userCategories, c]);
+                      setNewCatInput("");
+                    }
+                  }}
+                />
+                <button className="cat-add-btn" onClick={() => {
+                  const c = newCatInput.trim();
+                  if (c && !userCategories.includes(c)) saveCategories([...userCategories, c]);
+                  setNewCatInput("");
+                }}>+</button>
+              </div>
+            </div>
           </div>
-        ) : (
-          filteredItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onToggle={toggleItem}
-              onToggleSubtask={toggleSubtask}
-              onDelete={deleteItem}
-              onToggleUrgent={toggleUrgent}
-            />
-          ))
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Calendar view */}
+      {activeView === "calendar" ? (
+        <div className="calendar-view">
+          {calendarItems.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📅</div>
+              <div>{t.noDateItems || "Aucun élément avec une date."}</div>
+            </div>
+          ) : (
+            Object.entries(calendarGroups).map(([date, groupItems]) => {
+              const d = new Date(date + "T00:00:00");
+              const today = new Date(); today.setHours(0,0,0,0);
+              const diff = Math.round((d - today) / 86400000);
+              const isPast = diff < 0;
+              const isToday = diff === 0;
+              return (
+                <div key={date} className={`cal-group${isPast ? " past" : isToday ? " today" : ""}`}>
+                  <div className="cal-date-header">
+                    <span className="cal-date-label">
+                      {isToday ? "Aujourd'hui" : isPast ? `En retard — ` : ""}
+                      {d.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "long" })}
+                    </span>
+                    {isPast && <span className="cal-overdue-badge">En retard</span>}
+                    {isToday && <span className="cal-today-badge">Aujourd'hui</span>}
+                  </div>
+                  <div className="cal-items">
+                    {groupItems.map(item => (
+                      <div key={item.id} className={`cal-item${item.completed ? " completed" : ""}${item.urgent ? " urgent-card" : ""}`}>
+                        <input type="checkbox" className="item-checkbox" checked={item.completed}
+                          onChange={() => toggleItem(item.id, item.completed)} />
+                        <div className="cal-item-body">
+                          <div className="item-title">
+                            {item.urgent && <span className="badge-urgent">URGENT</span>}
+                            {item.title}
+                          </div>
+                          <div className="item-meta">
+                            <Badge type={item.type} />
+                            {item.tags && item.tags.length > 0 && item.tags.map(tag => <TagChip key={tag} tag={tag} />)}
+                          </div>
+                        </div>
+                        <button className="btn-delete" onClick={() => deleteItem(item.id)}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+
+      {/* Filter bar + Items (list view) */}
+      {activeView === "list" && <>
+        <div className="filter-bar">
+          {FILTERS_T.map((f) => (
+            <button
+              key={f.key}
+              className={`filter-btn${filter === f.key ? ` active ${f.key}` : ""}`}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+              {f.key === "done" && doneItems.length > 0 && (
+                <span style={{ marginLeft: 5, opacity: 0.75 }}>{doneItems.length}</span>
+              )}
+              {f.key === "urgent" && urgentItems.length > 0 && (
+                <span style={{ marginLeft: 5, opacity: 0.75 }}>{urgentItems.length}</span>
+              )}
+              {f.key !== "all" && f.key !== "done" && f.key !== "urgent" && totalByType[f.key] > 0 && (
+                <span style={{ marginLeft: 5, opacity: 0.75 }}>{totalByType[f.key]}</span>
+              )}
+            </button>
+          ))}
+          {allTags.map(tag => {
+            const color = tagColor(tag);
+            const count = activeItems.filter(i => (i.tags || []).includes(tag)).length;
+            return (
+              <button
+                key={tag}
+                className={`filter-btn tag-filter-btn${filter === tag ? " active" : ""}`}
+                style={filter === tag ? { background: color + "33", color, borderColor: color } : { borderColor: color + "66", color }}
+                onClick={() => setFilter(tag)}
+              >
+                🏷 {tag}
+                {count > 0 && <span style={{ marginLeft: 5, opacity: 0.75 }}>{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Items */}
+        <div className="items-list">
+          {filteredItems.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📭</div>
+              <div>{filter !== "all" ? t.empty.replace(".", "") + t.inCat + "." : t.empty}</div>
+              <div style={{ marginTop: 6, opacity: 0.7 }}>{t.emptySub}</div>
+            </div>
+          ) : (
+            filteredItems.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                onToggle={toggleItem}
+                onToggleSubtask={toggleSubtask}
+                onDelete={deleteItem}
+                onToggleUrgent={toggleUrgent}
+              />
+            ))
+          )}
+        </div>
+      </>}
     </div>
   );
 }

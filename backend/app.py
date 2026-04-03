@@ -98,11 +98,16 @@ def init_db():
             user_name TEXT DEFAULT NULL,
             user_picture TEXT DEFAULT NULL,
             invite_token TEXT UNIQUE NOT NULL,
+            short_code TEXT UNIQUE,
             status TEXT DEFAULT 'pending',
             invited_at TEXT NOT NULL,
             joined_at TEXT DEFAULT NULL
         )
     """)
+    try:
+        cur.execute("ALTER TABLE workspace_members ADD COLUMN IF NOT EXISTS short_code TEXT UNIQUE")
+    except Exception:
+        conn.rollback()
 
     conn.commit()
     cur.close()
@@ -374,14 +379,31 @@ def create_invite(wid):
             cur.close(); conn.close()
             return jsonify({"error": "Forbidden"}), 403
     token = secrets.token_urlsafe(20)
+    # Short human-readable code (6 chars, no ambiguous chars)
+    safe = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    short_code = "".join(secrets.choice(safe) for _ in range(6))
     cur.execute("""
-        INSERT INTO workspace_members (workspace_id, invite_token, status, invited_at)
-        VALUES (%s, %s, 'pending', %s)
-    """, (wid, token, datetime.now().isoformat()))
+        INSERT INTO workspace_members (workspace_id, invite_token, short_code, status, invited_at)
+        VALUES (%s, %s, %s, 'pending', %s)
+    """, (wid, token, short_code, datetime.now().isoformat()))
     conn.commit()
     cur.close()
     conn.close()
-    return jsonify({"token": token})
+    return jsonify({"token": token, "short_code": short_code})
+
+
+def _do_join(cur, member, user_id, email, name, picture):
+    cur.execute("""
+        UPDATE workspace_members
+        SET user_id = %s, user_email = %s, user_name = %s, user_picture = %s,
+            status = 'active', joined_at = %s
+        WHERE id = %s
+    """, (user_id, email, name, picture, datetime.now().isoformat(), member["id"]))
+    cur.execute("SELECT * FROM workspaces WHERE id = %s", (member["workspace_id"],))
+    workspace = dict(cur.fetchone())
+    workspace["is_owner"] = False
+    workspace["members"] = []
+    return workspace
 
 
 @app.route("/api/workspaces/join/<token>", methods=["POST"])
@@ -396,21 +418,47 @@ def join_workspace(token):
     if not member:
         cur.close(); conn.close()
         return jsonify({"error": "Invalid or already used invite"}), 404
-    cur.execute("""
-        UPDATE workspace_members
-        SET user_id = %s, user_email = %s, user_name = %s, user_picture = %s,
-            status = 'active', joined_at = %s
-        WHERE invite_token = %s
-    """, (user_id, email, name, picture, datetime.now().isoformat(), token))
-    # Get workspace info
-    cur.execute("SELECT * FROM workspaces WHERE id = %s", (member["workspace_id"],))
-    workspace = dict(cur.fetchone())
-    workspace["is_owner"] = False
-    workspace["members"] = []
+    workspace = _do_join(cur, member, user_id, email, name, picture)
     conn.commit()
     cur.close()
     conn.close()
     return jsonify(workspace)
+
+
+@app.route("/api/workspaces/join-by-code", methods=["POST"])
+def join_by_code():
+    user_id, email, name, picture = get_user_info()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    code = (request.json.get("code") or "").strip().upper()
+    if not code:
+        return jsonify({"error": "Code manquant"}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM workspace_members WHERE short_code = %s AND status = 'pending'", (code,))
+    member = cur.fetchone()
+    if not member:
+        cur.close(); conn.close()
+        return jsonify({"error": "Code invalide ou déjà utilisé"}), 404
+    workspace = _do_join(cur, member, user_id, email, name, picture)
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify(workspace)
+
+
+@app.route("/api/workspaces/<wid>/leave", methods=["POST"])
+def leave_workspace(wid):
+    user_id = get_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM workspace_members WHERE workspace_id = %s AND user_id = %s", (wid, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"success": True})
 
 
 # ─── Items ────────────────────────────────────────────────────────────────────
