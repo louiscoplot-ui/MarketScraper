@@ -394,7 +394,7 @@ export default function App() {
   const [langOpen, setLangOpen] = useState(false);
   const [langSearch, setLangSearch] = useState("");
   const langRef = useRef(null);
-  const [token, setToken] = useState(() => localStorage.getItem("bd-token") || null);
+  const [token, setToken] = useState(() => localStorage.getItem("bd-session") || localStorage.getItem("bd-token") || null);
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem("bd-user") || "null"); } catch { return null; }
   });
@@ -418,10 +418,13 @@ export default function App() {
   const [calSelectedDay, setCalSelectedDay] = useState(null);
   const [showFAQ, setShowFAQ] = useState(() => !localStorage.getItem("drople-faq-seen"));
   const [showSettings, setShowSettings] = useState(false);
-  const [reminderTime, setReminderTime] = useState("09:00");
-  const [reminderFreq, setReminderFreq] = useState("daily");
+  const [reminderTimes, setReminderTimes] = useState(["09:00"]);
+  const [reminderDays, setReminderDays] = useState([0,1,2,3,4,5,6]);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [calMonthPickerOpen, setCalMonthPickerOpen] = useState(false);
+  const [hiddenTypes, setHiddenTypes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("drople-hidden-types") || "[]"); } catch { return []; }
+  });
   const wsRef = useRef(null);
   const pendingJoinToken = useRef(
     new URLSearchParams(window.location.search).get("join")
@@ -434,8 +437,8 @@ export default function App() {
       const res = await fetch("/api/settings", { headers: { Authorization: `Bearer ${tk}` } });
       if (res.ok) {
         const d = await res.json();
-        setReminderTime(d.reminder_time || "09:00");
-        setReminderFreq(d.reminder_frequency || "daily");
+        setReminderTimes(Array.isArray(d.reminder_times) ? d.reminder_times : ["09:00"]);
+        setReminderDays(Array.isArray(d.reminder_days) ? d.reminder_days : [0,1,2,3,4,5,6]);
       }
     } catch {}
   }, [token]);
@@ -445,11 +448,25 @@ export default function App() {
       await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reminder_time: reminderTime, reminder_frequency: reminderFreq }),
+        body: JSON.stringify({ reminder_times: reminderTimes, reminder_days: reminderDays }),
       });
       setSettingsSaved(true);
       setTimeout(() => setSettingsSaved(false), 2500);
     } catch {}
+  };
+
+  const deleteTag = async (tag) => {
+    saveCategories(userCategories.filter(c => c !== tag));
+    setItems(prev => prev.map(i => ({ ...i, tags: (i.tags || []).filter(tg => tg !== tag) })));
+    await fetch(`/api/tags/${encodeURIComponent(tag)}`, { method: "DELETE", headers: authHeaders });
+  };
+
+  const toggleHiddenType = (typeKey) => {
+    const next = hiddenTypes.includes(typeKey)
+      ? hiddenTypes.filter(x => x !== typeKey)
+      : [...hiddenTypes, typeKey];
+    setHiddenTypes(next);
+    localStorage.setItem("drople-hidden-types", JSON.stringify(next));
   };
 
   const fetchWorkspaces = useCallback(async (accessToken) => {
@@ -573,17 +590,36 @@ export default function App() {
 
   const login = useGoogleLogin({
     onSuccess: async (res) => {
-      const t = res.access_token;
-      const profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: `Bearer ${t}` },
-      }).then((r) => r.json());
-      setToken(t);
+      const googleToken = res.access_token;
+      // Exchange for a persistent 30-day session token
+      let sessionToken = googleToken;
+      let profile;
+      try {
+        const authRes = await fetch("/api/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: googleToken }),
+        });
+        if (authRes.ok) {
+          const authData = await authRes.json();
+          sessionToken = authData.session_token;
+          profile = authData.user;
+          profile.picture = profile.picture || profile.photo;
+        }
+      } catch {}
+      if (!profile) {
+        profile = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${googleToken}` },
+        }).then(r => r.json());
+      }
+      setToken(sessionToken);
       setUser(profile);
-      localStorage.setItem("bd-token", t);
+      localStorage.removeItem("bd-token"); // clear old key
+      localStorage.setItem("bd-session", sessionToken);
       localStorage.setItem("bd-user", JSON.stringify(profile));
-      subscribePush(t);
-      fetchWorkspaces(t);
-      fetchSettings(t);
+      subscribePush(sessionToken);
+      fetchWorkspaces(sessionToken);
+      fetchSettings(sessionToken);
       // Handle pending join token from URL
       if (pendingJoinToken.current) {
         try {
@@ -603,10 +639,17 @@ export default function App() {
     },
   });
 
-  const logout = () => {
+  const logout = async () => {
+    // Revoke session server-side
+    if (token) {
+      try {
+        await fetch("/api/auth/session", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      } catch {}
+    }
     googleLogout();
     setToken(null);
     setUser(null);
+    localStorage.removeItem("bd-session");
     localStorage.removeItem("bd-token");
     localStorage.removeItem("bd-user");
     setItems([]);
@@ -827,7 +870,7 @@ export default function App() {
     { key: "call_note", label: t.calls },
     { key: "note",      label: t.notes },
     { key: "done",      label: t.done || "Fait" },
-  ];
+  ].filter(f => !hiddenTypes.includes(f.key));
 
   const activeItems = items.filter(i => !i.completed);
   const doneItems = items.filter(i => i.completed);
@@ -1161,12 +1204,35 @@ export default function App() {
               <button className="modal-close" onClick={() => setShowCatManager(false)}>×</button>
             </div>
             <div className="modal-body">
+              {/* Base type filters — can be hidden */}
+              <div className="cat-section-label">{t.baseTypes || "Types de base"}</div>
+              <div className="cat-chips" style={{ marginBottom: 12 }}>
+                {[
+                  { key: "todo",      label: t.todo,  color: "var(--todo-color)" },
+                  { key: "idea",      label: t.ideas, color: "var(--idea-color)" },
+                  { key: "call_note", label: t.calls, color: "var(--call-color)" },
+                  { key: "note",      label: t.notes, color: "var(--note-color)" },
+                ].map(({ key, label, color }) => (
+                  <span key={key}
+                    className={`tag-chip${hiddenTypes.includes(key) ? " hidden-type" : ""}`}
+                    style={{ background: color + "22", color, border: `1px solid ${color}55` }}>
+                    {label}
+                    <button className="tag-remove"
+                      title={hiddenTypes.includes(key) ? (t.restoreTypes || "Restaurer") : (t.hideType || "Masquer")}
+                      onClick={() => toggleHiddenType(key)}>
+                      {hiddenTypes.includes(key) ? "↩" : "×"}
+                    </button>
+                  </span>
+                ))}
+              </div>
+              {/* All custom tags (from items + userCategories) */}
+              <div className="cat-section-label">{t.categories || "Catégories"}</div>
               <div className="cat-chips">
-                {userCategories.length === 0 && (
+                {[...new Set([...allTags, ...userCategories])].length === 0 && (
                   <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{t.noCats || "Aucune catégorie personnalisée."}</span>
                 )}
-                {userCategories.map(cat => (
-                  <TagChip key={cat} tag={cat} onRemove={() => saveCategories(userCategories.filter(c => c !== cat))} />
+                {[...new Set([...allTags, ...userCategories])].map(cat => (
+                  <TagChip key={cat} tag={cat} onRemove={() => deleteTag(cat)} />
                 ))}
               </div>
               <div className="cat-add-row">
@@ -1203,30 +1269,46 @@ export default function App() {
               <button className="modal-close" onClick={() => setShowSettings(false)}>×</button>
             </div>
             <div className="modal-body">
-              <div className="settings-row">
-                <label className="settings-label">🔔 {t.reminderTime}</label>
-                <input
-                  type="time"
-                  className="settings-time-input"
-                  value={reminderTime}
-                  onChange={e => setReminderTime(e.target.value)}
-                />
-              </div>
+              {/* Days */}
               <div className="settings-row">
                 <label className="settings-label">📅 {t.reminderFreq}</label>
-                <div className="settings-freq-group">
-                  {[
-                    { val: "daily",    label: t.freqDaily },
-                    { val: "weekdays", label: t.freqWeekdays },
-                    { val: "weekly",   label: t.freqWeekly },
-                    { val: "never",    label: t.freqNever },
-                  ].map(({ val, label }) => (
-                    <label key={val} className={`freq-option${reminderFreq === val ? " active" : ""}`}>
-                      <input type="radio" name="freq" value={val} checked={reminderFreq === val}
-                        onChange={() => setReminderFreq(val)} />
-                      {label}
-                    </label>
+                <div className="day-picker">
+                  {(t.days || ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]).map((d, i) => (
+                    <button
+                      key={i}
+                      className={`day-btn${reminderDays.includes(i) ? " active" : ""}`}
+                      onClick={() => setReminderDays(prev =>
+                        prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i].sort((a,b) => a-b)
+                      )}
+                    >{d}</button>
                   ))}
+                  <button className="day-btn-all" onClick={() =>
+                    setReminderDays(reminderDays.length === 7 ? [] : [0,1,2,3,4,5,6])
+                  }>{reminderDays.length === 7 ? "✓ Tous" : "Tous"}</button>
+                </div>
+              </div>
+              {/* Times */}
+              <div className="settings-row">
+                <label className="settings-label">🔔 {t.reminderTime}</label>
+                <div className="time-slots">
+                  {reminderTimes.map((time, idx) => (
+                    <div key={idx} className="time-slot-row">
+                      <input
+                        type="time"
+                        className="settings-time-input"
+                        value={time}
+                        onChange={e => setReminderTimes(prev => prev.map((v, i) => i === idx ? e.target.value : v))}
+                      />
+                      {reminderTimes.length > 1 && (
+                        <button className="time-slot-remove" onClick={() => setReminderTimes(prev => prev.filter((_, i) => i !== idx))}>×</button>
+                      )}
+                    </div>
+                  ))}
+                  {reminderTimes.length < 5 && (
+                    <button className="time-slot-add" onClick={() => setReminderTimes(prev => [...prev, "09:00"])}>
+                      + {t.addTime || "Ajouter une heure"}
+                    </button>
+                  )}
                 </div>
               </div>
               <button className="cat-add-btn" style={{ width: "100%", marginTop: 8 }} onClick={saveSettings}>
@@ -1305,13 +1387,13 @@ export default function App() {
               }}>›</button>
               {calMonthPickerOpen && (() => {
                 const thisYear = new Date().getFullYear();
-                const years = [thisYear - 1, thisYear, thisYear + 1];
+                const years = Array.from({ length: 30 }, (_, i) => thisYear - 10 + i);
                 const months = Array.from({ length: 12 }, (_, i) =>
                   new Date(2000, i, 1).toLocaleDateString("fr-FR", { month: "short" })
                 );
                 return (
                   <div className="cal-month-picker" onClick={e => e.stopPropagation()}>
-                    <div className="cal-picker-years">
+                    <div className="cal-picker-years-scroll">
                       {years.map(y => (
                         <button key={y} className={`cal-picker-year${y === year ? " active" : ""}`}
                           onClick={() => { setCalMonth(m => ({ ...m, year: y })); }}>

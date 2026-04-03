@@ -1754,6 +1754,103 @@ html, body {
 }
 .faq-dismiss-btn:hover { opacity: 0.88; }
 
+/* ─── Day picker ─── */
+
+.day-picker {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.day-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.12s;
+}
+.day-btn:hover { border-color: var(--border-focus); color: var(--text); }
+.day-btn.active {
+  background: var(--border-focus);
+  color: white;
+  border-color: transparent;
+}
+
+.day-btn-all {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.12s;
+  margin-left: 4px;
+}
+.day-btn-all:hover { border-color: var(--border-focus); color: var(--text); }
+
+/* ─── Time slots ─── */
+
+.time-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.time-slot-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 15px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.12s;
+}
+.time-slot-remove:hover { color: #f85149; border-color: #f85149; }
+
+.time-slot-add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--border-focus);
+  transition: all 0.12s;
+  width: fit-content;
+}
+.time-slot-add:hover { background: var(--surface2); }
+
+/* ─── Categories modal sections ─── */
+
+.cat-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.hidden-type {
+  opacity: 0.35;
+}
+.hidden-type .tag-remove { opacity: 0.8; }
+
 /* ─── Settings button ─── */
 
 .btn-settings {
@@ -1853,11 +1950,15 @@ html, body {
   width: 240px;
 }
 
-.cal-picker-years {
+.cal-picker-years-scroll {
+  max-height: 76px;
+  overflow-y: auto;
   display: flex;
-  gap: 6px;
-  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
   margin-bottom: 10px;
+  scrollbar-width: thin;
+  padding-right: 2px;
 }
 .cal-picker-year {
   background: var(--surface2);

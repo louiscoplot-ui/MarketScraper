@@ -92,11 +92,21 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id TEXT PRIMARY KEY,
-            reminder_time TEXT DEFAULT '09:00',
-            reminder_frequency TEXT DEFAULT 'daily',
-            last_reminded_at TEXT DEFAULT NULL
+            reminder_times TEXT DEFAULT '["09:00"]',
+            reminder_days TEXT DEFAULT '[0,1,2,3,4,5,6]',
+            reminder_sent_log TEXT DEFAULT '[]'
         )
     """)
+    # Migrate old schema: add new columns if missing, drop old ones gracefully
+    for col, defval in [
+        ("reminder_times", "'[\"09:00\"]'"),
+        ("reminder_days", "'[0,1,2,3,4,5,6]'"),
+        ("reminder_sent_log", "'[]'"),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT {defval}")
+        except Exception:
+            conn.rollback()
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS workspace_members (
@@ -118,6 +128,29 @@ def init_db():
     except Exception:
         conn.rollback()
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            user_email TEXT,
+            user_name TEXT,
+            user_picture TEXT,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
+
+    # Migrate user_settings to new schema (reminder_times/reminder_days arrays)
+    for col, defval in [
+        ("reminder_times", "'[\"09:00\"]'"),
+        ("reminder_days",  "'[0,1,2,3,4,5,6]'"),
+        ("reminder_sent_log", "'[]'"),
+    ]:
+        try:
+            cur.execute(f"ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS {col} TEXT DEFAULT {defval}")
+        except Exception:
+            conn.rollback()
+
     conn.commit()
     cur.close()
     conn.close()
@@ -135,6 +168,19 @@ def get_user_id():
     if not auth.startswith("Bearer "):
         return None
     token = auth[7:]
+    # Check session table first (persistent sessions)
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, expires_at FROM sessions WHERE token = %s", (token,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row and row["expires_at"] > datetime.now().isoformat():
+            return row["user_id"]
+    except Exception:
+        pass
+    # Fall back to Google token verification
     if token in _token_cache:
         cached_at, user_id = _token_cache[token]
         if time.time() - cached_at < 240:
@@ -209,37 +255,36 @@ def send_push_to_user(user_id, title, body):
 
 
 def check_reminders():
-    """Per-minute check: send reminders to users whose reminder_time matches now."""
+    """Per-minute: send reminders matching each user's times + days."""
     try:
         now = datetime.now()
         current_hhmm = now.strftime("%H:%M")
         today = date.today().isoformat()
         dow = now.weekday()  # 0=Mon, 6=Sun
-
-        conn = get_db()
-        cur = conn.cursor()
-
-        # Get all users whose reminder_time matches current minute and haven't been reminded today
-        cur.execute("""
-            SELECT s.user_id, s.reminder_frequency
-            FROM user_settings s
-            WHERE s.reminder_time = %s
-              AND s.reminder_frequency != 'never'
-              AND (s.last_reminded_at IS NULL OR s.last_reminded_at < %s)
-        """, (current_hhmm, today))
-        users_to_remind = cur.fetchall()
-
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
         stale_cutoff = (date.today() - timedelta(days=5)).isoformat()
 
-        for row in users_to_remind:
-            uid = row["user_id"]
-            freq = row["reminder_frequency"]
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM user_settings")
+        all_settings = cur.fetchall()
 
-            # Check frequency: daily=always, weekdays=Mon-Fri, weekly=Monday only
-            if freq == "weekdays" and dow >= 5:
+        for row in all_settings:
+            uid = row["user_id"]
+            try:
+                times = json.loads(row["reminder_times"] or '["09:00"]')
+                days = json.loads(row["reminder_days"] or '[0,1,2,3,4,5,6]')
+                sent_log = json.loads(row["reminder_sent_log"] or '[]')
+            except Exception:
                 continue
-            if freq == "weekly" and dow != 0:
+
+            if dow not in [int(d) for d in days]:
+                continue
+            if current_hhmm not in times:
+                continue
+
+            current_key = f"{today} {current_hhmm}"
+            if current_key in sent_log:
                 continue
 
             # Due today or tomorrow
@@ -267,10 +312,12 @@ def check_reminders():
             for item in cur.fetchall():
                 send_push_to_user(uid, "💭 Drople te rappelle", f"Tu n'as pas encore fait : {item['title']}")
 
-            # Mark as reminded today
+            # Mark sent (keep last 200 entries)
+            sent_log.append(current_key)
+            sent_log = sent_log[-200:]
             cur.execute(
-                "UPDATE user_settings SET last_reminded_at = %s WHERE user_id = %s",
-                (today, uid),
+                "UPDATE user_settings SET reminder_sent_log = %s WHERE user_id = %s",
+                (json.dumps(sent_log), uid),
             )
 
         conn.commit()
@@ -331,6 +378,67 @@ def push_subscribe():
     return jsonify({"success": True})
 
 
+# ─── Auth (persistent sessions) ──────────────────────────────────────────────
+
+@app.route("/api/auth/google", methods=["POST"])
+def auth_google():
+    data = request.json or {}
+    google_token = data.get("token")
+    if not google_token:
+        return jsonify({"error": "Missing token"}), 400
+    try:
+        resp = http_requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {google_token}"},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return jsonify({"error": "Invalid Google token"}), 401
+        profile = resp.json()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    user_id = profile.get("sub")
+    session_token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now() + timedelta(days=30)).isoformat()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO sessions (token, user_id, user_email, user_name, user_picture, created_at, expires_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """, (session_token, user_id, profile.get("email"), profile.get("name"),
+          profile.get("picture"), datetime.now().isoformat(), expires_at))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({
+        "session_token": session_token,
+        "user": {
+            "sub": user_id,
+            "email": profile.get("email"),
+            "name": profile.get("name"),
+            "picture": profile.get("picture"),
+        }
+    })
+
+
+@app.route("/api/auth/session", methods=["DELETE"])
+def revoke_session():
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        tok = auth[7:]
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM sessions WHERE token = %s", (tok,))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+    return jsonify({"success": True})
+
+
 # ─── User settings (reminders) ────────────────────────────────────────────────
 
 @app.route("/api/settings", methods=["GET"])
@@ -345,8 +453,11 @@ def get_settings():
     cur.close()
     conn.close()
     if row:
-        return jsonify({"reminder_time": row["reminder_time"], "reminder_frequency": row["reminder_frequency"]})
-    return jsonify({"reminder_time": "09:00", "reminder_frequency": "daily"})
+        return jsonify({
+            "reminder_times": json.loads(row["reminder_times"] or '["09:00"]'),
+            "reminder_days": json.loads(row["reminder_days"] or '[0,1,2,3,4,5,6]'),
+        })
+    return jsonify({"reminder_times": ["09:00"], "reminder_days": [0,1,2,3,4,5,6]})
 
 
 @app.route("/api/settings", methods=["PUT"])
@@ -355,20 +466,48 @@ def update_settings():
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
     data = request.json
-    reminder_time = data.get("reminder_time", "09:00")
-    reminder_frequency = data.get("reminder_frequency", "daily")
-    if reminder_frequency not in ("daily", "weekdays", "weekly", "never"):
-        return jsonify({"error": "Invalid frequency"}), 400
+    reminder_times = data.get("reminder_times", ["09:00"])
+    reminder_days = data.get("reminder_days", [0,1,2,3,4,5,6])
+    if not isinstance(reminder_times, list):
+        reminder_times = ["09:00"]
+    if not isinstance(reminder_days, list):
+        reminder_days = [0,1,2,3,4,5,6]
+    # Validate times format HH:MM
+    import re
+    reminder_times = [t for t in reminder_times if re.match(r'^\d{2}:\d{2}$', str(t))]
+    reminder_days = [d for d in reminder_days if isinstance(d, int) and 0 <= d <= 6]
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO user_settings (user_id, reminder_time, reminder_frequency)
+        INSERT INTO user_settings (user_id, reminder_times, reminder_days)
         VALUES (%s, %s, %s)
         ON CONFLICT (user_id) DO UPDATE
-        SET reminder_time = EXCLUDED.reminder_time,
-            reminder_frequency = EXCLUDED.reminder_frequency,
-            last_reminded_at = NULL
-    """, (user_id, reminder_time, reminder_frequency))
+        SET reminder_times = EXCLUDED.reminder_times,
+            reminder_days = EXCLUDED.reminder_days,
+            reminder_sent_log = '[]'
+    """, (user_id, json.dumps(reminder_times), json.dumps(reminder_days)))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify({"success": True})
+
+
+@app.route("/api/tags/<tag>", methods=["DELETE"])
+def delete_tag(tag):
+    user_id = get_user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT id, tags FROM items WHERE user_id = %s AND tags IS NOT NULL", (user_id,))
+    for item in cur.fetchall():
+        try:
+            tags = json.loads(item["tags"] or "[]")
+            if tag in tags:
+                tags = [t for t in tags if t != tag]
+                cur.execute("UPDATE items SET tags = %s WHERE id = %s", (json.dumps(tags), item["id"]))
+        except Exception:
+            pass
     conn.commit()
     cur.close()
     conn.close()
