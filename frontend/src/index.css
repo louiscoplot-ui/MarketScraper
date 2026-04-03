@@ -828,3 +828,97 @@ html, body {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Mobile responsive ─── */
+
+@media (max-width: 600px) {
+  .app {
+    padding: 16px 12px 100px;
+  }
+
+  .header {
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .header h1 {
+    font-size: 18px;
+  }
+
+  .header-count {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+
+  .theme-dots {
+    gap: 6px;
+  }
+
+  .theme-dot {
+    width: 16px;
+    height: 16px;
+  }
+
+  .lang-dropdown-menu {
+    width: 160px;
+  }
+
+  .capture-card {
+    padding: 14px;
+  }
+
+  .capture-textarea {
+    min-height: 100px;
+    font-size: 16px; /* prevent iOS zoom */
+  }
+
+  .capture-footer {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .btn-analyse {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .filters {
+    gap: 6px;
+  }
+
+  .filter-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .item-card {
+    padding: 12px 14px;
+  }
+
+  .item-title {
+    font-size: 14px;
+  }
+
+  .item-meta {
+    font-size: 11px;
+  }
+
+  .item-actions {
+    gap: 6px;
+  }
+
+  .btn-delete {
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+
+  .subtask-list {
+    padding-left: 8px;
+  }
+
+  /* iOS safe area */
+  .app {
+    padding-bottom: calc(100px + env(safe-area-inset-bottom));
+  }
+}
