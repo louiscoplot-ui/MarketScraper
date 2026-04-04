@@ -15,45 +15,45 @@
   <circle cx="100" cy="200" r="220" fill="#f97316" opacity="0.05" filter="url(#blur)"/>
   <circle cx="980" cy="900" r="200" fill="#fbbf24" opacity="0.05" filter="url(#blur)"/>
 
-  <text x="540" y="106" font-family="SF Pro Display, -apple-system, sans-serif" font-size="24" font-weight="600" fill="#b0998a" text-anchor="middle" letter-spacing="3">FONCTIONNALITÉS</text>
-  <text x="540" y="182" font-family="SF Pro Display, -apple-system, sans-serif" font-size="62" font-weight="800" fill="#5c3d1e" text-anchor="middle">Tout ce dont</text>
-  <text x="540" y="252" font-family="SF Pro Display, -apple-system, sans-serif" font-size="62" font-weight="800" fill="url(#orange)" text-anchor="middle">tu as besoin.</text>
+  <text x="540" y="106" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="600" fill="#b0998a" text-anchor="middle" letter-spacing="3">FONCTIONNALITÉS</text>
+  <text x="540" y="182" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="800" fill="#5c3d1e" text-anchor="middle">Tout ce dont</text>
+  <text x="540" y="252" font-family="Arial, Helvetica, sans-serif" font-size="62" font-weight="800" fill="url(#orange)" text-anchor="middle">tu as besoin.</text>
 
   <rect x="50" y="296" width="470" height="156" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="100" y="372" font-family="SF Pro Display, -apple-system, sans-serif" font-size="48">🧠</text>
-  <text x="174" y="364" font-family="SF Pro Display, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Classement IA</text>
-  <text x="174" y="394" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">To-do · Idée · Note · Call</text>
-  <text x="174" y="416" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">automatique, sans effort</text>
+  <text x="100" y="372" font-family="Arial, Helvetica, sans-serif" font-size="48">🧠</text>
+  <text x="174" y="364" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Classement IA</text>
+  <text x="174" y="394" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">To-do · Idée · Note · Call</text>
+  <text x="174" y="416" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">automatique, sans effort</text>
 
   <rect x="560" y="296" width="470" height="156" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="610" y="372" font-family="SF Pro Display, -apple-system, sans-serif" font-size="48">📅</text>
-  <text x="684" y="364" font-family="SF Pro Display, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Calendrier</text>
-  <text x="684" y="394" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Dates détectées dans ton texte</text>
-  <text x="684" y="416" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Vue mensuelle avec points</text>
+  <text x="610" y="372" font-family="Arial, Helvetica, sans-serif" font-size="48">📅</text>
+  <text x="684" y="364" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Calendrier</text>
+  <text x="684" y="394" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Dates détectées dans ton texte</text>
+  <text x="684" y="416" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Vue mensuelle avec points</text>
 
   <rect x="50" y="472" width="470" height="156" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="100" y="548" font-family="SF Pro Display, -apple-system, sans-serif" font-size="48">🔔</text>
-  <text x="174" y="540" font-family="SF Pro Display, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Rappels smart</text>
-  <text x="174" y="570" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Choisis jours &amp; heures.</text>
-  <text x="174" y="592" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Plusieurs rappels/jour</text>
+  <text x="100" y="548" font-family="Arial, Helvetica, sans-serif" font-size="48">🔔</text>
+  <text x="174" y="540" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Rappels smart</text>
+  <text x="174" y="570" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Choisis jours &amp; heures.</text>
+  <text x="174" y="592" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Plusieurs rappels/jour</text>
 
   <rect x="560" y="472" width="470" height="156" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="610" y="548" font-family="SF Pro Display, -apple-system, sans-serif" font-size="48">👥</text>
-  <text x="684" y="540" font-family="SF Pro Display, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Groupes partagés</text>
-  <text x="684" y="570" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Crée ou rejoins un groupe</text>
-  <text x="684" y="592" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">avec un code d'invitation</text>
+  <text x="610" y="548" font-family="Arial, Helvetica, sans-serif" font-size="48">👥</text>
+  <text x="684" y="540" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Groupes partagés</text>
+  <text x="684" y="570" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Crée ou rejoins un groupe</text>
+  <text x="684" y="592" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">avec un code d'invitation</text>
 
   <rect x="50" y="648" width="470" height="156" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="100" y="724" font-family="SF Pro Display, -apple-system, sans-serif" font-size="48">🌍</text>
-  <text x="174" y="716" font-family="SF Pro Display, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">50+ langues</text>
-  <text x="174" y="746" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Détection automatique</text>
-  <text x="174" y="768" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">de ta langue</text>
+  <text x="100" y="724" font-family="Arial, Helvetica, sans-serif" font-size="48">🌍</text>
+  <text x="174" y="716" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">50+ langues</text>
+  <text x="174" y="746" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Détection automatique</text>
+  <text x="174" y="768" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">de ta langue</text>
 
   <rect x="560" y="648" width="470" height="156" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="610" y="724" font-family="SF Pro Display, -apple-system, sans-serif" font-size="48">📲</text>
-  <text x="684" y="716" font-family="SF Pro Display, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Sans App Store</text>
-  <text x="684" y="746" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">Installe comme une vraie app</text>
-  <text x="684" y="768" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" fill="#b0998a">en 5 secondes · Gratuit</text>
+  <text x="610" y="724" font-family="Arial, Helvetica, sans-serif" font-size="48">📲</text>
+  <text x="684" y="716" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700" fill="#5c3d1e">Sans App Store</text>
+  <text x="684" y="746" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">Installe comme une vraie app</text>
+  <text x="684" y="768" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#b0998a">en 5 secondes · Gratuit</text>
 
-  <text x="540" y="920" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="700" fill="url(#orange)" text-anchor="middle">Gratuit · dropleapp.com</text>
+  <text x="540" y="920" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="url(#orange)" text-anchor="middle">Gratuit · dropleapp.com</text>
 </svg>

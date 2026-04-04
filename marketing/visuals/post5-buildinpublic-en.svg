@@ -16,35 +16,35 @@
   <circle cx="100" cy="860" r="250" fill="#f97316" opacity="0.05" filter="url(#blur)"/>
 
   <rect x="330" y="72" width="420" height="46" rx="23" fill="#f97316" fill-opacity="0.10" stroke="#f97316" stroke-opacity="0.25" stroke-width="1"/>
-  <text x="540" y="101" font-family="SF Pro Display, -apple-system, sans-serif" font-size="16" font-weight="700" fill="#f97316" text-anchor="middle" letter-spacing="2">BUILDING IN PUBLIC</text>
+  <text x="540" y="101" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#f97316" text-anchor="middle" letter-spacing="2">BUILDING IN PUBLIC</text>
 
-  <text x="540" y="214" font-family="SF Pro Display, -apple-system, sans-serif" font-size="74" font-weight="800" fill="#5c3d1e" text-anchor="middle">I built this</text>
-  <text x="540" y="298" font-family="SF Pro Display, -apple-system, sans-serif" font-size="74" font-weight="800" fill="url(#orange)" text-anchor="middle">alone. 🧠</text>
+  <text x="540" y="214" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800" fill="#5c3d1e" text-anchor="middle">I built this</text>
+  <text x="540" y="298" font-family="Arial, Helvetica, sans-serif" font-size="74" font-weight="800" fill="url(#orange)" text-anchor="middle">alone. 🧠</text>
 
   <rect x="80" y="352" width="920" height="390" rx="24" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="140" y="410" font-family="SF Pro Display, -apple-system, sans-serif" font-size="20" fill="#b0998a">The problem:</text>
-  <text x="140" y="448" font-family="SF Pro Display, -apple-system, sans-serif" font-size="25" font-weight="600" fill="#5c3d1e">I was losing every idea I had.</text>
-  <text x="140" y="480" font-family="SF Pro Display, -apple-system, sans-serif" font-size="19" fill="#b0998a">WhatsApp self-notes · iPhone memos · random post-its</text>
-  <text x="140" y="506" font-family="SF Pro Display, -apple-system, sans-serif" font-size="19" fill="#b0998a">Nothing was actionable. Everything was chaos.</text>
+  <text x="140" y="410" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#b0998a">The problem:</text>
+  <text x="140" y="448" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" fill="#5c3d1e">I was losing every idea I had.</text>
+  <text x="140" y="480" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#b0998a">WhatsApp self-notes · iPhone memos · random post-its</text>
+  <text x="140" y="506" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#b0998a">Nothing was actionable. Everything was chaos.</text>
   <line x1="140" y1="532" x2="940" y2="532" stroke="#ddd5c8" stroke-width="1"/>
-  <text x="140" y="570" font-family="SF Pro Display, -apple-system, sans-serif" font-size="20" fill="#b0998a">The solution:</text>
-  <text x="140" y="608" font-family="SF Pro Display, -apple-system, sans-serif" font-size="25" font-weight="600" fill="#5c3d1e">Stop organising. Let AI do it.</text>
-  <text x="140" y="642" font-family="SF Pro Display, -apple-system, sans-serif" font-size="19" fill="#b0998a">Type anything → AI categorises, detects dates, structures</text>
-  <text x="140" y="668" font-family="SF Pro Display, -apple-system, sans-serif" font-size="19" fill="#b0998a">everything automatically. Zero friction.</text>
+  <text x="140" y="570" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#b0998a">The solution:</text>
+  <text x="140" y="608" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" fill="#5c3d1e">Stop organising. Let AI do it.</text>
+  <text x="140" y="642" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#b0998a">Type anything → AI categorises, detects dates, structures</text>
+  <text x="140" y="668" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#b0998a">everything automatically. Zero friction.</text>
   <line x1="140" y1="694" x2="940" y2="694" stroke="#ddd5c8" stroke-width="1"/>
-  <text x="140" y="720" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#f97316">→ Built solo  ·  React + Flask + GPT  ·  100% free  ·  dropleapp.com</text>
+  <text x="140" y="720" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#f97316">→ Built solo  ·  React + Flask + GPT  ·  100% free  ·  dropleapp.com</text>
 
   <rect x="80" y="776" width="278" height="118" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="219" y="832" font-family="SF Pro Display, -apple-system, sans-serif" font-size="42" font-weight="800" fill="url(#orange)" text-anchor="middle">7</text>
-  <text x="219" y="864" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#b0998a" text-anchor="middle">languages</text>
+  <text x="219" y="832" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="800" fill="url(#orange)" text-anchor="middle">7</text>
+  <text x="219" y="864" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#b0998a" text-anchor="middle">languages</text>
 
   <rect x="401" y="776" width="278" height="118" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="540" y="832" font-family="SF Pro Display, -apple-system, sans-serif" font-size="42" font-weight="800" fill="url(#orange)" text-anchor="middle">0€</text>
-  <text x="540" y="864" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#b0998a" text-anchor="middle">to use</text>
+  <text x="540" y="832" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="800" fill="url(#orange)" text-anchor="middle">0€</text>
+  <text x="540" y="864" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#b0998a" text-anchor="middle">to use</text>
 
   <rect x="722" y="776" width="278" height="118" rx="20" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
-  <text x="861" y="832" font-family="SF Pro Display, -apple-system, sans-serif" font-size="42" font-weight="800" fill="url(#orange)" text-anchor="middle">∞</text>
-  <text x="861" y="864" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#b0998a" text-anchor="middle">ideas captured</text>
+  <text x="861" y="832" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="800" fill="url(#orange)" text-anchor="middle">∞</text>
+  <text x="861" y="864" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#b0998a" text-anchor="middle">ideas captured</text>
 
-  <text x="540" y="984" font-family="SF Pro Display, -apple-system, sans-serif" font-size="25" font-weight="700" fill="url(#orange)" text-anchor="middle">dropleapp.com · #buildinpublic</text>
+  <text x="540" y="984" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="700" fill="url(#orange)" text-anchor="middle">dropleapp.com · #buildinpublic</text>
 </svg>

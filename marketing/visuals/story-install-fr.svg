@@ -25,52 +25,52 @@
     fill="url(#dropGrad)"/>
   <path d="M535 131 C532 138 530 145 530 156" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.45"/>
 
-  <text x="540" y="260" font-family="SF Pro Display, -apple-system, sans-serif" font-size="86" font-weight="800" fill="url(#orange)" text-anchor="middle">Drople</text>
-  <text x="540" y="318" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" fill="#b0998a" text-anchor="middle">Vide ton cerveau. L'IA range tout.</text>
+  <text x="540" y="260" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="800" fill="url(#orange)" text-anchor="middle">Drople</text>
+  <text x="540" y="318" font-family="Arial, Helvetica, sans-serif" font-size="30" fill="#b0998a" text-anchor="middle">Vide ton cerveau. L'IA range tout.</text>
   <rect x="440" y="344" width="200" height="2" rx="1" fill="url(#orange)" opacity="0.3"/>
 
-  <text x="540" y="448" font-family="SF Pro Display, -apple-system, sans-serif" font-size="54" font-weight="800" fill="#5c3d1e" text-anchor="middle">Installe l'app</text>
-  <text x="540" y="514" font-family="SF Pro Display, -apple-system, sans-serif" font-size="54" font-weight="800" fill="url(#orange)" text-anchor="middle">en 10 secondes</text>
-  <text x="540" y="572" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" fill="#b0998a" text-anchor="middle">sans passer par l'App Store</text>
+  <text x="540" y="448" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#5c3d1e" text-anchor="middle">Installe l'app</text>
+  <text x="540" y="514" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="url(#orange)" text-anchor="middle">en 10 secondes</text>
+  <text x="540" y="572" font-family="Arial, Helvetica, sans-serif" font-size="30" fill="#b0998a" text-anchor="middle">sans passer par l'App Store</text>
 
   <!-- iPhone card -->
   <rect x="60" y="620" width="960" height="310" rx="26" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="60" y="620" width="960" height="72" rx="26" fill="#f97316" fill-opacity="0.07"/>
   <rect x="60" y="662" width="960" height="30" fill="#f97316" fill-opacity="0.07"/>
-  <text x="120" y="670" font-family="SF Pro Display, -apple-system, sans-serif" font-size="38">🍎</text>
-  <text x="172" y="672" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" font-weight="700" fill="#f97316">iPhone</text>
-  <text x="120" y="752" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a">①</text>
-  <text x="158" y="752" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">Ouvre Safari →</text>
-  <text x="418" y="752" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="700" fill="#f97316">dropleapp.com</text>
-  <text x="120" y="800" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a">②</text>
-  <text x="158" y="800" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">📤 Partager en bas de l'écran</text>
-  <text x="120" y="848" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a">③</text>
-  <text x="158" y="848" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">"Ajouter à l'écran d'accueil"</text>
-  <text x="120" y="896" font-family="SF Pro Display, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#f97316">  ✓ Installé. Gratuit.</text>
+  <text x="120" y="670" font-family="Arial, Helvetica, sans-serif" font-size="38">🍎</text>
+  <text x="172" y="672" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#f97316">iPhone</text>
+  <text x="120" y="752" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a">①</text>
+  <text x="158" y="752" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">Ouvre Safari →</text>
+  <text x="418" y="752" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#f97316">dropleapp.com</text>
+  <text x="120" y="800" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a">②</text>
+  <text x="158" y="800" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">📤 Partager en bas de l'écran</text>
+  <text x="120" y="848" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a">③</text>
+  <text x="158" y="848" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">"Ajouter à l'écran d'accueil"</text>
+  <text x="120" y="896" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#f97316">  ✓ Installé. Gratuit.</text>
 
   <!-- Android card -->
   <rect x="60" y="966" width="960" height="310" rx="26" fill="white" stroke="#ddd5c8" stroke-width="1.5" filter="url(#shadow)"/>
   <rect x="60" y="966" width="960" height="72" rx="26" fill="#059669" fill-opacity="0.07"/>
   <rect x="60" y="1008" width="960" height="30" fill="#059669" fill-opacity="0.07"/>
-  <text x="120" y="1016" font-family="SF Pro Display, -apple-system, sans-serif" font-size="38">🤖</text>
-  <text x="172" y="1018" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" font-weight="700" fill="#059669">Android</text>
-  <text x="120" y="1098" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a">①</text>
-  <text x="158" y="1098" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">Ouvre Chrome →</text>
-  <text x="432" y="1098" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="700" fill="#059669">dropleapp.com</text>
-  <text x="120" y="1146" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a">②</text>
-  <text x="158" y="1146" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">⋮ Menu en haut à droite</text>
-  <text x="120" y="1194" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a">③</text>
-  <text x="158" y="1194" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">"Installer l'application"</text>
-  <text x="120" y="1242" font-family="SF Pro Display, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#059669">  ✓ Installé. Gratuit.</text>
+  <text x="120" y="1016" font-family="Arial, Helvetica, sans-serif" font-size="38">🤖</text>
+  <text x="172" y="1018" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#059669">Android</text>
+  <text x="120" y="1098" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a">①</text>
+  <text x="158" y="1098" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">Ouvre Chrome →</text>
+  <text x="432" y="1098" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#059669">dropleapp.com</text>
+  <text x="120" y="1146" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a">②</text>
+  <text x="158" y="1146" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">⋮ Menu en haut à droite</text>
+  <text x="120" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a">③</text>
+  <text x="158" y="1194" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="600" fill="#5c3d1e">"Installer l'application"</text>
+  <text x="120" y="1242" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#059669">  ✓ Installé. Gratuit.</text>
 
   <!-- CTA -->
   <rect x="110" y="1320" width="860" height="118" rx="26" fill="url(#orange)" filter="url(#shadow)"/>
-  <text x="540" y="1390" font-family="SF Pro Display, -apple-system, sans-serif" font-size="34" font-weight="800" fill="white" text-anchor="middle">✓ Gratuit · Aucun téléchargement</text>
+  <text x="540" y="1390" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" fill="white" text-anchor="middle">✓ Gratuit · Aucun téléchargement</text>
 
-  <text x="540" y="1512" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" fill="#b0998a" text-anchor="middle">Ce que tu peux faire ensuite :</text>
-  <text x="540" y="1566" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#5c3d1e" text-anchor="middle">🧠 Vide ton cerveau  ·  ✦ L'IA classe tout</text>
-  <text x="540" y="1614" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#5c3d1e" text-anchor="middle">📅 Calendrier · 🔔 Rappels · 👥 Groupes</text>
+  <text x="540" y="1512" font-family="Arial, Helvetica, sans-serif" font-size="30" fill="#b0998a" text-anchor="middle">Ce que tu peux faire ensuite :</text>
+  <text x="540" y="1566" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#5c3d1e" text-anchor="middle">🧠 Vide ton cerveau  ·  ✦ L'IA classe tout</text>
+  <text x="540" y="1614" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#5c3d1e" text-anchor="middle">📅 Calendrier · 🔔 Rappels · 👥 Groupes</text>
 
-  <text x="540" y="1760" font-family="SF Pro Display, -apple-system, sans-serif" font-size="46" font-weight="800" fill="url(#orange)" text-anchor="middle">dropleapp.com</text>
-  <text x="540" y="1816" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#b0998a" text-anchor="middle">@dropleapp</text>
+  <text x="540" y="1760" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="800" fill="url(#orange)" text-anchor="middle">dropleapp.com</text>
+  <text x="540" y="1816" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b0998a" text-anchor="middle">@dropleapp</text>
 </svg>
