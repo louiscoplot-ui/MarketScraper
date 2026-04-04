@@ -4,77 +4,68 @@
       <stop offset="0%" style="stop-color:#0d1117"/>
       <stop offset="100%" style="stop-color:#161b22"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#58a6ff"/>
-      <stop offset="100%" style="stop-color:#a371f7"/>
+    <linearGradient id="orange" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f97316"/>
+      <stop offset="100%" style="stop-color:#fbbf24"/>
     </linearGradient>
-    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#58a6ff;stop-opacity:0.15"/>
-      <stop offset="100%" style="stop-color:#a371f7;stop-opacity:0.05"/>
+    <linearGradient id="orangeV" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316"/>
+      <stop offset="100%" style="stop-color:#fbbf24"/>
     </linearGradient>
-    <filter id="blur">
-      <feGaussianBlur stdDeviation="40"/>
-    </filter>
+    <filter id="blur"><feGaussianBlur stdDeviation="45"/></filter>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="18" flood-color="#000" flood-opacity="0.5"/></filter>
   </defs>
 
-  <!-- Background -->
   <rect width="1080" height="1080" fill="url(#bg)"/>
-
-  <!-- Glow orbs -->
-  <circle cx="200" cy="300" r="250" fill="#58a6ff" opacity="0.06" filter="url(#blur)"/>
-  <circle cx="900" cy="800" r="300" fill="#a371f7" opacity="0.07" filter="url(#blur)"/>
-
-  <!-- Grid lines subtle -->
-  <line x1="0" y1="360" x2="1080" y2="360" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
-  <line x1="0" y1="720" x2="1080" y2="720" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
-  <line x1="360" y1="0" x2="360" y2="1080" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
-  <line x1="720" y1="0" x2="720" y2="1080" stroke="#ffffff" stroke-opacity="0.03" stroke-width="1"/>
+  <circle cx="180" cy="280" r="280" fill="#f97316" opacity="0.07" filter="url(#blur)"/>
+  <circle cx="920" cy="820" r="320" fill="#fbbf24" opacity="0.05" filter="url(#blur)"/>
 
   <!-- Top badge -->
-  <rect x="390" y="160" width="300" height="44" rx="22" fill="#58a6ff" fill-opacity="0.12" stroke="#58a6ff" stroke-opacity="0.3" stroke-width="1"/>
-  <text x="540" y="188" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="17" font-weight="600" fill="#58a6ff" text-anchor="middle" letter-spacing="2">NOUVEAU · GRATUIT</text>
+  <rect x="380" y="100" width="320" height="48" rx="24" fill="#f97316" fill-opacity="0.12" stroke="#f97316" stroke-opacity="0.35" stroke-width="1"/>
+  <text x="540" y="130" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="17" font-weight="600" fill="#f97316" text-anchor="middle" letter-spacing="2">NOUVEAU · GRATUIT</text>
 
-  <!-- Main title -->
-  <text x="540" y="320" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="110" font-weight="800" fill="url(#accent)" text-anchor="middle" letter-spacing="-3">Drople</text>
+  <!-- Logo -->
+  <text x="540" y="290" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="120" font-weight="800" fill="url(#orange)" text-anchor="middle" letter-spacing="-4">Drople</text>
 
-  <!-- Tagline line 1 -->
-  <text x="540" y="420" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="42" font-weight="300" fill="#ffffff" text-anchor="middle" opacity="0.9">Vide ton cerveau.</text>
-  <!-- Tagline line 2 -->
-  <text x="540" y="478" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="42" font-weight="700" fill="#ffffff" text-anchor="middle">L'IA fait le reste.</text>
+  <!-- Tagline -->
+  <text x="540" y="382" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="40" font-weight="300" fill="#e6edf3" text-anchor="middle" opacity="0.9">Vide ton cerveau.</text>
+  <text x="540" y="436" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="40" font-weight="700" fill="#e6edf3" text-anchor="middle">L'IA fait le reste.</text>
 
   <!-- Divider -->
-  <rect x="460" y="520" width="160" height="2" rx="1" fill="url(#accent)" opacity="0.5"/>
+  <rect x="460" y="468" width="160" height="2" rx="1" fill="url(#orange)" opacity="0.5"/>
 
-  <!-- Feature pills -->
-  <!-- Pill 1 -->
-  <rect x="120" y="570" width="250" height="60" rx="30" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
-  <text x="245" y="607" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="22" fill="#ffffff" text-anchor="middle" opacity="0.9">✓  Classement IA</text>
+  <!-- Pills row 1 -->
+  <rect x="108" y="510" width="256" height="58" rx="29" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="236" y="545" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="21" fill="#e6edf3" text-anchor="middle" opacity="0.9">✓  Classement IA</text>
 
-  <!-- Pill 2 -->
-  <rect x="415" y="570" width="250" height="60" rx="30" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
-  <text x="540" y="607" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="22" fill="#ffffff" text-anchor="middle" opacity="0.9">📅  Calendrier</text>
+  <rect x="412" y="510" width="256" height="58" rx="29" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="540" y="545" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="21" fill="#e6edf3" text-anchor="middle" opacity="0.9">📅  Calendrier</text>
 
-  <!-- Pill 3 -->
-  <rect x="710" y="570" width="250" height="60" rx="30" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
-  <text x="835" y="607" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="22" fill="#ffffff" text-anchor="middle" opacity="0.9">🔔  Rappels</text>
+  <rect x="716" y="510" width="256" height="58" rx="29" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="844" y="545" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="21" fill="#e6edf3" text-anchor="middle" opacity="0.9">🔔  Rappels</text>
 
-  <!-- Pill 4 -->
-  <rect x="175" y="652" width="250" height="60" rx="30" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
-  <text x="300" y="689" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="22" fill="#ffffff" text-anchor="middle" opacity="0.9">👥  Groupes</text>
+  <!-- Pills row 2 -->
+  <rect x="196" y="586" width="256" height="58" rx="29" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="324" y="621" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="21" fill="#e6edf3" text-anchor="middle" opacity="0.9">👥  Groupes</text>
 
-  <!-- Pill 5 -->
-  <rect x="655" y="652" width="250" height="60" rx="30" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
-  <text x="780" y="689" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="22" fill="#ffffff" text-anchor="middle" opacity="0.9">🌍  Multilingue</text>
+  <rect x="628" y="586" width="256" height="58" rx="29" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="756" y="621" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="21" fill="#e6edf3" text-anchor="middle" opacity="0.9">🌍  50+ langues</text>
 
-  <!-- Mock app input -->
-  <rect x="140" y="760" width="800" height="80" rx="16" fill="#21262d" stroke="#30363d" stroke-width="1.5"/>
-  <text x="200" y="808" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="22" fill="#8b949e" text-anchor="start">"Rappeler d'appeler le dentiste mardi matin…"</text>
-  <rect x="840" y="775" width="80" height="50" rx="12" fill="url(#accent)"/>
-  <text x="880" y="807" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" font-weight="700" fill="#ffffff" text-anchor="middle">IA ✦</text>
+  <!-- Input mockup -->
+  <rect x="108" y="684" width="864" height="80" rx="16" fill="#1c2128" stroke="#30363d" stroke-width="1.5"/>
+  <text x="168" y="730" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="21" fill="#7d8590">"Rappeler d'appeler le dentiste mardi matin…"</text>
+  <rect x="858" y="698" width="96" height="52" rx="12" fill="url(#orange)"/>
+  <text x="906" y="730" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="17" font-weight="700" fill="#0d1117" text-anchor="middle">IA ✦</text>
 
-  <!-- Bottom URL -->
-  <text x="540" y="930" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="28" font-weight="600" fill="url(#accent)" text-anchor="middle">dropleapp.com</text>
+  <!-- Category tags output -->
+  <rect x="108" y="790" width="864" height="60" rx="12" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
+  <rect x="130" y="805" width="100" height="30" rx="8" fill="#3b82f622" stroke="#3b82f655" stroke-width="1"/>
+  <text x="180" y="825" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="14" fill="#3b82f6" text-anchor="middle">📞 Call</text>
+  <rect x="248" y="805" width="110" height="30" rx="8" fill="#34d39922" stroke="#34d39955" stroke-width="1"/>
+  <text x="303" y="825" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="14" fill="#34d399" text-anchor="middle">✓ To-do</text>
+  <text x="390" y="825" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="15" fill="#7d8590">📅 Mardi · Détecté automatiquement</text>
 
-  <!-- Bottom tagline -->
-  <text x="540" y="980" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e" text-anchor="middle">Disponible maintenant · Gratuit · iPhone &amp; Android</text>
+  <!-- URL -->
+  <text x="540" y="920" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="30" font-weight="700" fill="url(#orange)" text-anchor="middle">dropleapp.com</text>
+  <text x="540" y="966" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#7d8590" text-anchor="middle">Gratuit · iPhone &amp; Android · Sans téléchargement</text>
 </svg>

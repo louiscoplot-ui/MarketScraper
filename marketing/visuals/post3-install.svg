@@ -4,90 +4,70 @@
       <stop offset="0%" style="stop-color:#0d1117"/>
       <stop offset="100%" style="stop-color:#161b22"/>
     </linearGradient>
-    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#58a6ff"/>
-      <stop offset="100%" style="stop-color:#a371f7"/>
-    </linearGradient>
-    <linearGradient id="iosGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a2e"/>
-      <stop offset="100%" style="stop-color:#16213e"/>
-    </linearGradient>
-    <linearGradient id="androidGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a2e1a"/>
-      <stop offset="100%" style="stop-color:#162116"/>
+    <linearGradient id="orange" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f97316"/>
+      <stop offset="100%" style="stop-color:#fbbf24"/>
     </linearGradient>
     <filter id="blur"><feGaussianBlur stdDeviation="50"/></filter>
-    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.5"/></filter>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.5"/></filter>
   </defs>
 
   <rect width="1080" height="1080" fill="url(#bg)"/>
-  <circle cx="200" cy="400" r="300" fill="#58a6ff" opacity="0.04" filter="url(#blur)"/>
-  <circle cx="900" cy="700" r="250" fill="#3fb950" opacity="0.05" filter="url(#blur)"/>
+  <circle cx="200" cy="400" r="300" fill="#f97316" opacity="0.05" filter="url(#blur)"/>
+  <circle cx="900" cy="700" r="260" fill="#fbbf24" opacity="0.04" filter="url(#blur)"/>
 
-  <!-- Top -->
-  <text x="540" y="110" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="26" font-weight="600" fill="#8b949e" text-anchor="middle" letter-spacing="3">INSTALLER L'APP</text>
-  <text x="540" y="185" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="58" font-weight="800" fill="#ffffff" text-anchor="middle">Pas besoin de</text>
-  <text x="540" y="250" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="58" font-weight="800" fill="url(#accent)" text-anchor="middle">l'App Store.</text>
+  <text x="540" y="110" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="600" fill="#7d8590" text-anchor="middle" letter-spacing="3">INSTALLER L'APP</text>
+  <text x="540" y="186" font-family="SF Pro Display, -apple-system, sans-serif" font-size="58" font-weight="800" fill="#e6edf3" text-anchor="middle">Pas besoin de</text>
+  <text x="540" y="252" font-family="SF Pro Display, -apple-system, sans-serif" font-size="58" font-weight="800" fill="url(#orange)" text-anchor="middle">l'App Store.</text>
 
-  <!-- iOS card -->
-  <rect x="60" y="300" width="450" height="560" rx="28" fill="url(#iosGrad)" stroke="#58a6ff33" stroke-width="1.5" filter="url(#shadow)"/>
-  <!-- iOS header -->
-  <rect x="60" y="300" width="450" height="70" rx="28" fill="#58a6ff" fill-opacity="0.12"/>
-  <rect x="60" y="340" width="450" height="30" fill="#58a6ff" fill-opacity="0.12"/>
-  <text x="100" y="345" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="28" text-anchor="start">🍎</text>
-  <text x="150" y="347" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="24" font-weight="700" fill="#58a6ff" text-anchor="start">iPhone</text>
+  <!-- iPhone -->
+  <rect x="50" y="300" width="460" height="590" rx="28" fill="#161b22" stroke="#30363d" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="50" y="300" width="460" height="72" rx="28" fill="#f97316" fill-opacity="0.10"/>
+  <rect x="50" y="342" width="460" height="30" fill="#f97316" fill-opacity="0.10"/>
+  <text x="90" y="348" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30">🍎</text>
+  <text x="136" y="350" font-family="SF Pro Display, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#f97316">iPhone · Safari</text>
 
-  <!-- iOS steps -->
-  <text x="100" y="420" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">Étape 1</text>
-  <text x="100" y="450" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" fill="#ffffff" font-weight="600">Ouvre Safari</text>
-  <text x="100" y="478" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">va sur dropleapp.com</text>
+  <text x="90" y="428" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#7d8590">Étape 1</text>
+  <text x="90" y="460" font-family="SF Pro Display, -apple-system, sans-serif" font-size="21" fill="#e6edf3" font-weight="600">Ouvre Safari</text>
+  <text x="90" y="488" font-family="SF Pro Display, -apple-system, sans-serif" font-size="18" fill="#7d8590">va sur dropleapp.com</text>
+  <line x1="90" y1="510" x2="470" y2="510" stroke="#30363d" stroke-width="1"/>
 
-  <line x1="100" y1="500" x2="470" y2="500" stroke="#30363d" stroke-width="1"/>
+  <text x="90" y="540" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#7d8590">Étape 2</text>
+  <text x="90" y="572" font-family="SF Pro Display, -apple-system, sans-serif" font-size="21" fill="#e6edf3" font-weight="600">Clique 📤 Partager</text>
+  <text x="90" y="600" font-family="SF Pro Display, -apple-system, sans-serif" font-size="18" fill="#7d8590">en bas de l'écran</text>
+  <line x1="90" y1="620" x2="470" y2="620" stroke="#30363d" stroke-width="1"/>
 
-  <text x="100" y="530" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">Étape 2</text>
-  <text x="100" y="560" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" fill="#ffffff" font-weight="600">Clique sur 📤 Partager</text>
-  <text x="100" y="588" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">en bas de Safari</text>
+  <text x="90" y="650" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#7d8590">Étape 3</text>
+  <text x="90" y="682" font-family="SF Pro Display, -apple-system, sans-serif" font-size="21" fill="#e6edf3" font-weight="600">"Ajouter à l'écran d'accueil"</text>
+  <line x1="90" y1="702" x2="470" y2="702" stroke="#30363d" stroke-width="1"/>
 
-  <line x1="100" y1="610" x2="470" y2="610" stroke="#30363d" stroke-width="1"/>
+  <rect x="90" y="730" width="320" height="60" rx="14" fill="#f97316" fill-opacity="0.14" stroke="#f97316" stroke-opacity="0.4" stroke-width="1.5"/>
+  <text x="250" y="766" font-family="SF Pro Display, -apple-system, sans-serif" font-size="19" font-weight="700" fill="#f97316" text-anchor="middle">✓ Installé — Gratuit</text>
 
-  <text x="100" y="640" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">Étape 3</text>
-  <text x="100" y="670" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" fill="#ffffff" font-weight="600">→ Sur l'écran d'accueil</text>
-  <text x="100" y="698" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">"Ajouter à l'écran d'accueil"</text>
+  <!-- Android -->
+  <rect x="570" y="300" width="460" height="590" rx="28" fill="#161b22" stroke="#30363d" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="570" y="300" width="460" height="72" rx="28" fill="#34d399" fill-opacity="0.10"/>
+  <rect x="570" y="342" width="460" height="30" fill="#34d399" fill-opacity="0.10"/>
+  <text x="610" y="348" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30">🤖</text>
+  <text x="654" y="350" font-family="SF Pro Display, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#34d399">Android · Chrome</text>
 
-  <line x1="100" y1="720" x2="470" y2="720" stroke="#30363d" stroke-width="1"/>
+  <text x="610" y="428" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#7d8590">Étape 1</text>
+  <text x="610" y="460" font-family="SF Pro Display, -apple-system, sans-serif" font-size="21" fill="#e6edf3" font-weight="600">Ouvre Chrome</text>
+  <text x="610" y="488" font-family="SF Pro Display, -apple-system, sans-serif" font-size="18" fill="#7d8590">va sur dropleapp.com</text>
+  <line x1="610" y1="510" x2="990" y2="510" stroke="#30363d" stroke-width="1"/>
 
-  <rect x="120" y="750" width="310" height="64" rx="16" fill="#58a6ff" fill-opacity="0.15" stroke="#58a6ff" stroke-opacity="0.4" stroke-width="1.5"/>
-  <text x="275" y="789" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" font-weight="700" fill="#58a6ff" text-anchor="middle">✓ Installé ! Gratuit.</text>
+  <text x="610" y="540" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#7d8590">Étape 2</text>
+  <text x="610" y="572" font-family="SF Pro Display, -apple-system, sans-serif" font-size="21" fill="#e6edf3" font-weight="600">Clique ⋮ Menu</text>
+  <text x="610" y="600" font-family="SF Pro Display, -apple-system, sans-serif" font-size="18" fill="#7d8590">en haut à droite</text>
+  <line x1="610" y1="620" x2="990" y2="620" stroke="#30363d" stroke-width="1"/>
 
-  <!-- Android card -->
-  <rect x="570" y="300" width="450" height="560" rx="28" fill="url(#androidGrad)" stroke="#3fb95033" stroke-width="1.5" filter="url(#shadow)"/>
-  <rect x="570" y="300" width="450" height="70" rx="28" fill="#3fb950" fill-opacity="0.12"/>
-  <rect x="570" y="340" width="450" height="30" fill="#3fb950" fill-opacity="0.12"/>
-  <text x="610" y="345" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="28" text-anchor="start">🤖</text>
-  <text x="655" y="347" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="24" font-weight="700" fill="#3fb950" text-anchor="start">Android</text>
+  <text x="610" y="650" font-family="SF Pro Display, -apple-system, sans-serif" font-size="17" fill="#7d8590">Étape 3</text>
+  <text x="610" y="682" font-family="SF Pro Display, -apple-system, sans-serif" font-size="21" fill="#e6edf3" font-weight="600">"Installer l'application"</text>
+  <line x1="610" y1="702" x2="990" y2="702" stroke="#30363d" stroke-width="1"/>
 
-  <text x="610" y="420" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">Étape 1</text>
-  <text x="610" y="450" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" fill="#ffffff" font-weight="600">Ouvre Chrome</text>
-  <text x="610" y="478" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">va sur dropleapp.com</text>
+  <rect x="610" y="730" width="320" height="60" rx="14" fill="#34d399" fill-opacity="0.14" stroke="#34d399" stroke-opacity="0.4" stroke-width="1.5"/>
+  <text x="770" y="766" font-family="SF Pro Display, -apple-system, sans-serif" font-size="19" font-weight="700" fill="#34d399" text-anchor="middle">✓ Installé — Gratuit</text>
 
-  <line x1="610" y1="500" x2="980" y2="500" stroke="#30363d" stroke-width="1"/>
-
-  <text x="610" y="530" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">Étape 2</text>
-  <text x="610" y="560" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" fill="#ffffff" font-weight="600">Clique sur ⋮ Menu</text>
-  <text x="610" y="588" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">en haut à droite</text>
-
-  <line x1="610" y1="610" x2="980" y2="610" stroke="#30363d" stroke-width="1"/>
-
-  <text x="610" y="640" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">Étape 3</text>
-  <text x="610" y="670" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" fill="#ffffff" font-weight="600">→ Installer l'app</text>
-  <text x="610" y="698" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="18" fill="#8b949e">"Ajouter à l'écran d'accueil"</text>
-
-  <line x1="610" y1="720" x2="980" y2="720" stroke="#30363d" stroke-width="1"/>
-
-  <rect x="630" y="750" width="310" height="64" rx="16" fill="#3fb950" fill-opacity="0.15" stroke="#3fb950" stroke-opacity="0.4" stroke-width="1.5"/>
-  <text x="785" y="789" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="20" font-weight="700" fill="#3fb950" text-anchor="middle">✓ Installé ! Gratuit.</text>
-
-  <!-- Bottom -->
-  <text x="540" y="940" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="30" font-weight="800" fill="#ffffff" text-anchor="middle">Aucun téléchargement requis.</text>
-  <text x="540" y="985" font-family="SF Pro Display, -apple-system, Helvetica Neue, sans-serif" font-size="24" font-weight="600" fill="url(#accent)" text-anchor="middle">dropleapp.com</text>
+  <text x="540" y="950" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" font-weight="800" fill="#e6edf3" text-anchor="middle">Aucun téléchargement requis.</text>
+  <text x="540" y="996" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" font-weight="700" fill="url(#orange)" text-anchor="middle">dropleapp.com</text>
 </svg>
