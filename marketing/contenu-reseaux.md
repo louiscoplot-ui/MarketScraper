@@ -37,8 +37,9 @@ Free app · dropleapp.com
 
 ### Règle de posting
 - **Instagram** : alterner FR (Lun) / EN (Jeu) — touche les deux audiences
-- **Twitter/X** : poster EN (reach international) + répondre en FR aux francophones
+- **Twitter/X** : 90% EN pour le reach international, répondre en FR aux francophones qui commentent
 - **Reddit** : posts EN sur subreddits internationaux, posts FR sur r/france / r/Quebec
+- **Stratégie Twitter** : tu as posté le premier tweet en FR → maintenant poste la version EN, puis passe tout EN
 
 ---
 
@@ -86,51 +87,60 @@ Link in bio 👆
 #productivity #organisation #ai #app #free #dropleapp #notes #todo #ideas #buildinpublic
 ```
 
-### Twitter/X thread (FR)
+### Twitter/X — TWEET DE LANCEMENT EN (poste ça maintenant, version EN du premier tweet FR)
 ```
-Tweet 1:
-J'ai lancé Drople aujourd'hui 🧠✦
+Just launched Drople 🧠✦
 
-Un app qui vide ton cerveau en 3 secondes.
-Tu tapes n'importe quoi → l'IA range tout.
-Gratuit. dropleapp.com
+An app that empties your brain in 3 seconds.
+Type anything → AI organises everything.
+Free. dropleapp.com
 
 🧵
+```
 
+### Twitter/X — THREAD LANCEMENT COMPLET EN (suite du tweet ci-dessus)
+```
 Tweet 2:
-Le problème que je voulais résoudre :
+The problem I wanted to solve:
 
-J'avais des idées partout.
-Notes iPhone, WhatsApp avec moi-même, post-it, mémos vocaux...
+I had ideas everywhere.
+iPhone notes, WhatsApp to myself, post-its, voice memos...
 
-Résultat : tout se perdait. Rien n'était actionnable.
+Nothing was actionable. Everything got lost.
 
 Tweet 3:
-La solution = un seul endroit qui pense à ta place.
+The fix = one place that thinks for you.
 
-Tu tapes en mode chaos :
-"rappeler le dentiste mardi + acheter du lait + idée pour le logo drople"
+You type in chaos mode:
+"call dentist tuesday + buy milk + logo idea for the app"
 
-L'IA crée 3 items séparés, bien classés, avec date si besoin.
+AI creates 3 separate items, sorted, with date detected automatically.
 
 Tweet 4:
-Ce que ça fait :
-✅ Classement automatique (To-do / Idée / Note / Call)
-📅 Calendrier avec tes tâches
-🔔 Rappels configurables
-👥 Groupes partagés
-🌍 7 langues
+What it does:
+✅ Auto-sort (To-do / Idea / Note / Call)
+📅 Calendar with your tasks
+🔔 Custom reminders (pick days + times)
+👥 Shared groups
+🌍 50+ languages
 
-Tout gratuit.
+All free.
 
 Tweet 5:
-Pas besoin de télécharger une app.
-Fonctionne directement dans Safari / Chrome.
-S'installe en 3 secondes sur l'écran d'accueil iPhone ou Android.
+No app store needed.
+Works directly in Safari / Chrome.
+Installs on your home screen in 3 seconds.
 
 dropleapp.com
 
-Je lis tous les retours 👇
+I read every reply 👇
+```
+
+### Twitter/X — TWEET FR (garde ce premier tweet FR, réponds en FR aux gens qui répondent)
+```
+[DÉJÀ POSTÉ] J'ai lancé Drople aujourd'hui...
+→ Si des francophones répondent, réponds en FR
+→ Les prochains tweets = EN
 ```
 
 ---
@@ -139,7 +149,7 @@ Je lis tous les retours 👇
 
 **Visuel :** post2-howitworks.svg
 
-### Instagram
+### Instagram (FR)
 ```
 Tu tapes en mode chaos. L'IA range tout. 🧠✦
 
@@ -166,13 +176,55 @@ dropleapp.com (lien en bio)
 #ia #productivity #brain #organisation #notesapp #todo #dropleapp #appgratuit
 ```
 
+### Instagram (EN)
+```
+Type in chaos mode. AI sorts everything. 🧠✦
+
+3 steps. 3 seconds.
+
+1/ Type whatever's on your mind
+(spelling, language, format — doesn't matter)
+
+2/ AI analyses
+Rewrites · Sorts · Detects dates
+
+3/ Everything is organised
+To-do · Ideas · Notes · Calls
+
+Example:
+"need to call dentist tuesday and buy milk"
+
+→ 📞 Call — "Dentist" — Tuesday
+→ ✓ To-do — "Buy milk"
+
+Automatic. Free.
+dropleapp.com (link in bio)
+
+#ai #productivity #brain #organisation #notesapp #todo #dropleapp #freeapp
+```
+
+### Twitter/X (EN)
+```
+How Drople works:
+
+You type: "call dentist tuesday + buy milk + idea for the app logo"
+
+AI creates 3 separate items:
+📞 Call — Dentist — Tuesday
+✓ To-do — Buy milk
+💡 Idea — App logo
+
+Zero friction. Zero manual sorting.
+dropleapp.com
+```
+
 ---
 
 ## POST 3 — INSTALLER L'APP (J+5)
 
 **Visuel :** post3-install.svg
 
-### Instagram
+### Instagram (FR)
 ```
 📱 Pas besoin de l'App Store.
 
@@ -191,11 +243,42 @@ dropleapp.com
 #iphone #android #appgratuit #pwa #productivity #dropleapp #installation
 ```
 
+### Instagram (EN)
+```
+📱 No App Store needed.
+
+Drople installs directly from your browser.
+
+iPhone:
+Safari → 📤 → "Add to Home Screen"
+
+Android:
+Chrome → ⋮ → "Install app"
+
+That's it. Free. Zero download.
+
+dropleapp.com
+
+#iphone #android #freeapp #pwa #productivity #dropleapp #install
+```
+
+### Twitter/X (EN)
+```
+Drople is a PWA — no App Store needed.
+
+iPhone: Safari → share → Add to Home Screen
+Android: Chrome → ⋮ → Install app
+
+Works offline. Feels native. Installs in 5 seconds.
+
+dropleapp.com
+```
+
 ---
 
 ## POST 4 — SOCIAL PROOF / FEATURE (J+7)
 
-### Instagram
+### Instagram (FR)
 ```
 Drople comprend ce que tu veux dire, même si tu l'écris mal. 🧠
 
@@ -214,11 +297,42 @@ dropleapp.com
 #ia #artificialintelligence #productivity #notes #todo #dropleapp #organisation
 ```
 
+### Instagram (EN)
+```
+Drople understands what you mean, even if you write it badly. 🧠
+
+You can write:
+"meeting thursday evening with thomas for the project"
+"call dentist next week available monday"
+"idea: animated logo for the site"
+
+AI understands context, date, type.
+No forms. No manual categories.
+
+You talk, it organises.
+
+dropleapp.com
+
+#ai #artificialintelligence #productivity #notes #todo #dropleapp #organisation
+```
+
+### Twitter/X (EN)
+```
+Drople works in any language and understands messy input.
+
+"mtg w/ thomas thurs evening re project" → 📅 Meeting — Thomas — Thursday
+"dentist next week monday if free" → 📞 Call — Dentist — Monday
+"idea animated logo" → 💡 Idea — Animated logo
+
+Context-aware. No formatting needed.
+dropleapp.com
+```
+
 ---
 
 ## POST 5 — RAPPELS (J+10)
 
-### Instagram
+### Instagram (FR)
 ```
 🔔 Drople te rappelle ce que tu as oublié.
 
@@ -232,6 +346,36 @@ Juste un rappel de regarder ta liste au bon moment.
 Gratuit. dropleapp.com
 
 #rappels #productivity #organisation #dropleapp #todo #notes #reminders
+```
+
+### Instagram (EN)
+```
+🔔 Drople reminds you what you forgot.
+
+Set your reminders once:
+→ The days you want (Mon–Fri / every day / weekend)
+→ The exact time (or multiple times a day)
+
+No useless notifications.
+Just a reminder to check your list at the right moment.
+
+Free. dropleapp.com
+
+#reminders #productivity #organisation #dropleapp #todo #notes #buildinpublic
+```
+
+### Twitter/X (EN)
+```
+Added custom reminders to Drople.
+
+You pick:
+→ Which days (weekdays / daily / weekend)
+→ What time (or multiple times)
+
+It just nudges you to check your list.
+No notification spam.
+
+dropleapp.com
 ```
 
 ---

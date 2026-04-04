@@ -683,7 +683,7 @@ export default function App() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const fetchItems = useCallback(async () => {
+  const fetchItems = useCallback(async (preserveUrgent = false) => {
     if (!token) return;
     try {
       const url = workspaceId ? `/api/items?workspace_id=${workspaceId}` : `/api/items`;
@@ -692,7 +692,15 @@ export default function App() {
       });
       if (res.status === 401) { logout(); return; }
       const data = await res.json();
-      setItems(Array.isArray(data) ? data : []);
+      if (!Array.isArray(data)) return;
+      if (preserveUrgent) {
+        setItems(prev => {
+          const localUrgent = Object.fromEntries(prev.filter(i => i.urgent).map(i => [i.id, true]));
+          return data.map(item => ({ ...item, urgent: item.urgent || !!localUrgent[item.id] }));
+        });
+      } else {
+        setItems(data);
+      }
     } catch {}
   }, [token, workspaceId]);
 
@@ -764,12 +772,6 @@ export default function App() {
       } else {
         const items = Array.isArray(data) ? data : [data];
         setPreviews(items);
-        // Pre-fill tags from AI response
-        const initialTags = {};
-        items.forEach((item, idx) => {
-          if (item.tags && item.tags.length > 0) initialTags[idx] = item.tags;
-        });
-        if (Object.keys(initialTags).length > 0) setPreviewTags(initialTags);
       }
     } catch {
       setError("Impossible de contacter le backend.");
@@ -780,28 +782,39 @@ export default function App() {
 
   const confirmPreviews = async () => {
     if (!previews.length) return;
+    // Snapshot to save (previews state will be cleared)
+    const toSave = previews.map((p, idx) => ({
+      ...p,
+      tags: previewTags[idx] || [],
+      due_date: previewDates[idx] || null,
+      workspace_id: workspaceId,
+    }));
+    // Optimistic: add temp items immediately, clear form
+    const now = new Date().toISOString();
+    const tempItems = toSave.map((p, idx) => ({
+      ...p, id: `temp-${Date.now()}-${idx}`, completed: false,
+      urgent: false, subtask_status: {}, created_at: now,
+    }));
+    setItems(prev => [...tempItems, ...prev]);
+    setPreviews([]);
+    setPreviewDates({});
+    setPreviewTags({});
+    setTagInputs({});
+    setText("");
     try {
-      const results = await Promise.all(previews.map((p, idx) =>
-        fetch("/api/items", {
-          method: "POST",
-          headers: authHeaders,
-          body: JSON.stringify({ ...p, due_date: previewDates[idx] || null, workspace_id: workspaceId, tags: previewTags[idx] || [] }),
-        })
+      const results = await Promise.all(toSave.map(p =>
+        fetch("/api/items", { method: "POST", headers: authHeaders, body: JSON.stringify(p) })
       ));
       for (const r of results) {
         if (r.status === 401) { logout(); setError("Session expirée — reconnecte-toi."); return; }
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          setError(`Erreur sauvegarde: ${err.error || r.status}`);
-          return;
-        }
+        if (!r.ok) { const err = await r.json().catch(() => ({})); setError(`Erreur: ${err.error || r.status}`); return; }
       }
-      setPreviews([]);
-      setPreviewDates({});
-      setPreviewTags({});
-      setTagInputs({});
-      setText("");
-      fetchItems();
+      // Sync real IDs — preserve local urgent flags to avoid race condition
+      setItems(prev => {
+        const urgentById = Object.fromEntries(prev.filter(i => i.urgent).map(i => [i.id, true]));
+        return prev; // will be replaced by fetchItems below, but urgentById is captured
+      });
+      fetchItems(true);
     } catch {
       setError("Erreur lors de la sauvegarde.");
     }

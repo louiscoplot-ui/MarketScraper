@@ -1,14 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="114" fill="#0d1117"/>
-  <!-- dots -->
-  <circle cx="156" cy="204" r="28" fill="#64b5f6"/>
-  <circle cx="156" cy="292" r="28" fill="#ba68c8"/>
-  <circle cx="156" cy="380" r="28" fill="#4db6ac"/>
-  <circle cx="244" cy="204" r="28" fill="#64b5f6"/>
-  <circle cx="244" cy="292" r="28" fill="#ba68c8"/>
-  <circle cx="244" cy="380" r="28" fill="#4db6ac"/>
-  <!-- lines -->
-  <line x1="290" y1="204" x2="400" y2="204" stroke="#64b5f6" stroke-width="20" stroke-linecap="round"/>
-  <line x1="290" y1="292" x2="380" y2="292" stroke="#ba68c8" stroke-width="20" stroke-linecap="round"/>
-  <line x1="290" y1="380" x2="350" y2="380" stroke="#4db6ac" stroke-width="20" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fffdf8"/>
+      <stop offset="100%" style="stop-color:#fef3e2"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316"/>
+      <stop offset="100%" style="stop-color:#fbbf24"/>
+    </linearGradient>
+    <filter id="s">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#f97316" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
+  <path d="M256 80 C256 80 148 204 148 284 C148 346 196 400 256 400 C316 400 364 346 364 284 C364 204 256 80 256 80 Z"
+    fill="url(#drop)" filter="url(#s)"/>
+  <path d="M226 130 C210 168 200 210 200 252 C200 262 202 272 205 280"
+    fill="none" stroke="white" stroke-width="14" stroke-linecap="round" opacity="0.35"/>
 </svg>

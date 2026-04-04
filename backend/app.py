@@ -703,42 +703,23 @@ def process_text():
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
     client = anthropic.Anthropic(api_key=api_key)
 
-    categories_instruction = ""
-    if categories:
-        cat_list = ", ".join(f'"{c}"' for c in categories)
-        categories_instruction = f"""
-6. TAGS: The user has defined these personal categories: [{cat_list}]. For each item, assign 0-3 relevant tags from this list (exact spelling). Only use tags from this list. Return them in a "tags" array."""
+    prompt = f"""You are a note assistant. Respond in {language}. Split messy input into separate items if needed.
 
-    prompt = f"""You are a smart note-taking assistant. Always respond in {language}. The user gives you a raw drop of thoughts (messy, vague, incomplete sentences, abbreviations).
+For each item return JSON with:
+- type: "todo" (task), "idea" (concept), "call_note" (call/meeting), "note" (info)
+- title: clean title max 50 chars
+- content: clear reformulation in {language}
+- subtasks: array of strings for todo steps (max 4), else []
+- tags: []
 
-Your job:
-1. Split the input into SEPARATE items if it contains multiple distinct thoughts, tasks or ideas. Each distinct action or idea = one item.
-2. For each item, detect the type:
-   - "todo": actionable task to complete
-   - "idea": creative idea, concept, something to explore
-   - "call_note": notes from a phone call or meeting
-   - "note": general info, reference, reminder
-3. Create a clean concise title (max 60 chars) for each
-4. Reformulate clearly in {language}
-5. For "todo" items with sub-steps, add up to 5 subtasks{categories_instruction}
+Return ONLY a JSON array, no markdown:
+[{{"type":"...","title":"...","content":"...","subtasks":[],"tags":[]}}]
 
-Return ONLY a valid JSON array (even if just one item), no markdown fences:
-[
-  {{
-    "type": "todo" | "idea" | "call_note" | "note",
-    "title": "short clean title",
-    "content": "reformulated content",
-    "subtasks": [],
-    "tags": []
-  }}
-]
-
-Raw input:
-{raw_text}"""
+Input: {raw_text}"""
     try:
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
+            max_tokens=600,
             messages=[{"role": "user", "content": prompt}],
         )
         response_text = message.content[0].text.strip()
