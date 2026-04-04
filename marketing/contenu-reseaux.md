@@ -4,20 +4,41 @@
 
 ## BIOS
 
-### Instagram (@dropleapp)
+### Instagram (@dropleapp) — BILINGUE
 ```
-Vide ton cerveau 🧠 → l'IA range tout ✦
-To-do · Idées · Notes · Rappels · Groupes
-Gratuit · iPhone & Android
-👇 dropleapp.com
+Dump your brain. AI does the rest. 🧠✦
+Vide ton cerveau. L'IA range tout.
+To-do · Ideas · Notes · Reminders · Groups
+Free · dropleapp.com 👇
 ```
 
-### Twitter/X (@dropleapp)
+### Twitter/X (@dropleapp) — BILINGUE
 ```
-Drople — vide ton cerveau, l'IA fait le reste ✦
-Notes · To-do · Idées · Rappels intelligents
-Gratuit sur iPhone & Android → dropleapp.com
+Dump your brain, AI organises everything ✦
+Vide ton cerveau, l'IA fait le reste 🧠
+Free app · dropleapp.com
 ```
+
+---
+
+## STRATÉGIE CIBLES
+
+### Français 🇫🇷
+- Communautés : r/france, r/productivite, groupes Facebook "productivité", Discord français
+- Hashtags FR : #productivite #organisation #appgratuit #idees #tâches #dropleapp
+- Ton : direct, familier, "tu"
+- Angle : "j'ai fait une app parce que je perdais tout"
+
+### International 🌍
+- Communautés : r/productivity, r/PKMS, r/SideProject, r/nocode, Product Hunt, Indie Hackers, Hacker News
+- Hashtags EN : #productivity #secondbrain #braindump #buildinpublic #indiehacker #pkm #notetaking
+- Ton : English, startup-style, "building in public"
+- Angle : "solo-built AI capture app, free, no friction"
+
+### Règle de posting
+- **Instagram** : alterner FR (Lun) / EN (Jeu) — touche les deux audiences
+- **Twitter/X** : poster EN (reach international) + répondre en FR aux francophones
+- **Reddit** : posts EN sur subreddits internationaux, posts FR sur r/france / r/Quebec
 
 ---
 

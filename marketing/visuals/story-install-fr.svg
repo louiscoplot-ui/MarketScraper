@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#a371f7"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#a371f7"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="60"/></filter>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="20" flood-color="#000000" flood-opacity="0.5"/></filter>
+  </defs>
+
+  <rect width="1080" height="1920" fill="url(#bg)"/>
+  <circle cx="200" cy="400" r="350" fill="#58a6ff" opacity="0.05" filter="url(#blur)"/>
+  <circle cx="900" cy="1500" r="400" fill="#a371f7" opacity="0.06" filter="url(#blur)"/>
+
+  <!-- Top logo -->
+  <text x="540" y="200" font-family="SF Pro Display, -apple-system, sans-serif" font-size="80" font-weight="800" fill="url(#accent)" text-anchor="middle">Drople</text>
+  <text x="540" y="260" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" fill="#8b949e" text-anchor="middle">Vide ton cerveau. L'IA range tout.</text>
+
+  <!-- Divider -->
+  <rect x="440" y="290" width="200" height="2" rx="1" fill="url(#accent)" opacity="0.4"/>
+
+  <!-- Main hook -->
+  <text x="540" y="400" font-family="SF Pro Display, -apple-system, sans-serif" font-size="52" font-weight="800" fill="#ffffff" text-anchor="middle">Installe l'app</text>
+  <text x="540" y="464" font-family="SF Pro Display, -apple-system, sans-serif" font-size="52" font-weight="800" fill="url(#accent)" text-anchor="middle">en 10 secondes</text>
+  <text x="540" y="520" font-family="SF Pro Display, -apple-system, sans-serif" font-size="34" fill="#8b949e" text-anchor="middle">sans passer par l'App Store</text>
+
+  <!-- iPhone card -->
+  <rect x="80" y="590" width="920" height="300" rx="28" fill="#161b22" stroke="#58a6ff44" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="80" y="590" width="920" height="72" rx="28" fill="#58a6ff" fill-opacity="0.1"/>
+  <rect x="80" y="632" width="920" height="30" fill="#58a6ff" fill-opacity="0.1"/>
+  <text x="150" y="640" font-family="SF Pro Display, -apple-system, sans-serif" font-size="42">🍎</text>
+  <text x="220" y="643" font-family="SF Pro Display, -apple-system, sans-serif" font-size="32" font-weight="700" fill="#58a6ff">iPhone</text>
+
+  <text x="150" y="718" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#8b949e">① Ouvre</text>
+  <text x="320" y="718" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="600" fill="#ffffff">Safari</text>
+  <text x="150" y="764" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#8b949e">② Tape</text>
+  <text x="310" y="764" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="600" fill="#58a6ff">dropleapp.com</text>
+  <text x="150" y="810" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#8b949e">③ 📤 Partager →</text>
+  <text x="150" y="856" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="600" fill="#ffffff">   "Ajouter à l'écran d'accueil"</text>
+
+  <!-- Android card -->
+  <rect x="80" y="930" width="920" height="300" rx="28" fill="#161b22" stroke="#3fb95044" stroke-width="1.5" filter="url(#shadow)"/>
+  <rect x="80" y="930" width="920" height="72" rx="28" fill="#3fb950" fill-opacity="0.1"/>
+  <rect x="80" y="972" width="920" height="30" fill="#3fb950" fill-opacity="0.1"/>
+  <text x="150" y="980" font-family="SF Pro Display, -apple-system, sans-serif" font-size="42">🤖</text>
+  <text x="220" y="983" font-family="SF Pro Display, -apple-system, sans-serif" font-size="32" font-weight="700" fill="#3fb950">Android</text>
+
+  <text x="150" y="1058" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#8b949e">① Ouvre</text>
+  <text x="320" y="1058" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="600" fill="#ffffff">Chrome</text>
+  <text x="150" y="1104" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#8b949e">② Tape</text>
+  <text x="310" y="1104" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="600" fill="#3fb950">dropleapp.com</text>
+  <text x="150" y="1150" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#8b949e">③ ⋮ Menu →</text>
+  <text x="150" y="1196" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" font-weight="600" fill="#ffffff">   "Installer l'application"</text>
+
+  <!-- Big CTA -->
+  <rect x="140" y="1290" width="800" height="120" rx="28" fill="url(#accent)" filter="url(#shadow)"/>
+  <text x="540" y="1362" font-family="SF Pro Display, -apple-system, sans-serif" font-size="38" font-weight="800" fill="#ffffff" text-anchor="middle">✓ Gratuit · Aucun téléchargement</text>
+
+  <!-- Features mini -->
+  <text x="540" y="1480" font-family="SF Pro Display, -apple-system, sans-serif" font-size="30" fill="#8b949e" text-anchor="middle">Ce que tu peux faire ensuite :</text>
+  <text x="540" y="1540" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#ffffff" text-anchor="middle">🧠 Vide ton cerveau  ·  ✦ L'IA classe tout</text>
+  <text x="540" y="1590" font-family="SF Pro Display, -apple-system, sans-serif" font-size="28" fill="#ffffff" text-anchor="middle">📅 Calendrier  ·  🔔 Rappels  ·  👥 Groupes</text>
+
+  <!-- URL bottom -->
+  <text x="540" y="1760" font-family="SF Pro Display, -apple-system, sans-serif" font-size="44" font-weight="800" fill="url(#accent)" text-anchor="middle">dropleapp.com</text>
+  <text x="540" y="1820" font-family="SF Pro Display, -apple-system, sans-serif" font-size="26" fill="#8b949e" text-anchor="middle">@dropleapp</text>
+</svg>
