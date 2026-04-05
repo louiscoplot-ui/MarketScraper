@@ -28,7 +28,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             suburb_id INTEGER NOT NULL,
             address TEXT NOT NULL,
-            reiwa_url TEXT,
+            reiwa_url TEXT NOT NULL,
             price_text TEXT,
             bedrooms INTEGER,
             bathrooms INTEGER,
@@ -46,8 +46,8 @@ def init_db():
             FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
         );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_address_suburb
-            ON listings(address, suburb_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_url
+            ON listings(reiwa_url);
 
         CREATE INDEX IF NOT EXISTS idx_listings_status
             ON listings(status);
@@ -129,20 +129,21 @@ def get_listings(suburb_id=None, status=None):
     return [dict(r) for r in rows]
 
 
-def upsert_listing(suburb_id, address, data):
-    """Insert or update a listing. Deduplicates by address + suburb."""
+def upsert_listing(suburb_id, reiwa_url, data):
+    """Insert or update a listing. Keyed by reiwa_url (each REIWA listing is unique).
+    Same property listed by 2 agencies = 2 different URLs = 2 rows."""
     conn = get_db()
     now = datetime.utcnow().isoformat()
 
     existing = conn.execute(
-        "SELECT * FROM listings WHERE address = ? AND suburb_id = ?",
-        (address, suburb_id)
+        "SELECT * FROM listings WHERE reiwa_url = ?",
+        (reiwa_url,)
     ).fetchone()
 
     if existing:
         conn.execute("""
             UPDATE listings SET
-                reiwa_url = COALESCE(?, reiwa_url),
+                address = COALESCE(?, address),
                 price_text = COALESCE(?, price_text),
                 bedrooms = COALESCE(?, bedrooms),
                 bathrooms = COALESCE(?, bathrooms),
@@ -158,7 +159,7 @@ def upsert_listing(suburb_id, address, data):
                 listing_type = COALESCE(?, listing_type)
             WHERE id = ?
         """, (
-            data.get('reiwa_url'), data.get('price_text'),
+            data.get('address'), data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
@@ -180,7 +181,7 @@ def upsert_listing(suburb_id, address, data):
                 sold_price, sold_date, listing_type
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            suburb_id, address, data.get('reiwa_url'), data.get('price_text'),
+            suburb_id, data.get('address', ''), reiwa_url, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
@@ -193,21 +194,21 @@ def upsert_listing(suburb_id, address, data):
         return 'new'
 
 
-def mark_withdrawn(suburb_id, active_addresses, sold_addresses):
-    """Mark listings as withdrawn if they disappeared from active and aren't in sold."""
+def mark_withdrawn(suburb_id, seen_urls, sold_urls):
+    """Mark listings as withdrawn if their URL disappeared from for-sale and isn't in sold."""
     conn = get_db()
     now = datetime.utcnow().isoformat()
 
     current_active = conn.execute(
-        "SELECT id, address FROM listings WHERE suburb_id = ? AND status IN ('active', 'under_offer')",
+        "SELECT id, reiwa_url FROM listings WHERE suburb_id = ? AND status IN ('active', 'under_offer')",
         (suburb_id,)
     ).fetchall()
 
-    all_known = set(a.lower().strip() for a in active_addresses) | set(a.lower().strip() for a in sold_addresses)
+    all_seen = set(seen_urls) | set(sold_urls)
     withdrawn_count = 0
 
     for listing in current_active:
-        if listing['address'].lower().strip() not in all_known:
+        if listing['reiwa_url'] not in all_seen:
             conn.execute(
                 "UPDATE listings SET status = 'withdrawn', last_seen = ? WHERE id = ?",
                 (now, listing['id'])

@@ -20,24 +20,6 @@ if not os.path.exists(CHROMIUM_PATH):
     CHROMIUM_PATH = None  # Let Playwright use its default
 
 
-def _normalize_address(address):
-    """Normalize address for deduplication."""
-    if not address:
-        return ""
-    addr = address.strip().lower()
-    addr = re.sub(r'\s+', ' ', addr)
-    # Remove unit/lot prefixes variations for matching
-    addr = re.sub(r'^(unit|lot|apt|suite)\s+', '', addr)
-    return addr
-
-
-def _extract_number(text):
-    """Extract first integer from text."""
-    if not text:
-        return None
-    match = re.search(r'(\d+)', text.strip())
-    return int(match.group(1)) if match else None
-
 
 def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
     """
@@ -94,23 +76,21 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                 progress_callback(f'Found {len(forsale_urls)} for-sale listing URLs. Fetching details...')
 
             # Visit each listing page for full details
-            seen_addresses = set()
+            # NO address dedup — each REIWA URL = one listing row
+            # Same property by 2 agencies = 2 URLs = 2 rows (as on REIWA)
+            seen_urls = set()
             for i, (url, card_data) in enumerate(forsale_urls):
+                if url in seen_urls:
+                    continue  # Skip only exact same URL duplicates
+                seen_urls.add(url)
                 if progress_callback and i % 5 == 0:
                     progress_callback(f'Scraping listing {i+1}/{len(forsale_urls)}...')
                 try:
                     detail = _scrape_listing_detail(page, url)
                     merged = {**card_data, **{k: v for k, v in detail.items() if v is not None}}
                     merged['reiwa_url'] = url
-
-                    # Deduplicate by normalized address
-                    norm_addr = _normalize_address(merged.get('address', ''))
-                    if norm_addr and norm_addr not in seen_addresses:
-                        seen_addresses.add(norm_addr)
-                        results['forsale_listings'].append(merged)
-                        results['stats']['detail_pages_scraped'] += 1
-                    elif norm_addr:
-                        logger.info(f"Duplicate skipped: {merged.get('address')}")
+                    results['forsale_listings'].append(merged)
+                    results['stats']['detail_pages_scraped'] += 1
                 except Exception as e:
                     logger.error(f"Error scraping {url}: {e}")
                     results['errors'].append(f"Detail page error: {url} - {str(e)}")
@@ -128,8 +108,11 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
             if progress_callback:
                 progress_callback(f'Found {len(sold_urls)} sold listing URLs. Fetching details...')
 
-            seen_sold_addresses = set()
+            seen_sold_urls = set()
             for i, (url, card_data) in enumerate(sold_urls):
+                if url in seen_sold_urls:
+                    continue
+                seen_sold_urls.add(url)
                 if progress_callback and i % 5 == 0:
                     progress_callback(f'Scraping sold listing {i+1}/{len(sold_urls)}...')
                 try:
@@ -137,13 +120,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                     merged = {**card_data, **{k: v for k, v in detail.items() if v is not None}}
                     merged['reiwa_url'] = url
                     merged['status'] = 'sold'
-
-                    norm_addr = _normalize_address(merged.get('address', ''))
-                    if norm_addr and norm_addr not in seen_sold_addresses:
-                        seen_sold_addresses.add(norm_addr)
-                        results['sold_listings'].append(merged)
-                    elif norm_addr:
-                        logger.info(f"Duplicate sold skipped: {merged.get('address')}")
+                    results['sold_listings'].append(merged)
                 except Exception as e:
                     logger.error(f"Error scraping sold {url}: {e}")
                     results['errors'].append(f"Sold detail error: {url} - {str(e)}")

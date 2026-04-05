@@ -187,19 +187,20 @@ def _run_scrape(suburb_id, slug, name):
     try:
         result = scrape_suburb(slug, suburb_id, progress_callback=progress_cb)
 
-        # Process for-sale listings
+        # Process for-sale listings — keyed by reiwa_url (no address dedup)
+        # Same property by 2 agencies = 2 different REIWA URLs = 2 rows
         new_count = 0
         updated_count = 0
-        forsale_addresses = []
-        sold_addresses = []
+        forsale_urls = []
+        sold_urls = []
 
         progress_cb('Saving for-sale listings to database...')
         for listing in result['forsale_listings']:
-            address = listing.get('address', '').strip()
-            if not address:
+            url = listing.get('reiwa_url', '').strip()
+            if not url:
                 continue
-            forsale_addresses.append(address)
-            action = upsert_listing(suburb_id, address, listing)
+            forsale_urls.append(url)
+            action = upsert_listing(suburb_id, url, listing)
             if action == 'new':
                 new_count += 1
             else:
@@ -208,15 +209,15 @@ def _run_scrape(suburb_id, slug, name):
         # Process sold listings
         progress_cb('Saving sold listings to database...')
         for listing in result['sold_listings']:
-            address = listing.get('address', '').strip()
-            if not address:
+            url = listing.get('reiwa_url', '').strip()
+            if not url:
                 continue
-            sold_addresses.append(address)
-            upsert_listing(suburb_id, address, listing)
+            sold_urls.append(url)
+            upsert_listing(suburb_id, url, listing)
 
-        # Mark withdrawn
+        # Mark withdrawn — by URL, not address
         progress_cb('Checking for withdrawn listings...')
-        withdrawn_count = mark_withdrawn(suburb_id, forsale_addresses, sold_addresses)
+        withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls)
 
         # Update scrape log
         update_scrape_log(
