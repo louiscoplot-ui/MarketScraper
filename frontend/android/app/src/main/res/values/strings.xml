@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Drople</string>
-    <string name="title_activity_main">Drople</string>
-    <string name="package_name">com.dropleapp.drople</string>
-    <string name="custom_url_scheme">com.dropleapp.drople</string>
-</resources>

@@ -1,44 +1,41 @@
 #!/usr/bin/env bash
-# Lance le backend Flask et le frontend React en parallèle
+# REIWA Market Tracker — Start script
 
 set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-# Charger .env si présent
-if [ -f "$ROOT/.env" ]; then
-  export $(grep -v '^#' "$ROOT/.env" | xargs)
-fi
-
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-  echo "⚠  ANTHROPIC_API_KEY non défini. Copie .env.example en .env et ajoute ta clé."
-  exit 1
-fi
-
 # Backend
-echo "→ Démarrage du backend Flask (port 5000)..."
+echo "Starting backend..."
 cd "$ROOT/backend"
 if [ ! -d "venv" ]; then
   python3 -m venv venv
 fi
 source venv/bin/activate
 pip install -q -r requirements.txt
+
+# Install Playwright browser if needed
+echo "Checking Playwright browser..."
+playwright install chromium --with-deps 2>/dev/null || playwright install chromium 2>/dev/null || echo "Note: Install Chromium manually with 'playwright install chromium'"
+
 python app.py &
 BACKEND_PID=$!
 
 # Frontend
-echo "→ Démarrage du frontend React (port 3000)..."
+echo "Starting frontend..."
 cd "$ROOT/frontend"
-npm install --silent
+npm install --silent 2>/dev/null
 npm run dev &
 FRONTEND_PID=$!
 
 echo ""
-echo "✓ Braindump lancé !"
-echo "  Frontend : http://localhost:3000"
-echo "  Backend  : http://localhost:5000"
+echo "================================================"
+echo "  REIWA Market Tracker"
+echo "  Frontend: http://localhost:3000"
+echo "  Backend:  http://localhost:5000"
+echo "================================================"
 echo ""
-echo "Ctrl+C pour tout arrêter."
+echo "Ctrl+C to stop."
 
 trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit" INT TERM
 wait

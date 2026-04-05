@@ -1,28 +1,18 @@
 {
-  "name": "drople",
+  "name": "reiwa-scraper",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "build:ios": "vite build && npx cap sync ios",
-    "build:android": "vite build && npx cap sync android",
-    "open:ios": "npx cap open ios",
-    "open:android": "npx cap open android"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@capacitor/android": "^8.3.0",
-    "@capacitor/cli": "^8.3.0",
-    "@capacitor/core": "^8.3.0",
-    "@capacitor/ios": "^8.3.0",
-    "@react-oauth/google": "^0.12.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "sharp": "^0.34.5",
     "vite": "^5.4.11"
   }
 }
