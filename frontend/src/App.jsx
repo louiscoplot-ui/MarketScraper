@@ -5,14 +5,15 @@ const API = '/api'
 function App() {
   const [suburbs, setSuburbs] = useState([])
   const [listings, setListings] = useState([])
-  const [selectedSuburb, setSelectedSuburb] = useState(null)
+  const [selectedSuburbs, setSelectedSuburbs] = useState(new Set()) // for viewing
+  const [checkedSuburbs, setCheckedSuburbs] = useState(new Set())   // for scraping
   const [selectedStatus, setSelectedStatus] = useState(null)
   const [newSuburb, setNewSuburb] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [scrapeStatus, setScrapeStatus] = useState({})
   const [logs, setLogs] = useState([])
-  const [view, setView] = useState('listings') // 'listings' or 'logs'
+  const [view, setView] = useState('listings')
   const [sortField, setSortField] = useState('address')
   const [sortDir, setSortDir] = useState('asc')
   const pollRef = useRef(null)
@@ -20,23 +21,35 @@ function App() {
   // --- Data fetching ---
   const fetchSuburbs = useCallback(async () => {
     const res = await fetch(`${API}/suburbs`)
-    if (res.ok) setSuburbs(await res.json())
+    if (res.ok) {
+      const data = await res.json()
+      setSuburbs(data)
+      // Auto-check all suburbs for scraping if none checked
+      setCheckedSuburbs(prev => {
+        if (prev.size === 0 && data.length > 0) {
+          return new Set(data.map(s => s.id))
+        }
+        return prev
+      })
+    }
   }, [])
 
   const fetchListings = useCallback(async () => {
-    let url = `${API}/listings?`
-    if (selectedSuburb) url += `suburb_id=${selectedSuburb}&`
-    if (selectedStatus) url += `status=${selectedStatus}&`
+    // If specific suburbs selected for viewing, fetch for each
+    const suburbFilter = selectedSuburbs.size > 0
+      ? `suburb_ids=${Array.from(selectedSuburbs).join(',')}`
+      : ''
+    let url = `${API}/listings?${suburbFilter}`
+    if (selectedStatus) url += `&status=${selectedStatus}`
     const res = await fetch(url)
     if (res.ok) setListings(await res.json())
-  }, [selectedSuburb, selectedStatus])
+  }, [selectedSuburbs, selectedStatus])
 
   const fetchScrapeStatus = useCallback(async () => {
     const res = await fetch(`${API}/scrape/status`)
     if (res.ok) {
       const data = await res.json()
       setScrapeStatus(data)
-      // If any job is running, keep polling
       const anyRunning = Object.values(data).some(j => j.status === 'running')
       if (anyRunning && !pollRef.current) {
         pollRef.current = setInterval(async () => {
@@ -44,8 +57,7 @@ function App() {
           if (r.ok) {
             const d = await r.json()
             setScrapeStatus(d)
-            const still = Object.values(d).some(j => j.status === 'running')
-            if (!still) {
+            if (!Object.values(d).some(j => j.status === 'running')) {
               clearInterval(pollRef.current)
               pollRef.current = null
               fetchSuburbs()
@@ -58,22 +70,18 @@ function App() {
   }, [fetchSuburbs, fetchListings])
 
   const fetchLogs = useCallback(async () => {
-    let url = `${API}/scrape/logs`
-    if (selectedSuburb) url += `?suburb_id=${selectedSuburb}`
-    const res = await fetch(url)
+    const res = await fetch(`${API}/scrape/logs`)
     if (res.ok) setLogs(await res.json())
-  }, [selectedSuburb])
+  }, [])
 
   useEffect(() => {
     fetchSuburbs()
     fetchScrapeStatus()
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current)
-    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  useEffect(() => { fetchListings() }, [selectedSuburb, selectedStatus])
-  useEffect(() => { if (view === 'logs') fetchLogs() }, [view, selectedSuburb])
+  useEffect(() => { fetchListings() }, [selectedSuburbs, selectedStatus])
+  useEffect(() => { if (view === 'logs') fetchLogs() }, [view])
 
   // --- Autocomplete ---
   const searchTimeoutRef = useRef(null)
@@ -103,7 +111,6 @@ function App() {
     setShowSuggestions(false)
   }
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handler = (e) => {
       if (suggestionsRef.current && !suggestionsRef.current.contains(e.target)) {
@@ -125,8 +132,10 @@ function App() {
       body: JSON.stringify({ name: newSuburb.trim() })
     })
     if (res.ok) {
+      const data = await res.json()
       setNewSuburb('')
       setSuggestions([])
+      setCheckedSuburbs(prev => new Set([...prev, data.id]))
       fetchSuburbs()
     } else {
       const data = await res.json()
@@ -137,7 +146,8 @@ function App() {
   const deleteSuburb = async (id, name) => {
     if (!confirm(`Delete ${name} and all its listings?`)) return
     await fetch(`${API}/suburbs/${id}`, { method: 'DELETE' })
-    if (selectedSuburb === id) setSelectedSuburb(null)
+    setSelectedSuburbs(prev => { const n = new Set(prev); n.delete(id); return n })
+    setCheckedSuburbs(prev => { const n = new Set(prev); n.delete(id); return n })
     fetchSuburbs()
     fetchListings()
   }
@@ -147,32 +157,64 @@ function App() {
     fetchScrapeStatus()
   }
 
-  const scrapeAll = async () => {
-    await fetch(`${API}/scrape/all`, { method: 'POST' })
+  const scrapeSelected = async () => {
+    if (checkedSuburbs.size === 0) return
+    await fetch(`${API}/scrape/selected`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suburb_ids: Array.from(checkedSuburbs) })
+    })
     fetchScrapeStatus()
+  }
+
+  // Suburb selection toggles
+  const toggleViewSuburb = (id) => {
+    setSelectedSuburbs(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  const toggleCheckSuburb = (id) => {
+    setCheckedSuburbs(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  const selectAllCheck = () => {
+    setCheckedSuburbs(new Set(suburbs.map(s => s.id)))
+  }
+
+  const deselectAllCheck = () => {
+    setCheckedSuburbs(new Set())
   }
 
   // --- Sorting ---
   const toggleSort = (field) => {
-    if (sortField === field) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDir('asc')
-    }
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('asc') }
   }
 
   const sortedListings = [...listings].sort((a, b) => {
     let va = a[sortField], vb = b[sortField]
     if (va == null) va = ''
     if (vb == null) vb = ''
-    if (typeof va === 'number' && typeof vb === 'number') {
+    if (typeof va === 'number' && typeof vb === 'number')
       return sortDir === 'asc' ? va - vb : vb - va
-    }
     return sortDir === 'asc'
       ? String(va).localeCompare(String(vb))
       : String(vb).localeCompare(String(va))
   })
+
+  // Filter listings by selected suburbs for viewing
+  const filteredListings = selectedSuburbs.size > 0
+    ? sortedListings.filter(l => selectedSuburbs.has(l.suburb_id))
+    : sortedListings
 
   const isAnyScraping = Object.values(scrapeStatus).some(j => j.status === 'running')
 
@@ -190,10 +232,10 @@ function App() {
         <div className="header-actions">
           <button
             className="btn btn-primary"
-            onClick={scrapeAll}
-            disabled={isAnyScraping || suburbs.length === 0}
+            onClick={scrapeSelected}
+            disabled={isAnyScraping || checkedSuburbs.size === 0}
           >
-            {isAnyScraping ? 'Scraping...' : 'Scrape All Suburbs'}
+            {isAnyScraping ? 'Scraping...' : `Scrape Selected (${checkedSuburbs.size})`}
           </button>
           <button
             className={`btn btn-secondary ${view === 'logs' ? 'active' : ''}`}
@@ -205,7 +247,6 @@ function App() {
       </header>
 
       <div className="layout">
-        {/* Sidebar */}
         <aside className="sidebar">
           <h2>Suburbs</h2>
           <form onSubmit={addSuburb} className="add-form" ref={suggestionsRef}>
@@ -221,11 +262,7 @@ function App() {
               {showSuggestions && (
                 <div className="suggestions-dropdown">
                   {suggestions.map(s => (
-                    <div
-                      key={s}
-                      className="suggestion-item"
-                      onClick={() => selectSuggestion(s)}
-                    >
+                    <div key={s} className="suggestion-item" onClick={() => selectSuggestion(s)}>
                       {s}
                     </div>
                   ))}
@@ -235,26 +272,43 @@ function App() {
             <button type="submit" className="btn btn-small">+</button>
           </form>
 
+          {suburbs.length > 0 && (
+            <div className="check-actions">
+              <button className="btn-link" onClick={selectAllCheck}>Select all</button>
+              <button className="btn-link" onClick={deselectAllCheck}>Deselect all</button>
+            </div>
+          )}
+
           <div className="suburb-list">
             <div
-              className={`suburb-item ${selectedSuburb === null ? 'selected' : ''}`}
-              onClick={() => setSelectedSuburb(null)}
+              className={`suburb-item ${selectedSuburbs.size === 0 ? 'selected' : ''}`}
+              onClick={() => setSelectedSuburbs(new Set())}
             >
               <span className="suburb-name">All Suburbs</span>
               <span className="suburb-count">
                 {suburbs.reduce((s, x) => s + (x.active_count || 0) + (x.under_offer_count || 0), 0)}
               </span>
             </div>
+
             {suburbs.map(s => {
               const job = scrapeStatus[s.id]
               const isRunning = job?.status === 'running'
+              const isViewing = selectedSuburbs.has(s.id)
+              const isChecked = checkedSuburbs.has(s.id)
+
               return (
                 <div
                   key={s.id}
-                  className={`suburb-item ${selectedSuburb === s.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedSuburb(s.id)}
+                  className={`suburb-item ${isViewing ? 'selected' : ''}`}
                 >
-                  <div className="suburb-info">
+                  <input
+                    type="checkbox"
+                    className="suburb-check"
+                    checked={isChecked}
+                    onChange={() => toggleCheckSuburb(s.id)}
+                    title="Include in scrape"
+                  />
+                  <div className="suburb-info" onClick={() => toggleViewSuburb(s.id)}>
                     <span className="suburb-name">{s.name}</span>
                     <div className="suburb-stats">
                       <span className="stat active">{s.active_count || 0}</span>
@@ -262,20 +316,14 @@ function App() {
                       <span className="stat sold">{s.sold_count || 0}</span>
                       <span className="stat withdrawn">{s.withdrawn_count || 0}</span>
                     </div>
-                    {isRunning && (
-                      <div className="scrape-progress">{job.progress}</div>
-                    )}
-                    {job?.status === 'completed' && (
-                      <div className="scrape-done">{job.progress}</div>
-                    )}
-                    {job?.status === 'error' && (
-                      <div className="scrape-error">{job.progress}</div>
-                    )}
+                    {isRunning && <div className="scrape-progress">{job.progress}</div>}
+                    {job?.status === 'completed' && <div className="scrape-done">{job.progress}</div>}
+                    {job?.status === 'error' && <div className="scrape-error">{job.progress}</div>}
                   </div>
                   <div className="suburb-actions">
                     <button
                       className="btn btn-icon"
-                      onClick={(e) => { e.stopPropagation(); scrapeSuburb(s.id) }}
+                      onClick={() => scrapeSuburb(s.id)}
                       disabled={isRunning}
                       title="Scrape this suburb"
                     >
@@ -283,7 +331,7 @@ function App() {
                     </button>
                     <button
                       className="btn btn-icon btn-danger"
-                      onClick={(e) => { e.stopPropagation(); deleteSuburb(s.id, s.name) }}
+                      onClick={() => deleteSuburb(s.id, s.name)}
                       title="Delete suburb"
                     >
                       ×
@@ -295,11 +343,9 @@ function App() {
           </div>
         </aside>
 
-        {/* Main content */}
         <main className="content">
           {view === 'listings' ? (
             <>
-              {/* Status filter */}
               <div className="filters">
                 {[null, 'active', 'under_offer', 'sold', 'withdrawn'].map(s => (
                   <button
@@ -309,15 +355,14 @@ function App() {
                     style={s ? { borderColor: statusColors[s] } : {}}
                   >
                     {s ? s.replace('_', ' ').toUpperCase() : 'ALL'}
-                    {s === null && <span className="count"> ({listings.length})</span>}
                   </button>
                 ))}
                 <span className="listing-count">
-                  {sortedListings.length} listing{sortedListings.length !== 1 ? 's' : ''}
+                  {filteredListings.length} listing{filteredListings.length !== 1 ? 's' : ''}
+                  {selectedSuburbs.size > 0 && ` (${selectedSuburbs.size} suburb${selectedSuburbs.size > 1 ? 's' : ''})`}
                 </span>
               </div>
 
-              {/* Listings table */}
               <div className="table-wrapper">
                 <table>
                   <thead>
@@ -346,7 +391,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedListings.map((l, i) => (
+                    {filteredListings.map((l, i) => (
                       <tr key={l.id || i} className={`status-${l.status}`}>
                         <td className="address-cell">
                           {l.reiwa_url ? (
@@ -363,10 +408,7 @@ function App() {
                         <td className="agency-cell">{l.agency || '-'}</td>
                         <td>{l.agent || '-'}</td>
                         <td>
-                          <span
-                            className="status-badge"
-                            style={{ backgroundColor: statusColors[l.status] || '#666' }}
-                          >
+                          <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
                             {l.status?.replace('_', ' ')}
                           </span>
                         </td>
@@ -375,7 +417,7 @@ function App() {
                         <td className="date-cell">{l.last_seen ? new Date(l.last_seen).toLocaleDateString() : '-'}</td>
                       </tr>
                     ))}
-                    {sortedListings.length === 0 && (
+                    {filteredListings.length === 0 && (
                       <tr>
                         <td colSpan="14" className="empty">
                           {suburbs.length === 0
@@ -389,7 +431,6 @@ function App() {
               </div>
             </>
           ) : (
-            /* Logs view */
             <div className="logs-view">
               <h2>Scrape History</h2>
               <button className="btn btn-small" onClick={fetchLogs}>Refresh</button>

@@ -199,10 +199,37 @@ header h1 {
   overflow-y: auto;
 }
 
+.check-actions {
+  display: flex;
+  gap: 12px;
+  padding: 0 12px 8px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.suburb-check {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
 .suburb-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 8px 12px;
   cursor: pointer;
   border-left: 3px solid transparent;

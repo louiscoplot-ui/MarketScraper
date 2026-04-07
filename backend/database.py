@@ -113,11 +113,15 @@ def get_suburbs():
     return [dict(r) for r in rows]
 
 
-def get_listings(suburb_id=None, status=None):
+def get_listings(suburb_id=None, suburb_ids=None, status=None):
     conn = get_db()
     query = "SELECT l.*, s.name as suburb_name FROM listings l JOIN suburbs s ON l.suburb_id = s.id WHERE 1=1"
     params = []
-    if suburb_id:
+    if suburb_ids:
+        placeholders = ','.join('?' * len(suburb_ids))
+        query += f" AND l.suburb_id IN ({placeholders})"
+        params.extend(suburb_ids)
+    elif suburb_id:
         query += " AND l.suburb_id = ?"
         params.append(suburb_id)
     if status:

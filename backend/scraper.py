@@ -1,31 +1,340 @@
 import re
 import time
+import random
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
 REIWA_BASE = "https://reiwa.com.au"
-PAGE_LOAD_TIMEOUT = 30000
-LISTING_TIMEOUT = 20000
+MAX_PAGES = 15
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
-# Use system-installed Chromium if available, otherwise let Playwright find one
-import os
-CHROMIUM_PATH = os.environ.get(
-    'CHROMIUM_PATH',
-    '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
-)
+CHROMIUM_PATH = os.environ.get('CHROMIUM_PATH', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
 if not os.path.exists(CHROMIUM_PATH):
-    CHROMIUM_PATH = None  # Let Playwright use its default
+    CHROMIUM_PATH = None
 
+
+def _build_url(suburb_slug, page=1):
+    u = f"{REIWA_BASE}/for-sale/{suburb_slug}/?includesurroundingsuburbs=false&sortby=listdate"
+    return u if page == 1 else u + f"&page={page}"
+
+
+def _build_sold_url(suburb_slug, page=1):
+    u = f"{REIWA_BASE}/sold/{suburb_slug}/?includesurroundingsuburbs=false&sortby=default"
+    return u if page == 1 else u + f"&page={page}"
+
+
+def _listing_id(url):
+    """Extract REIWA numeric ID from URL, e.g. '5008054'."""
+    m = re.search(r"-(\d{5,8})/?$", url or "")
+    return m.group(1) if m else ""
+
+
+def _parse_date_text(text):
+    """Parse relative date text like 'Added today', 'Added 3 days ago'."""
+    if not text:
+        return ""
+    today = datetime.now()
+    if re.search(r"added\s+today", text, re.I):
+        return today.strftime("%d/%m/%Y")
+    if re.search(r"added\s+yesterday", text, re.I):
+        return (today - timedelta(days=1)).strftime("%d/%m/%Y")
+    m = re.search(r"added\s+(\d+)\s+day", text, re.I)
+    if m:
+        return (today - timedelta(days=int(m.group(1)))).strftime("%d/%m/%Y")
+    m = re.search(r"added\s+(\d+)\s+week", text, re.I)
+    if m:
+        return (today - timedelta(weeks=int(m.group(1)))).strftime("%d/%m/%Y")
+    m = re.search(r"added\s+(\d{1,2})\s+([A-Za-z]{3,})", text, re.I)
+    if m:
+        try:
+            dt = datetime.strptime(f"{m.group(1)} {m.group(2)[:3].capitalize()} {today.year}", "%d %b %Y")
+            if dt > today:
+                dt = dt.replace(year=dt.year - 1)
+            return dt.strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+    return ""
+
+
+def _extract_date(card):
+    """Extract listing date from card HTML."""
+    for el in card.find_all(["span", "div", "p", "time"]):
+        if el.name == "time":
+            v = el.get("datetime", "") or el.get_text(strip=True)
+            try:
+                dt = datetime.strptime(v.strip()[:10], "%Y-%m-%d")
+                return dt.strftime("%d/%m/%Y")
+            except ValueError:
+                pass
+        txt = el.get_text(strip=True)
+        if not txt or len(txt) > 50:
+            continue
+        result = _parse_date_text(txt)
+        if result:
+            return result
+    return ""
+
+
+def _normalise_agency(a):
+    if not a:
+        return a
+    if re.search(r"acton.*belle|belle.*acton|acton\s*[|]\s*belle", a, re.I):
+        return "Acton | Belle Property Dalkeith | Cottesloe"
+    return a
+
+
+def _parse_card(card, suburb_name):
+    """Parse one listing card using REIWA's actual CSS classes."""
+    # Address
+    h2 = card.find("h2", class_="p-details__add")
+    address = h2.get_text(strip=True) if h2 else ""
+    # Strip suburb name from end of address
+    address = re.sub(r",?\s*" + re.escape(suburb_name) + r"$", "", address, flags=re.I).strip()
+
+    # URL
+    url = ""
+    if h2:
+        a = h2.find("a", href=True)
+        if a:
+            url = ("https://reiwa.com.au" + a["href"]) if a["href"].startswith("/") else a["href"]
+    if not url:
+        for a in card.find_all("a", href=True):
+            if re.search(r"-\d{5,8}/?$", a["href"]):
+                url = ("https://reiwa.com.au" + a["href"]) if a["href"].startswith("/") else a["href"]
+                break
+
+    # Fallback address from URL
+    if not address and url:
+        m = re.search(r"\.com\.au/(.+)-\d{5,8}/?$", url)
+        if m:
+            slug = re.sub(r"-" + suburb_name.lower().replace(" ", "-") + "$", "", m.group(1), flags=re.I)
+            address = " ".join(p.capitalize() for p in slug.split("-"))
+    if not address:
+        address = "Address not disclosed"
+
+    # Price
+    price = ""
+    for el in card.find_all(["span", "div", "p", "strong", "h2", "h3"]):
+        txt = el.get_text(strip=True)
+        if not txt or len(txt) > 100 or len(txt) < 2:
+            continue
+        if "p-details__add" in " ".join(el.get("class", [])):
+            continue
+        txt = re.sub(r"save listing.*$", "", txt, flags=re.I).strip()
+        if not txt:
+            continue
+        if re.match(r"^(auction|price on application|contact agent|by negotiation|expressions? of interest)$", txt, re.I):
+            price = txt
+            break
+        m = re.search(r"\$([\d,]+)\s*[-\u2013]\s*\$([\d,]+)", txt)
+        if m:
+            price = f"${m.group(1)} - ${m.group(2)}"
+            break
+        m = re.search(r"((?:offers?\s+(?:from|over|above|around)|from|above|over)\s*\$[\d,\.]+(?:[Mm](?:illion)?)?)", txt, re.I)
+        if m:
+            price = m.group(1).strip()
+            break
+        m = re.search(r"\$(\d{1,3}(?:,\d{3})+|\d+\.\d+[Mm]|\d+[Mm])", txt)
+        if m:
+            try:
+                raw = m.group(1).replace(",", "").replace("M", "000000").replace("m", "000000")
+                if float(raw) >= 100000:
+                    price = f"${m.group(1)}"
+                    break
+            except ValueError:
+                pass
+
+    # Bed/Bath/Car - REIWA uses span.u-grey-dark with digit content
+    nums = [s.get_text(strip=True) for s in card.find_all("span", class_="u-grey-dark")
+            if s.get_text(strip=True).isdigit()]
+    beds = int(nums[0]) if len(nums) > 0 else None
+    baths = int(nums[1]) if len(nums) > 1 else None
+    cars = int(nums[2]) if len(nums) > 2 else None
+
+    # Land size and internal size from card text
+    ct = card.get_text(" ", strip=True)
+    cn = re.sub(r"m\s+2\b", "m2", ct, flags=re.I)
+
+    land = ""
+    for pat in [r"landsize\s*([\d,]+)\s*m", r"land\s*size[^\d]{0,10}([\d,]+)\s*m",
+                r"([\d,]+)\s*m2\s*(?:land|block|lot)"]:
+        m = re.search(pat, cn, re.I)
+        if m:
+            try:
+                v = int(m.group(1).replace(",", ""))
+                if 10 <= v <= 100000:
+                    land = f"{v} m²"
+                    break
+            except ValueError:
+                pass
+
+    internal = ""
+    for pat in [r"internal\s*size[^\d]{0,10}([\d,]+)\s*m", r"floor\s*area[^\d]{0,10}([\d,]+)\s*m",
+                r"([\d,]+)\s*m2\s*(?:internal|living|floor)"]:
+        m = re.search(pat, cn, re.I)
+        if m:
+            try:
+                v = int(m.group(1).replace(",", ""))
+                if 10 <= v <= 10000:
+                    internal = f"{v} m²"
+                    break
+            except ValueError:
+                pass
+
+    # Property type
+    ptype = ""
+    for t in ["House", "Unit", "Apartment", "Townhouse", "Villa", "Studio",
+              "Duplex", "Terrace", "Land", "Rural"]:
+        if re.search(r"\b" + t + r"\b", ct, re.I):
+            ptype = t
+            break
+
+    # Agency - from agent logo
+    agency = ""
+    logo = card.find("a", class_="agent__logo")
+    if logo:
+        sr = logo.find("span", class_="u-sr-only")
+        if sr:
+            agency = _normalise_agency(sr.get_text(strip=True))
+
+    # Agent name
+    agent = ""
+    nd = card.find("div", class_="agent__name")
+    if nd:
+        a = nd.find("a", class_="-ignore-theme")
+        if a:
+            agent = a.get_text(strip=True)
+
+    return {
+        "url": url,
+        "address": address,
+        "price_text": price,
+        "listing_type": ptype,
+        "bedrooms": beds,
+        "bathrooms": baths,
+        "parking": cars,
+        "land_size": land,
+        "internal_size": internal,
+        "agency": agency,
+        "agent": agent,
+        "status": "active",
+    }
+
+
+def _fetch_detail(page, url):
+    """Visit listing detail page for sizes and under_offer status."""
+    out = {"land_size": "", "internal_size": "", "price_text": "", "status": None}
+    if not url:
+        return out
+
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1500)
+        html = page.content()
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Under Offer detection
+        STATUS_CLASSES = ["status", "badge", "banner", "label", "tag", "ribbon", "flag",
+                          "pill", "listing-status", "property-status", "listing__status", "p-status"]
+
+        is_under_offer = False
+
+        # Method 1: elements with status-related CSS classes
+        for el in soup.find_all(["span", "div", "p", "strong", "h1", "h2", "h3"], class_=True):
+            cls = " ".join(el.get("class", []))
+            txt = el.get_text(strip=True).lower()
+            if "under offer" in txt and any(k in cls for k in STATUS_CLASSES):
+                is_under_offer = True
+                break
+
+        # Method 2: listing header area
+        if not is_under_offer:
+            header = (
+                soup.find("div", class_=re.compile(r"listing-header|property-header|p-header", re.I))
+                or soup.find("section", class_=re.compile(r"listing|property|detail", re.I))
+                or soup.find("header")
+            )
+            if header:
+                if re.search(r"\bunder\s+offer\b", header.get_text(" ", strip=True)[:800], re.I):
+                    is_under_offer = True
+
+        # Method 3: main content top portion
+        if not is_under_offer:
+            main = soup.find("main")
+            if main:
+                if re.search(r"\bunder\s+offer\b", main.get_text(" ", strip=True)[:1500], re.I):
+                    is_under_offer = True
+
+        if is_under_offer:
+            out["status"] = "under_offer"
+
+        # Sizes
+        t = re.sub(r"m\s+2|sqm|sq\.?\s*m", "m2", soup.get_text(" ", strip=True), flags=re.I)
+
+        for pat in [r"landsize\s*([\d,]+)\s*m", r"land\s*(?:size|area)[^\d]{0,10}([\d,]+)\s*m",
+                    r"([\d,]+)\s*m2\s*(?:land|block|lot)"]:
+            m = re.search(pat, t, re.I)
+            if m:
+                try:
+                    v = int(m.group(1).replace(",", ""))
+                    if 10 <= v <= 100000:
+                        out["land_size"] = f"{v} m²"
+                        break
+                except ValueError:
+                    pass
+
+        for pat in [r"floor\s*area\s*([\d,]+)\s*m", r"internal\s*(?:size|area)[^\d]{0,10}([\d,]+)\s*m",
+                    r"strata\s*(?:total\s*)?area[:\s]*([\d,]+)\s*m",
+                    r"([\d,]+)\s*m2\s*(?:internal|living|floor|strata)"]:
+            m = re.search(pat, t, re.I)
+            if m:
+                try:
+                    v = int(m.group(1).replace(",", ""))
+                    if 10 <= v <= 50000:
+                        out["internal_size"] = f"{v} m²"
+                        break
+                except ValueError:
+                    pass
+
+        # Price from detail page
+        m = re.search(r"\$([\d]{1,3}(?:,[\d]{3})+)", t[:600])
+        if m:
+            out["price_text"] = f"${m.group(1)}"
+
+    except Exception as e:
+        logger.warning(f"Detail error {url}: {e}")
+
+    return out
+
+
+def _load_listing_page(page, url, retries=3):
+    """Load a REIWA listing page, wait for article.p-card cards."""
+    for attempt in range(1, retries + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            try:
+                page.wait_for_selector("article.p-card", timeout=8000)
+            except Exception:
+                pass  # page may have 0 results
+            page.wait_for_timeout(2000)
+            return True
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(2 * attempt)
+            else:
+                logger.error(f"Failed to load {url}: {e}")
+                return False
+    return False
 
 
 def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
-    """
-    Scrape all for-sale and sold listings for a suburb.
-    Returns dict with all listing data and stats.
-    """
+    """Scrape all for-sale and sold listings for a suburb."""
+    suburb_name = suburb_slug.replace("-", " ").title()
     results = {
         'forsale_listings': [],
         'sold_listings': [],
@@ -42,93 +351,147 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
     with sync_playwright() as p:
         launch_opts = {
             'headless': True,
-            'args': [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-            ]
+            'args': ['--no-sandbox', '--disable-setuid-sandbox'],
         }
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
+
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport={'width': 1920, 'height': 1080},
+            user_agent=UA,
+            viewport={'width': 1280, 'height': 800},
             locale='en-AU',
         )
-        # Stealth: remove webdriver flag
-        context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        """)
 
-        page = context.new_page()
+        listing_page = context.new_page()
+        detail_page = context.new_page()
+
+        # Block heavy resources on detail page
+        detail_page.route("**/*", lambda route: route.abort()
+                          if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                          else route.continue_())
 
         try:
-            # --- SCRAPE FOR-SALE LISTINGS ---
+            # === FOR-SALE ===
             if progress_callback:
-                progress_callback('Scraping for-sale listings...')
+                progress_callback('Scraping for-sale pages...')
 
-            forsale_urls = _scrape_listing_urls(
-                page, suburb_slug, 'for-sale', max_pages=10, results=results
-            )
-
-            if progress_callback:
-                progress_callback(f'Found {len(forsale_urls)} for-sale listing URLs. Fetching details...')
-
-            # Visit each listing page for full details
-            # NO address dedup — each REIWA URL = one listing row
-            # Same property by 2 agencies = 2 URLs = 2 rows (as on REIWA)
             seen_urls = set()
-            for i, (url, card_data) in enumerate(forsale_urls):
-                if url in seen_urls:
-                    continue  # Skip only exact same URL duplicates
-                seen_urls.add(url)
-                if progress_callback and i % 5 == 0:
-                    progress_callback(f'Scraping listing {i+1}/{len(forsale_urls)}...')
-                try:
-                    detail = _scrape_listing_detail(page, url)
-                    merged = {**card_data, **{k: v for k, v in detail.items() if v is not None}}
-                    merged['reiwa_url'] = url
-                    results['forsale_listings'].append(merged)
+            page_num = 1
+            consecutive_empty = 0
+
+            while page_num <= MAX_PAGES:
+                url = _build_url(suburb_slug, page_num)
+                if progress_callback:
+                    progress_callback(f'For-sale page {page_num}...')
+
+                if not _load_listing_page(listing_page, url):
+                    logger.error(f"Failed to load for-sale page {page_num}")
+                    results['errors'].append(f"Failed to load for-sale page {page_num}")
+                    break
+
+                html = listing_page.content()
+                soup = BeautifulSoup(html, "html.parser")
+                cards = soup.find_all("article", class_=lambda c: c and "p-card" in c)
+
+                if not cards:
+                    logger.info(f"{suburb_name} p{page_num}: 0 cards -> done")
+                    break
+
+                new_on_page = 0
+
+                for card in cards:
+                    rec = _parse_card(card, suburb_name)
+                    card_url = rec['url']
+
+                    if not card_url:
+                        continue
+
+                    if card_url in seen_urls:
+                        continue  # same URL already seen (co-listing on same page)
+
+                    seen_urls.add(card_url)
+                    new_on_page += 1
+
+                    # Visit detail page for sizes + under offer
+                    detail = _fetch_detail(detail_page, card_url)
                     results['stats']['detail_pages_scraped'] += 1
-                except Exception as e:
-                    logger.error(f"Error scraping {url}: {e}")
-                    results['errors'].append(f"Detail page error: {url} - {str(e)}")
+
+                    if detail['land_size'] and not rec['land_size']:
+                        rec['land_size'] = detail['land_size']
+                    if detail['internal_size'] and not rec['internal_size']:
+                        rec['internal_size'] = detail['internal_size']
+                    if detail['price_text'] and not rec['price_text']:
+                        rec['price_text'] = detail['price_text']
+                    if detail['status'] == 'under_offer':
+                        rec['status'] = 'under_offer'
+
+                    rec['reiwa_url'] = card_url
+                    results['forsale_listings'].append(rec)
+
+                    time.sleep(random.uniform(0.3, 0.7))
+
+                results['stats']['forsale_pages_scraped'] = page_num
+                logger.info(f"{suburb_name} p{page_num}: {len(cards)} cards, {new_on_page} new, total={len(results['forsale_listings'])}")
+
+                if progress_callback:
+                    progress_callback(f'For-sale page {page_num}: {len(cards)} cards, {new_on_page} new. Total: {len(results["forsale_listings"])}')
+
+                # Pagination: stop only when 0 new unique listings
+                if new_on_page == 0:
+                    consecutive_empty += 1
+                    if consecutive_empty >= 2:
+                        break
+                else:
+                    consecutive_empty = 0
+
+                page_num += 1
+                time.sleep(random.uniform(1.0, 2.0))
 
             results['stats']['forsale_count'] = len(results['forsale_listings'])
 
-            # --- SCRAPE SOLD LISTINGS (first 2 pages) ---
+            # === SOLD (2 pages) ===
             if progress_callback:
-                progress_callback('Scraping sold listings...')
+                progress_callback('Scraping sold pages...')
 
-            sold_urls = _scrape_listing_urls(
-                page, suburb_slug, 'sold', max_pages=2, results=results
-            )
+            sold_seen = set()
+            for pg in range(1, 3):
+                url = _build_sold_url(suburb_slug, pg)
+                if progress_callback:
+                    progress_callback(f'Sold page {pg}...')
 
-            if progress_callback:
-                progress_callback(f'Found {len(sold_urls)} sold listing URLs. Fetching details...')
+                if not _load_listing_page(listing_page, url):
+                    break
 
-            seen_sold_urls = set()
-            for i, (url, card_data) in enumerate(sold_urls):
-                if url in seen_sold_urls:
-                    continue
-                seen_sold_urls.add(url)
-                if progress_callback and i % 5 == 0:
-                    progress_callback(f'Scraping sold listing {i+1}/{len(sold_urls)}...')
-                try:
-                    detail = _scrape_listing_detail(page, url)
-                    merged = {**card_data, **{k: v for k, v in detail.items() if v is not None}}
-                    merged['reiwa_url'] = url
-                    merged['status'] = 'sold'
-                    results['sold_listings'].append(merged)
-                except Exception as e:
-                    logger.error(f"Error scraping sold {url}: {e}")
-                    results['errors'].append(f"Sold detail error: {url} - {str(e)}")
+                html = listing_page.content()
+                soup = BeautifulSoup(html, "html.parser")
+                cards = soup.find_all("article", class_=lambda c: c and "p-card" in c)
+
+                if not cards:
+                    break
+
+                for card in cards:
+                    rec = _parse_card(card, suburb_name)
+                    card_url = rec['url']
+
+                    if card_url and card_url in sold_seen:
+                        continue
+                    if card_url:
+                        sold_seen.add(card_url)
+
+                    rec['status'] = 'sold'
+                    rec['reiwa_url'] = card_url
+                    results['sold_listings'].append(rec)
+
+                results['stats']['sold_pages_scraped'] = pg
+                logger.info(f"{suburb_name} sold p{pg}: {len(cards)} cards")
+
+                time.sleep(random.uniform(0.8, 1.5))
 
             results['stats']['sold_count'] = len(results['sold_listings'])
 
         except Exception as e:
-            logger.error(f"Fatal scrape error for {suburb_slug}: {e}")
+            logger.error(f"Fatal error scraping {suburb_name}: {e}")
             results['errors'].append(f"Fatal error: {str(e)}")
         finally:
             browser.close()
@@ -136,303 +499,35 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
     return results
 
 
-def _scrape_listing_urls(page, suburb_slug, listing_type, max_pages, results):
-    """
-    Scrape listing card URLs and basic card data from search result pages.
-    listing_type: 'for-sale' or 'sold'
-    Returns list of (url, card_data) tuples.
-    """
-    all_listings = []
-    stats_key = 'forsale_pages_scraped' if listing_type == 'for-sale' else 'sold_pages_scraped'
-
-    for page_num in range(1, max_pages + 1):
-        url = f"{REIWA_BASE}/{listing_type}/{suburb_slug}/?includesurroundingsuburbs=false&sortby=listdate"
-        if page_num > 1:
-            url += f"&page={page_num}"
-
-        logger.info(f"Scraping {listing_type} page {page_num}: {url}")
-
-        try:
-            page.goto(url, wait_until='domcontentloaded', timeout=PAGE_LOAD_TIMEOUT)
-            time.sleep(2)  # Let dynamic content load
-
-            # Wait for listing cards to appear
-            page.wait_for_selector('[class*="listing-card"], [class*="PropertyCard"], [class*="property-card"], a[href*="/{listing_type}/"] [class*="card"], .search-results-list a, [data-testid*="listing"], [class*="ListingCard"]', timeout=10000)
-            time.sleep(1)
-
-            # Extract listing links and card data from the page
-            cards = page.evaluate("""() => {
-                const results = [];
-
-                // Strategy 1: Find all links that look like property listings
-                const allLinks = document.querySelectorAll('a[href]');
-                const seenUrls = new Set();
-
-                for (const link of allLinks) {
-                    const href = link.getAttribute('href') || '';
-                    const fullHref = href.startsWith('/') ? href : '/' + href;
-
-                    // REIWA listing URLs typically look like: /123-street-name-suburb/
-                    // They contain a number followed by street name and suburb
-                    // Exclude navigation, pagination, agent, and search URLs
-                    if (
-                        fullHref.match(/^\/\d+[a-z]?-[a-z]+-[a-z]+/) &&
-                        !fullHref.includes('/for-sale/') &&
-                        !fullHref.includes('/sold/') &&
-                        !fullHref.includes('/rent/') &&
-                        !fullHref.includes('/agent/') &&
-                        !fullHref.includes('/agency/') &&
-                        !fullHref.includes('?') &&
-                        !seenUrls.has(fullHref)
-                    ) {
-                        seenUrls.add(fullHref);
-
-                        // Try to get card-level data
-                        const card = link.closest('[class*="card"], [class*="Card"], [class*="listing"], [class*="Listing"], [class*="property"], [class*="Property"], li, article') || link;
-                        const text = card.innerText || '';
-
-                        // Check for under offer
-                        const isUnderOffer = text.toLowerCase().includes('under offer');
-
-                        // Try to get price from card
-                        const priceMatch = text.match(/\$[\d,]+(?:\.\d+)?(?:\s*[-–]\s*\$[\d,]+(?:\.\d+)?)?/);
-                        const price = priceMatch ? priceMatch[0] : null;
-
-                        // Try to get address - usually the first prominent text
-                        const addressEl = card.querySelector('h2, h3, h4, [class*="address"], [class*="Address"]');
-                        const address = addressEl ? addressEl.innerText.trim() : null;
-
-                        results.push({
-                            url: fullHref,
-                            price_text: price,
-                            address: address,
-                            is_under_offer: isUnderOffer,
-                        });
-                    }
-                }
-
-                return results;
-            }""")
-
-            if not cards or len(cards) == 0:
-                # Try alternate extraction: look for any structured listing content
-                cards = page.evaluate("""() => {
-                    const results = [];
-                    // Look for structured data or JSON-LD
-                    const scripts = document.querySelectorAll('script[type="application/ld+json"]');
-                    for (const s of scripts) {
-                        try {
-                            const data = JSON.parse(s.textContent);
-                            if (data['@type'] === 'ItemList' && data.itemListElement) {
-                                for (const item of data.itemListElement) {
-                                    if (item.url) {
-                                        results.push({
-                                            url: item.url.replace('https://reiwa.com.au', ''),
-                                            price_text: null,
-                                            address: item.name || null,
-                                            is_under_offer: false,
-                                        });
-                                    }
-                                }
-                            }
-                        } catch(e) {}
-                    }
-                    return results;
-                }""")
-
-            if not cards or len(cards) == 0:
-                logger.warning(f"No listings found on {listing_type} page {page_num}")
-                # If first page has no results, the suburb might have no listings
-                if page_num == 1:
-                    break
-                # Otherwise we've gone past the last page
-                break
-
-            for card in cards:
-                card_url = REIWA_BASE + card['url'] if not card['url'].startswith('http') else card['url']
-                card_data = {
-                    'price_text': card.get('price_text'),
-                    'address': card.get('address'),
-                    'status': 'under_offer' if card.get('is_under_offer') else ('sold' if listing_type == 'sold' else 'active'),
-                }
-                all_listings.append((card_url, card_data))
-
-            results['stats'][stats_key] = page_num
-            logger.info(f"Found {len(cards)} listings on {listing_type} page {page_num}")
-
-            # Check if there's a next page
-            has_next = page.evaluate("""() => {
-                const nextLinks = document.querySelectorAll('a[href*="page="], [class*="next"], [class*="Next"], [aria-label="Next"]');
-                return nextLinks.length > 0;
-            }""")
-
-            if not has_next:
-                break
-
-            time.sleep(1)  # Be polite between pages
-
-        except PlaywrightTimeout:
-            logger.warning(f"Timeout on {listing_type} page {page_num}")
-            if page_num == 1:
-                results['errors'].append(f"Timeout loading {listing_type} page 1")
-            break
-        except Exception as e:
-            logger.error(f"Error on {listing_type} page {page_num}: {e}")
-            results['errors'].append(f"Error on {listing_type} page {page_num}: {str(e)}")
-            break
-
-    return all_listings
-
-
-def _scrape_listing_detail(page, url):
-    """Scrape individual listing page for full details."""
-    detail = {
-        'address': None,
-        'price_text': None,
-        'bedrooms': None,
-        'bathrooms': None,
-        'parking': None,
-        'land_size': None,
-        'internal_size': None,
-        'agency': None,
-        'agent': None,
-        'listing_type': None,
-        'sold_price': None,
-        'sold_date': None,
-    }
+def debug_page(suburb_slug):
+    """Debug: see what the scraper sees on a REIWA for-sale page."""
+    url = _build_url(suburb_slug, 1)
+    result = {'url': url, 'title': '', 'cards_found': 0, 'sample_card': '', 'text_preview': '', 'error': None}
 
     try:
-        page.goto(url, wait_until='domcontentloaded', timeout=LISTING_TIMEOUT)
-        time.sleep(1.5)
+        with sync_playwright() as p:
+            launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
+            if CHROMIUM_PATH:
+                launch_opts['executable_path'] = CHROMIUM_PATH
+            browser = p.chromium.launch(**launch_opts)
+            context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800}, locale='en-AU')
+            page = context.new_page()
 
-        data = page.evaluate("""() => {
-            const result = {};
-            const text = document.body.innerText || '';
-            const html = document.body.innerHTML || '';
+            _load_listing_page(page, url)
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
 
-            // Address - usually in h1 or prominent header
-            const h1 = document.querySelector('h1');
-            if (h1) result.address = h1.innerText.trim();
+            result['title'] = page.title()
+            cards = soup.find_all("article", class_=lambda c: c and "p-card" in c)
+            result['cards_found'] = len(cards)
 
-            // Price
-            const priceEls = document.querySelectorAll('[class*="price"], [class*="Price"], [data-testid*="price"]');
-            for (const el of priceEls) {
-                const t = el.innerText.trim();
-                if (t && (t.includes('$') || t.toLowerCase().includes('offer') || t.toLowerCase().includes('contact'))) {
-                    result.price_text = t;
-                    break;
-                }
-            }
-            if (!result.price_text) {
-                const priceMatch = text.match(/(?:Price|Asking|From|Offers?)[\s:]*(\$[\d,]+(?:\s*[-–]\s*\$[\d,]+)?)/i);
-                if (priceMatch) result.price_text = priceMatch[1];
-            }
+            if cards:
+                result['sample_card'] = str(cards[0])[:2000]
 
-            // Property features (bed/bath/car/land/internal)
-            // Look for structured feature elements
-            const featureEls = document.querySelectorAll('[class*="feature"], [class*="Feature"], [class*="attribute"], [class*="Attribute"], [class*="property-info"], [class*="PropertyInfo"], [class*="bed"], [class*="bath"], [class*="car"]');
+            result['text_preview'] = soup.get_text(" ", strip=True)[:3000]
 
-            // Also search in the full text for patterns
-            const bedMatch = text.match(/(\d+)\s*(?:bed(?:room)?s?|Bed(?:room)?s?)/i);
-            if (bedMatch) result.bedrooms = parseInt(bedMatch[1]);
-
-            const bathMatch = text.match(/(\d+)\s*(?:bath(?:room)?s?|Bath(?:room)?s?)/i);
-            if (bathMatch) result.bathrooms = parseInt(bathMatch[1]);
-
-            const carMatch = text.match(/(\d+)\s*(?:car\s*(?:space|bay|garage)?s?|Car\s*(?:space|bay|garage)?s?|parking|garage|Garage)/i);
-            if (carMatch) result.parking = parseInt(carMatch[1]);
-
-            // Land size
-            const landMatch = text.match(/(?:land\s*(?:size|area)?|block\s*size|lot\s*size)[\s:]*(\d[\d,]*\.?\d*)\s*(?:m²|sqm|m2)/i);
-            if (landMatch) result.land_size = landMatch[1].replace(',', '') + ' m²';
-            // Also try standalone m² patterns near "land"
-            if (!result.land_size) {
-                const landMatch2 = text.match(/(\d[\d,]*\.?\d*)\s*(?:m²|sqm|m2)\s*(?:land|block|lot)/i);
-                if (landMatch2) result.land_size = landMatch2[1].replace(',', '') + ' m²';
-            }
-
-            // Internal/floor size
-            const intMatch = text.match(/(?:internal\s*(?:size|area)?|floor\s*(?:size|area)?|living\s*area|building\s*(?:size|area))[\s:]*(\d[\d,]*\.?\d*)\s*(?:m²|sqm|m2)/i);
-            if (intMatch) result.internal_size = intMatch[1].replace(',', '') + ' m²';
-
-            // Agency
-            const agencyEls = document.querySelectorAll('[class*="agency"], [class*="Agency"], [class*="brand"], [class*="office"]');
-            for (const el of agencyEls) {
-                const t = el.innerText.trim();
-                if (t && t.length > 2 && t.length < 100) {
-                    result.agency = t.split('\\n')[0].trim();
-                    break;
-                }
-            }
-
-            // Agent
-            const agentEls = document.querySelectorAll('[class*="agent-name"], [class*="AgentName"], [class*="agent"] [class*="name"], [class*="Agent"] [class*="Name"]');
-            for (const el of agentEls) {
-                const t = el.innerText.trim();
-                if (t && t.length > 2 && t.length < 80) {
-                    result.agent = t;
-                    break;
-                }
-            }
-            // Fallback: look for agent section
-            if (!result.agent) {
-                const agentSection = document.querySelector('[class*="agent"], [class*="Agent"], [class*="contact"]');
-                if (agentSection) {
-                    const nameEl = agentSection.querySelector('h3, h4, strong, [class*="name"]');
-                    if (nameEl) result.agent = nameEl.innerText.trim();
-                }
-            }
-
-            // Listing type (house, unit, land, etc.)
-            const typeMatch = text.match(/(?:Property Type|Type)[\s:]*([A-Za-z\s]+?)(?:\n|$)/i);
-            if (typeMatch) result.listing_type = typeMatch[1].trim();
-
-            // Sold info
-            const soldPriceMatch = text.match(/(?:Sold|Sale)\s*(?:Price)?[\s:]*(\$[\d,]+)/i);
-            if (soldPriceMatch) result.sold_price = soldPriceMatch[1];
-
-            const soldDateMatch = text.match(/(?:Sold|Sale)\s*(?:Date|on)?[\s:]*(\d{1,2}\s+\w+\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{4})/i);
-            if (soldDateMatch) result.sold_date = soldDateMatch[1];
-
-            // Try structured data (JSON-LD)
-            const scripts = document.querySelectorAll('script[type="application/ld+json"]');
-            for (const s of scripts) {
-                try {
-                    const d = JSON.parse(s.textContent);
-                    if (d['@type'] === 'Product' || d['@type'] === 'RealEstateListing' || d['@type'] === 'Residence') {
-                        if (d.name && !result.address) result.address = d.name;
-                        if (d.offers && d.offers.price && !result.price_text) {
-                            result.price_text = '$' + Number(d.offers.price).toLocaleString();
-                        }
-                    }
-                    // SingleFamilyResidence or similar
-                    if (d.numberOfBedrooms && !result.bedrooms) result.bedrooms = parseInt(d.numberOfBedrooms);
-                    if (d.numberOfBathroomsTotal && !result.bathrooms) result.bathrooms = parseInt(d.numberOfBathroomsTotal);
-                } catch(e) {}
-            }
-
-            // Look for icon-based features (common in real estate sites)
-            const allElements = document.querySelectorAll('[class*="bed"], [class*="bath"], [class*="car"], [class*="Bed"], [class*="Bath"], [class*="Car"]');
-            for (const el of allElements) {
-                const cls = (el.className || '').toLowerCase();
-                const val = parseInt(el.innerText.trim());
-                if (!isNaN(val)) {
-                    if (cls.includes('bed') && !result.bedrooms) result.bedrooms = val;
-                    else if (cls.includes('bath') && !result.bathrooms) result.bathrooms = val;
-                    else if (cls.includes('car') && !result.parking) result.parking = val;
-                }
-            }
-
-            return result;
-        }""")
-
-        for key, val in data.items():
-            if val is not None:
-                detail[key] = val
-
-    except PlaywrightTimeout:
-        logger.warning(f"Timeout loading detail page: {url}")
+            browser.close()
     except Exception as e:
-        logger.error(f"Error on detail page {url}: {e}")
+        result['error'] = str(e)
 
-    return detail
+    return result

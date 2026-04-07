@@ -8,7 +8,7 @@ from flask_cors import CORS
 
 from database import init_db, get_db, add_suburb, remove_suburb, get_suburbs, get_listings
 from database import upsert_listing, mark_withdrawn, create_scrape_log, update_scrape_log, get_scrape_logs
-from scraper import scrape_suburb
+from scraper import scrape_suburb, debug_page
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -72,8 +72,15 @@ def delete_suburb(suburb_id):
 @app.route('/api/listings', methods=['GET'])
 def list_listings():
     suburb_id = request.args.get('suburb_id', type=int)
+    suburb_ids_str = request.args.get('suburb_ids', '')
     status = request.args.get('status')
-    return jsonify(get_listings(suburb_id=suburb_id, status=status))
+    suburb_ids = None
+    if suburb_ids_str:
+        try:
+            suburb_ids = [int(x) for x in suburb_ids_str.split(',') if x.strip()]
+        except ValueError:
+            pass
+    return jsonify(get_listings(suburb_id=suburb_id, suburb_ids=suburb_ids, status=status))
 
 
 @app.route('/api/listings/summary', methods=['GET'])
@@ -172,6 +179,51 @@ def scrape_status():
 def scrape_status_single(suburb_id):
     job = scrape_jobs.get(suburb_id, {'status': 'idle'})
     return jsonify(job)
+
+
+@app.route('/api/scrape/debug/<int:suburb_id>', methods=['GET'])
+def debug_scrape(suburb_id):
+    """Debug: see what the scraper sees on the REIWA page for a suburb."""
+    conn = get_db()
+    suburb = conn.execute("SELECT * FROM suburbs WHERE id = ?", (suburb_id,)).fetchone()
+    conn.close()
+    if not suburb:
+        return jsonify({'error': 'Suburb not found'}), 404
+    result = debug_page(suburb['slug'])
+    return jsonify(result)
+
+
+@app.route('/api/scrape/selected', methods=['POST'])
+def scrape_selected():
+    """Scrape only selected suburb IDs."""
+    data = request.json
+    suburb_ids = data.get('suburb_ids', [])
+    if not suburb_ids:
+        return jsonify({'error': 'No suburbs selected'}), 400
+
+    conn = get_db()
+    suburbs_to_scrape = []
+    for sid in suburb_ids:
+        s = conn.execute("SELECT * FROM suburbs WHERE id = ?", (sid,)).fetchone()
+        if s:
+            suburbs_to_scrape.append(dict(s))
+    conn.close()
+
+    if not suburbs_to_scrape:
+        return jsonify({'error': 'No valid suburbs found'}), 400
+
+    for s in suburbs_to_scrape:
+        if s['id'] in scrape_jobs and scrape_jobs[s['id']].get('status') == 'running':
+            return jsonify({'error': f'Scrape already running for {s["name"]}'}), 409
+
+    thread = threading.Thread(
+        target=_run_scrape_all,
+        args=([{'id': s['id'], 'slug': s['slug'], 'name': s['name']} for s in suburbs_to_scrape],),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({'status': 'started', 'suburbs': [s['name'] for s in suburbs_to_scrape]})
 
 
 @app.route('/api/scrape/logs', methods=['GET'])
