@@ -4,6 +4,7 @@ import random
 import logging
 import os
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from bs4 import BeautifulSoup
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 REIWA_BASE = "https://reiwa.com.au"
 MAX_PAGES = 15
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+DETAIL_TABS = 3  # Number of concurrent detail page tabs
 
 CHROMIUM_PATH = os.environ.get('CHROMIUM_PATH', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
 if not os.path.exists(CHROMIUM_PATH):
@@ -29,13 +31,11 @@ def _build_sold_url(suburb_slug, page=1):
 
 
 def _listing_id(url):
-    """Extract REIWA numeric ID from URL, e.g. '5008054'."""
     m = re.search(r"-(\d{5,8})/?$", url or "")
     return m.group(1) if m else ""
 
 
 def _parse_date_text(text):
-    """Parse relative date text like 'Added today', 'Added 3 days ago'."""
     if not text:
         return ""
     today = datetime.now()
@@ -62,7 +62,6 @@ def _parse_date_text(text):
 
 
 def _extract_date(card):
-    """Extract listing date from card HTML."""
     for el in card.find_all(["span", "div", "p", "time"]):
         if el.name == "time":
             v = el.get("datetime", "") or el.get_text(strip=True)
@@ -90,13 +89,10 @@ def _normalise_agency(a):
 
 def _parse_card(card, suburb_name):
     """Parse one listing card using REIWA's actual CSS classes."""
-    # Address
     h2 = card.find("h2", class_="p-details__add")
     address = h2.get_text(strip=True) if h2 else ""
-    # Strip suburb name from end of address
     address = re.sub(r",?\s*" + re.escape(suburb_name) + r"$", "", address, flags=re.I).strip()
 
-    # URL
     url = ""
     if h2:
         a = h2.find("a", href=True)
@@ -108,7 +104,6 @@ def _parse_card(card, suburb_name):
                 url = ("https://reiwa.com.au" + a["href"]) if a["href"].startswith("/") else a["href"]
                 break
 
-    # Fallback address from URL
     if not address and url:
         m = re.search(r"\.com\.au/(.+)-\d{5,8}/?$", url)
         if m:
@@ -117,7 +112,6 @@ def _parse_card(card, suburb_name):
     if not address:
         address = "Address not disclosed"
 
-    # Price
     price = ""
     for el in card.find_all(["span", "div", "p", "strong", "h2", "h3"]):
         txt = el.get_text(strip=True)
@@ -149,14 +143,12 @@ def _parse_card(card, suburb_name):
             except ValueError:
                 pass
 
-    # Bed/Bath/Car - REIWA uses span.u-grey-dark with digit content
     nums = [s.get_text(strip=True) for s in card.find_all("span", class_="u-grey-dark")
             if s.get_text(strip=True).isdigit()]
     beds = int(nums[0]) if len(nums) > 0 else None
     baths = int(nums[1]) if len(nums) > 1 else None
     cars = int(nums[2]) if len(nums) > 2 else None
 
-    # Land size and internal size from card text
     ct = card.get_text(" ", strip=True)
     cn = re.sub(r"m\s+2\b", "m2", ct, flags=re.I)
 
@@ -186,7 +178,6 @@ def _parse_card(card, suburb_name):
             except ValueError:
                 pass
 
-    # Property type
     ptype = ""
     for t in ["House", "Unit", "Apartment", "Townhouse", "Villa", "Studio",
               "Duplex", "Terrace", "Land", "Rural"]:
@@ -194,7 +185,6 @@ def _parse_card(card, suburb_name):
             ptype = t
             break
 
-    # Agency - from agent logo
     agency = ""
     logo = card.find("a", class_="agent__logo")
     if logo:
@@ -202,7 +192,6 @@ def _parse_card(card, suburb_name):
         if sr:
             agency = _normalise_agency(sr.get_text(strip=True))
 
-    # Agent name
     agent = ""
     nd = card.find("div", class_="agent__name")
     if nd:
@@ -233,8 +222,8 @@ def _fetch_detail(page, url):
         return out
 
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(1500)
+        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        page.wait_for_timeout(800)
         html = page.content()
         soup = BeautifulSoup(html, "html.parser")
 
@@ -244,7 +233,6 @@ def _fetch_detail(page, url):
 
         is_under_offer = False
 
-        # Method 1: elements with status-related CSS classes
         for el in soup.find_all(["span", "div", "p", "strong", "h1", "h2", "h3"], class_=True):
             cls = " ".join(el.get("class", []))
             txt = el.get_text(strip=True).lower()
@@ -252,7 +240,6 @@ def _fetch_detail(page, url):
                 is_under_offer = True
                 break
 
-        # Method 2: listing header area
         if not is_under_offer:
             header = (
                 soup.find("div", class_=re.compile(r"listing-header|property-header|p-header", re.I))
@@ -263,7 +250,6 @@ def _fetch_detail(page, url):
                 if re.search(r"\bunder\s+offer\b", header.get_text(" ", strip=True)[:800], re.I):
                     is_under_offer = True
 
-        # Method 3: main content top portion
         if not is_under_offer:
             main = soup.find("main")
             if main:
@@ -273,7 +259,6 @@ def _fetch_detail(page, url):
         if is_under_offer:
             out["status"] = "under_offer"
 
-        # Sizes
         t = re.sub(r"m\s+2|sqm|sq\.?\s*m", "m2", soup.get_text(" ", strip=True), flags=re.I)
 
         for pat in [r"landsize\s*([\d,]+)\s*m", r"land\s*(?:size|area)[^\d]{0,10}([\d,]+)\s*m",
@@ -301,7 +286,6 @@ def _fetch_detail(page, url):
                 except ValueError:
                     pass
 
-        # Price from detail page
         m = re.search(r"\$([\d]{1,3}(?:,[\d]{3})+)", t[:600])
         if m:
             out["price_text"] = f"${m.group(1)}"
@@ -312,20 +296,44 @@ def _fetch_detail(page, url):
     return out
 
 
+def _fetch_details_batch(detail_pages, listings):
+    """Fetch detail pages for a batch of listings using multiple tabs round-robin."""
+    if not listings:
+        return []
+
+    results = []
+    for i, rec in enumerate(listings):
+        tab = detail_pages[i % len(detail_pages)]
+        detail = _fetch_detail(tab, rec['url'])
+
+        if detail['land_size'] and not rec['land_size']:
+            rec['land_size'] = detail['land_size']
+        if detail['internal_size'] and not rec['internal_size']:
+            rec['internal_size'] = detail['internal_size']
+        if detail['price_text'] and not rec['price_text']:
+            rec['price_text'] = detail['price_text']
+        if detail['status'] == 'under_offer':
+            rec['status'] = 'under_offer'
+
+        results.append(rec)
+
+    return results
+
+
 def _load_listing_page(page, url, retries=3):
     """Load a REIWA listing page, wait for article.p-card cards."""
     for attempt in range(1, retries + 1):
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
             try:
-                page.wait_for_selector("article.p-card", timeout=8000)
+                page.wait_for_selector("article.p-card", timeout=6000)
             except Exception:
-                pass  # page may have 0 results
-            page.wait_for_timeout(2000)
+                pass
+            page.wait_for_timeout(1000)
             return True
         except Exception as e:
             if attempt < retries:
-                time.sleep(2 * attempt)
+                time.sleep(1.5 * attempt)
             else:
                 logger.error(f"Failed to load {url}: {e}")
                 return False
@@ -364,12 +372,15 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
         )
 
         listing_page = context.new_page()
-        detail_page = context.new_page()
 
-        # Block heavy resources on detail page
-        detail_page.route("**/*", lambda route: route.abort()
-                          if route.request.resource_type in ("image", "media", "font", "stylesheet")
-                          else route.continue_())
+        # Create multiple detail tabs for faster fetching
+        detail_pages = []
+        for _ in range(DETAIL_TABS):
+            dp = context.new_page()
+            dp.route("**/*", lambda route: route.abort()
+                     if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                     else route.continue_())
+            detail_pages.append(dp)
 
         try:
             # === FOR-SALE ===
@@ -398,38 +409,32 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                     logger.info(f"{suburb_name} p{page_num}: 0 cards -> done")
                     break
 
+                # Parse all cards first
+                page_listings = []
                 new_on_page = 0
 
                 for card in cards:
                     rec = _parse_card(card, suburb_name)
                     card_url = rec['url']
 
-                    if not card_url:
+                    if not card_url or card_url in seen_urls:
                         continue
-
-                    if card_url in seen_urls:
-                        continue  # same URL already seen (co-listing on same page)
 
                     seen_urls.add(card_url)
                     new_on_page += 1
+                    page_listings.append(rec)
 
-                    # Visit detail page for sizes + under offer
-                    detail = _fetch_detail(detail_page, card_url)
-                    results['stats']['detail_pages_scraped'] += 1
+                # Fetch all detail pages for this page's listings
+                if page_listings:
+                    if progress_callback:
+                        progress_callback(f'For-sale page {page_num}: fetching {len(page_listings)} detail pages...')
 
-                    if detail['land_size'] and not rec['land_size']:
-                        rec['land_size'] = detail['land_size']
-                    if detail['internal_size'] and not rec['internal_size']:
-                        rec['internal_size'] = detail['internal_size']
-                    if detail['price_text'] and not rec['price_text']:
-                        rec['price_text'] = detail['price_text']
-                    if detail['status'] == 'under_offer':
-                        rec['status'] = 'under_offer'
+                    _fetch_details_batch(detail_pages, page_listings)
+                    results['stats']['detail_pages_scraped'] += len(page_listings)
 
-                    rec['reiwa_url'] = card_url
-                    results['forsale_listings'].append(rec)
-
-                    time.sleep(random.uniform(0.3, 0.7))
+                    for rec in page_listings:
+                        rec['reiwa_url'] = rec['url']
+                        results['forsale_listings'].append(rec)
 
                 results['stats']['forsale_pages_scraped'] = page_num
                 logger.info(f"{suburb_name} p{page_num}: {len(cards)} cards, {new_on_page} new, total={len(results['forsale_listings'])}")
@@ -437,7 +442,6 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                 if progress_callback:
                     progress_callback(f'For-sale page {page_num}: {len(cards)} cards, {new_on_page} new. Total: {len(results["forsale_listings"])}')
 
-                # Pagination: stop only when 0 new unique listings
                 if new_on_page == 0:
                     consecutive_empty += 1
                     if consecutive_empty >= 2:
@@ -446,7 +450,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                     consecutive_empty = 0
 
                 page_num += 1
-                time.sleep(random.uniform(1.0, 2.0))
+                time.sleep(random.uniform(0.5, 1.0))
 
             results['stats']['forsale_count'] = len(results['forsale_listings'])
 
@@ -486,7 +490,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                 results['stats']['sold_pages_scraped'] = pg
                 logger.info(f"{suburb_name} sold p{pg}: {len(cards)} cards")
 
-                time.sleep(random.uniform(0.8, 1.5))
+                time.sleep(random.uniform(0.3, 0.8))
 
             results['stats']['sold_count'] = len(results['sold_listings'])
 

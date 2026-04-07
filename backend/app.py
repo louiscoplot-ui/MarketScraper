@@ -237,9 +237,21 @@ def list_scrape_logs():
 
 
 def _run_scrape_all(suburbs):
-    """Run scrape for all suburbs sequentially."""
-    for suburb in suburbs:
-        _run_scrape(suburb['id'], suburb['slug'], suburb['name'])
+    """Run scrape for suburbs in parallel (up to 3 at a time)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    max_workers = min(3, len(suburbs))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_run_scrape, s['id'], s['slug'], s['name']): s
+            for s in suburbs
+        }
+        for future in as_completed(futures):
+            s = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Scrape thread error for {s['name']}: {e}")
 
 
 def _run_scrape(suburb_id, slug, name):
