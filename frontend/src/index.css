@@ -133,28 +133,28 @@ header h1 {
 
 /* Sidebar */
 .sidebar {
-  width: 280px;
-  min-width: 280px;
+  width: 240px;
+  min-width: 240px;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .sidebar h2 {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
-  padding: 12px 12px 8px;
+  padding: 8px 10px 6px;
 }
 
 .add-form {
   display: flex;
   gap: 4px;
-  padding: 0 12px 12px;
+  padding: 0 10px 8px;
 }
 
 .autocomplete-wrapper {
@@ -207,12 +207,13 @@ header h1 {
 .suburb-list {
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .check-actions {
   display: flex;
   gap: 12px;
-  padding: 0 12px 8px;
+  padding: 0 10px 4px;
 }
 
 .btn-link {
@@ -229,9 +230,9 @@ header h1 {
 }
 
 .suburb-check {
-  width: 16px;
-  height: 16px;
-  margin-right: 8px;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
   cursor: pointer;
   accent-color: var(--primary);
   flex-shrink: 0;
@@ -240,7 +241,7 @@ header h1 {
 .suburb-item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 4px 10px;
   cursor: pointer;
   border-left: 3px solid transparent;
   transition: all 0.1s;
@@ -261,20 +262,20 @@ header h1 {
 }
 
 .suburb-name {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
 }
 
 .suburb-stats {
   display: flex;
-  gap: 8px;
-  margin-top: 2px;
+  gap: 4px;
+  margin-top: 1px;
 }
 
 .stat {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 0px 5px;
   border-radius: 10px;
 }
 
@@ -323,7 +324,8 @@ header h1 {
 .content {
   flex: 1;
   overflow: auto;
-  padding: 16px;
+  padding: 12px;
+  min-height: 0;
 }
 
 /* Filters */
