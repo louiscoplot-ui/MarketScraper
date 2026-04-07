@@ -437,7 +437,7 @@ function App() {
                     key={s}
                     className={`filter-btn ${selectedStatuses.has(s) ? 'active' : ''}`}
                     onClick={() => toggleStatus(s)}
-                    style={{ borderColor: statusColors[s] }}
+                    style={selectedStatuses.has(s) ? { borderColor: statusColors[s], backgroundColor: statusColors[s] + '33', color: statusColors[s] } : { borderColor: statusColors[s] }}
                   >
                     {s.replace('_', ' ').toUpperCase()}
                   </button>
@@ -499,6 +499,7 @@ function App() {
                           {sortField === field && (sortDir === 'asc' ? ' ↑' : ' ↓')}
                         </th>
                       ))}
+                      <th>Link</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -526,11 +527,16 @@ function App() {
                         <td>{l.listing_type || '-'}</td>
                         <td className="date-cell">{l.first_seen ? new Date(l.first_seen).toLocaleDateString() : '-'}</td>
                         <td className="date-cell">{l.last_seen ? new Date(l.last_seen).toLocaleDateString() : '-'}</td>
+                        <td className="link-cell">
+                          {l.reiwa_url ? (
+                            <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
+                          ) : '-'}
+                        </td>
                       </tr>
                     ))}
                     {filteredListings.length === 0 && (
                       <tr>
-                        <td colSpan="14" className="empty">
+                        <td colSpan="15" className="empty">
                           {suburbs.length === 0
                             ? 'Add a suburb to get started'
                             : 'No listings yet. Click "Scrape" to fetch data.'}

@@ -473,6 +473,17 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   color: var(--text-muted);
 }
 
+.link-cell a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.link-cell a:hover {
+  text-decoration: underline;
+}
+
 .status-badge {
   display: inline-block;
   padding: 2px 10px;
