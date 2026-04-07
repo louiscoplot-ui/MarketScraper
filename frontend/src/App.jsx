@@ -36,15 +36,13 @@ function App() {
   }, [])
 
   const fetchListings = useCallback(async () => {
-    const suburbFilter = selectedSuburbs.size > 0
-      ? `suburb_ids=${Array.from(selectedSuburbs).join(',')}`
-      : ''
+    const ids = checkedSuburbs.size > 0 ? Array.from(checkedSuburbs) : []
+    const suburbFilter = ids.length > 0 ? `suburb_ids=${ids.join(',')}` : ''
     let url = `${API}/listings?${suburbFilter}`
-    // Send all selected statuses
     if (selectedStatuses.size > 0) url += `&statuses=${Array.from(selectedStatuses).join(',')}`
     const res = await fetch(url)
     if (res.ok) setListings(await res.json())
-  }, [selectedSuburbs, selectedStatuses])
+  }, [checkedSuburbs, selectedStatuses])
 
   const fetchScrapeStatus = useCallback(async () => {
     const res = await fetch(`${API}/scrape/status`)
@@ -84,7 +82,7 @@ function App() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  useEffect(() => { fetchListings() }, [selectedSuburbs, selectedStatuses])
+  useEffect(() => { fetchListings() }, [checkedSuburbs, selectedStatuses])
   useEffect(() => { if (view === 'logs') fetchLogs() }, [view])
 
   // --- Autocomplete ---
@@ -225,7 +223,6 @@ function App() {
   })
 
   const filteredListings = sortedListings.filter(l => {
-    if (selectedSuburbs.size > 0 && !selectedSuburbs.has(l.suburb_id)) return false
     if (selectedAgent && l.agent !== selectedAgent) return false
     if (selectedAgency && l.agency !== selectedAgency) return false
     return true
@@ -471,7 +468,7 @@ function App() {
 
                 <span className="listing-count">
                   {filteredListings.length} listing{filteredListings.length !== 1 ? 's' : ''}
-                  {selectedSuburbs.size > 0 && ` (${selectedSuburbs.size} suburb${selectedSuburbs.size > 1 ? 's' : ''})`}
+                  {checkedSuburbs.size > 0 && checkedSuburbs.size < suburbs.length && ` (${checkedSuburbs.size} suburb${checkedSuburbs.size > 1 ? 's' : ''})`}
                   {selectedAgency && ` · ${selectedAgency}`}
                   {selectedAgent && ` · ${selectedAgent}`}
                 </span>

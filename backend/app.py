@@ -291,23 +291,26 @@ def _run_scrape(suburb_id, slug, name):
 
         # Process sold listings
         progress_cb('Saving sold listings to database...')
+        saved_sold = 0
         for listing in result['sold_listings']:
             url = listing.get('reiwa_url', '').strip()
             if not url:
                 continue
             sold_urls.append(url)
             upsert_listing(suburb_id, url, listing)
+            saved_sold += 1
 
         # Mark withdrawn — by URL, not address
         progress_cb('Checking for withdrawn listings...')
         withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls)
 
-        # Update scrape log
+        # Use actual saved counts (not raw card counts)
+        actual_forsale = len(forsale_urls)
         update_scrape_log(
             log_id,
             completed_at=datetime.utcnow().isoformat(),
-            forsale_count=result['stats']['forsale_count'],
-            sold_count=result['stats']['sold_count'],
+            forsale_count=actual_forsale,
+            sold_count=saved_sold,
             new_count=new_count,
             updated_count=updated_count,
             withdrawn_count=withdrawn_count,
@@ -316,7 +319,7 @@ def _run_scrape(suburb_id, slug, name):
 
         scrape_jobs[suburb_id] = {
             'status': 'completed',
-            'progress': f'Done! {result["stats"]["forsale_count"]} active, {result["stats"]["sold_count"]} sold, {new_count} new, {withdrawn_count} withdrawn',
+            'progress': f'Done! {actual_forsale} active, {saved_sold} sold, {new_count} new, {withdrawn_count} withdrawn',
             'completed_at': datetime.utcnow().isoformat(),
             'stats': result['stats'],
         }
