@@ -462,7 +462,7 @@ def _run_scrape_all(suburbs):
     """Run scrape for suburbs in parallel (up to 3 at a time)."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    max_workers = min(3, len(suburbs))
+    max_workers = min(6, len(suburbs))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(_run_scrape, s['id'], s['slug'], s['name']): s
