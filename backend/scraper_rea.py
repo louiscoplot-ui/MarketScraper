@@ -11,11 +11,61 @@ logger = logging.getLogger(__name__)
 
 REA_BASE = "https://www.realestate.com.au"
 MAX_PAGES = 10
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 CHROMIUM_PATH = os.environ.get('CHROMIUM_PATH', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
 if not os.path.exists(CHROMIUM_PATH):
     CHROMIUM_PATH = None
+
+# JavaScript to inject to hide headless browser fingerprint
+STEALTH_JS = """
+() => {
+    // Override navigator.webdriver
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+    // Override chrome runtime
+    window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
+
+    // Override permissions
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) =>
+        parameters.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission })
+            : originalQuery(parameters);
+
+    // Override plugins to look like a real browser
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin' },
+        ],
+    });
+
+    // Override languages
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-AU', 'en-US', 'en'] });
+
+    // Remove headless indicators from user agent
+    Object.defineProperty(navigator, 'userAgent', {
+        get: () => navigator.userAgent.replace('HeadlessChrome/', 'Chrome/')
+    });
+
+    // Override platform
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+
+    // Override hardware concurrency
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+
+    // Override deviceMemory
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+    // Fix iframe contentWindow
+    const originalAttachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function() {
+        return originalAttachShadow.apply(this, [{mode: 'open'}]);
+    };
+}
+"""
 
 
 def _build_rea_buy_url(suburb_name, postcode, page=1):
@@ -305,38 +355,74 @@ def _get_rea_total(soup):
     return None
 
 
+def _create_stealth_context(browser):
+    """Create a browser context with anti-detection measures."""
+    context = browser.new_context(
+        user_agent=UA,
+        viewport={'width': 1366, 'height': 768},
+        locale='en-AU',
+        timezone_id='Australia/Perth',
+        geolocation={'latitude': -31.95, 'longitude': 115.86},
+        permissions=['geolocation'],
+        color_scheme='light',
+        java_script_enabled=True,
+        extra_http_headers={
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-AU,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'document',
+            'sec-fetch-mode': 'navigate',
+            'sec-fetch-site': 'none',
+            'sec-fetch-user': '?1',
+            'upgrade-insecure-requests': '1',
+        }
+    )
+
+    # Inject stealth JS on every new page
+    context.add_init_script(STEALTH_JS)
+
+    return context
+
+
 def _load_rea_page(page, url, retries=3):
     """Load a REA page, handling potential bot detection."""
     for attempt in range(1, retries + 1):
         try:
-            # Try domcontentloaded first (networkidle can hang on third-party resources)
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            except Exception:
-                if attempt < retries:
-                    time.sleep(2 * attempt)
-                    continue
-                raise
+            # Navigate
+            page.goto(url, wait_until="domcontentloaded", timeout=35000)
 
-            # Give extra time for JS rendering
-            page.wait_for_timeout(2000)
+            # Wait for JS rendering
+            page.wait_for_timeout(3000)
 
-            # Check for bot detection / captcha
+            # Check for bot detection / captcha / empty page
             content = page.content()
-            if "captcha" in content.lower() or "robot" in content.lower() or "access denied" in content.lower():
-                logger.warning(f"REA bot detection on attempt {attempt}")
+            title = page.title()
+
+            if not title or "access denied" in content.lower():
+                logger.warning(f"REA possible block on attempt {attempt}: title='{title}'")
                 if attempt < retries:
                     time.sleep(5 * attempt)
                     continue
 
-            # Wait for listing cards to appear
+            if "captcha" in content.lower() or "robot" in content.lower():
+                logger.warning(f"REA captcha on attempt {attempt}")
+                if attempt < retries:
+                    time.sleep(8 * attempt)
+                    continue
+
+            # Wait for listing content to appear
             try:
                 page.wait_for_selector(
                     '[data-testid*="listing-card"], [data-testid*="result-card"], '
-                    '.residential-card, .listing-result, article',
-                    timeout=10000
+                    '[class*="residential-card"], [class*="listing-card"], '
+                    '[class*="ListingCard"], article.css-0',
+                    timeout=12000
                 )
             except Exception:
+                # Content might still be there, just different selectors
                 pass
 
             # Scroll to load all content
@@ -349,7 +435,7 @@ def _load_rea_page(page, url, retries=3):
             return True
         except Exception as e:
             if attempt < retries:
-                time.sleep(2 * attempt)
+                time.sleep(3 * attempt)
             else:
                 logger.error(f"Failed to load REA page {url}: {e}")
                 return False
@@ -438,19 +524,27 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
     with sync_playwright() as p:
         launch_opts = {
             'headless': True,
-            'args': ['--no-sandbox', '--disable-setuid-sandbox'],
+            'args': [
+                '--no-sandbox', '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars',
+                '--window-size=1366,768',
+            ],
         }
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
 
         browser = p.chromium.launch(**launch_opts)
-        context = browser.new_context(
-            user_agent=UA,
-            viewport={'width': 1280, 'height': 900},
-            locale='en-AU',
-        )
+        context = _create_stealth_context(browser)
 
         listing_page = context.new_page()
+
+        # Visit REA homepage first to establish cookies/session
+        try:
+            listing_page.goto(REA_BASE, wait_until="domcontentloaded", timeout=15000)
+            listing_page.wait_for_timeout(2000)
+        except Exception as e:
+            logger.warning(f"[REA] Could not load homepage: {e}")
 
         try:
             # === FOR-SALE ===
@@ -607,22 +701,41 @@ def debug_rea_page(suburb_name):
 
     try:
         with sync_playwright() as p:
-            launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
+            launch_opts = {
+                'headless': True,
+                'args': [
+                    '--no-sandbox', '--disable-setuid-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-infobars',
+                    '--window-size=1366,768',
+                ],
+            }
             if CHROMIUM_PATH:
                 launch_opts['executable_path'] = CHROMIUM_PATH
             browser = p.chromium.launch(**launch_opts)
-            context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 900}, locale='en-AU')
+            context = _create_stealth_context(browser)
             page = context.new_page()
+
+            # Visit homepage first to establish session
+            try:
+                page.goto(REA_BASE, wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(2000)
+            except Exception:
+                pass
 
             _load_rea_page(page, url)
             html = page.content()
             soup = BeautifulSoup(html, "html.parser")
 
             result['title'] = page.title()
+            result['final_url'] = page.url  # Check if redirected
 
             # Check bot detection
-            if "captcha" in html.lower() or "are you a robot" in html.lower():
+            if "captcha" in html.lower() or "are you a robot" in html.lower() or "access denied" in html.lower():
                 result['bot_detected'] = True
+
+            # Capture raw HTML size for debugging
+            result['html_size'] = len(html)
 
             # Try all card strategies and report counts
             s1 = soup.find_all(True, attrs={"data-testid": re.compile(r"listing-card", re.I)})
