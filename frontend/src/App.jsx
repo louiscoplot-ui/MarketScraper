@@ -16,10 +16,12 @@ function App() {
   const [logs, setLogs] = useState([])
   const [view, setView] = useState('listings')
   const [report, setReport] = useState(null)
+  const [reportSuburbs, setReportSuburbs] = useState(new Set())
   const [sortField, setSortField] = useState('listing_date')
   const [sortDir, setSortDir] = useState('desc')
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')
+  const [selectedSource, setSelectedSource] = useState('')
   const [showThemeModal, setShowThemeModal] = useState(false)
 
   const defaultTheme = {
@@ -229,6 +231,15 @@ function App() {
     fetchScrapeStatus()
   }
 
+  const fetchReport = (suburbIds) => {
+    const ids = suburbIds && suburbIds.size > 0 ? Array.from(suburbIds) : []
+    const params = ids.length > 0 ? `?suburb_ids=${ids.join(',')}` : ''
+    fetch(`${API}/report${params}`)
+      .then(r => r.json())
+      .then(data => setReport(data))
+      .catch(() => setReport(null))
+  }
+
   const cancelScrape = async () => {
     await fetch(`${API}/scrape/cancel`, { method: 'POST' })
     fetchScrapeStatus()
@@ -333,6 +344,7 @@ function App() {
   const filteredListings = sortedListings.filter(l => {
     if (selectedAgent && l.agent !== selectedAgent) return false
     if (selectedAgency && l.agency !== selectedAgency) return false
+    if (selectedSource && (l.source || 'reiwa') !== selectedSource) return false
     return true
   })
 
@@ -352,8 +364,12 @@ function App() {
 
   // Scrape modal helpers
   const scrapeJobs = Object.entries(scrapeStatus).map(([id, job]) => {
-    const suburb = suburbs.find(s => s.id === parseInt(id))
-    return { id, name: suburb?.name || `Suburb ${id}`, ...job }
+    // REA jobs have keys like "rea_5", REIWA jobs have numeric keys like "5"
+    const isRea = id.startsWith('rea_')
+    const numericId = isRea ? parseInt(id.replace('rea_', '')) : parseInt(id)
+    const suburb = suburbs.find(s => s.id === numericId)
+    const prefix = isRea ? '[REA] ' : ''
+    return { id, name: prefix + (suburb?.name || `Suburb ${numericId}`), ...job }
   }).filter(j => j.status === 'running' || j.status === 'completed' || j.status === 'error' || j.status === 'cancelled')
 
   const completedCount = scrapeJobs.filter(j => j.status === 'completed').length
@@ -413,13 +429,8 @@ function App() {
             onClick={() => {
               if (view !== 'report') {
                 setView('report')
-                // Fetch report
-                const ids = checkedSuburbs.size > 0 ? Array.from(checkedSuburbs) : []
-                const params = ids.length > 0 ? `?suburb_ids=${ids.join(',')}` : ''
-                fetch(`${API}/report${params}`)
-                  .then(r => r.json())
-                  .then(data => setReport(data))
-                  .catch(() => setReport(null))
+                setReportSuburbs(new Set(checkedSuburbs))
+                fetchReport(checkedSuburbs)
               } else {
                 setView('listings')
               }
@@ -640,6 +651,31 @@ function App() {
           {view === 'report' && report ? (
             <div className="report-view">
               <h2>Market Report</h2>
+              <div className="report-suburb-selector">
+                <span className="report-filter-label">Suburbs:</span>
+                <button
+                  className={`filter-btn small ${reportSuburbs.size === 0 || reportSuburbs.size === suburbs.length ? 'active' : ''}`}
+                  onClick={() => { setReportSuburbs(new Set(suburbs.map(s => s.id))); fetchReport(new Set(suburbs.map(s => s.id))) }}
+                >
+                  ALL
+                </button>
+                {suburbs.map(s => (
+                  <button
+                    key={s.id}
+                    className={`filter-btn small ${reportSuburbs.has(s.id) ? 'active' : ''}`}
+                    onClick={() => {
+                      const next = new Set(reportSuburbs)
+                      if (next.has(s.id)) next.delete(s.id)
+                      else next.add(s.id)
+                      setReportSuburbs(next)
+                      fetchReport(next)
+                    }}
+                    style={reportSuburbs.has(s.id) ? { borderColor: 'var(--primary)', backgroundColor: 'var(--primary)33', color: 'var(--primary)' } : {}}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
               <div className="report-grid">
                 <div className="report-card">
                   <h3>Overview</h3>
@@ -792,6 +828,16 @@ function App() {
                   </button>
                 ))}
                 <div className="filter-separator" />
+
+                <select
+                  className="filter-select source-select"
+                  value={selectedSource}
+                  onChange={e => setSelectedSource(e.target.value)}
+                >
+                  <option value="">All Sources</option>
+                  <option value="reiwa">REIWA</option>
+                  <option value="rea">REA</option>
+                </select>
 
                 <select
                   className="filter-select"

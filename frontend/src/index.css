@@ -807,6 +807,25 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   margin-bottom: 16px;
 }
 
+.report-suburb-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.report-filter-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.filter-btn.small {
+  padding: 3px 10px;
+  font-size: 11px;
+}
+
 .report-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

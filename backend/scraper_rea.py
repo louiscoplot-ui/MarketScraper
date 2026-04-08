@@ -309,28 +309,42 @@ def _load_rea_page(page, url, retries=3):
     """Load a REA page, handling potential bot detection."""
     for attempt in range(1, retries + 1):
         try:
-            page.goto(url, wait_until="networkidle", timeout=45000)
+            # Try domcontentloaded first (networkidle can hang on third-party resources)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            except Exception:
+                if attempt < retries:
+                    time.sleep(2 * attempt)
+                    continue
+                raise
+
+            # Give extra time for JS rendering
+            page.wait_for_timeout(2000)
 
             # Check for bot detection / captcha
             content = page.content()
-            if "captcha" in content.lower() or "robot" in content.lower():
+            if "captcha" in content.lower() or "robot" in content.lower() or "access denied" in content.lower():
                 logger.warning(f"REA bot detection on attempt {attempt}")
                 if attempt < retries:
-                    time.sleep(3 * attempt)
+                    time.sleep(5 * attempt)
                     continue
 
             # Wait for listing cards to appear
             try:
-                page.wait_for_selector('[data-testid*="listing-card"], .residential-card, article', timeout=8000)
+                page.wait_for_selector(
+                    '[data-testid*="listing-card"], [data-testid*="result-card"], '
+                    '.residential-card, .listing-result, article',
+                    timeout=10000
+                )
             except Exception:
                 pass
 
             # Scroll to load all content
-            for _ in range(4):
+            for _ in range(5):
                 page.evaluate("window.scrollBy(0, window.innerHeight)")
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(600)
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(1200)
 
             return True
         except Exception as e:
