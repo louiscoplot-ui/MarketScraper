@@ -89,6 +89,156 @@ def list_listings():
     return jsonify(get_listings(suburb_id=suburb_id, suburb_ids=suburb_ids, status=status, statuses=statuses))
 
 
+@app.route('/api/report', methods=['GET'])
+def market_report():
+    """Generate market report stats for selected suburbs."""
+    import re as _re
+
+    suburb_ids_str = request.args.get('suburb_ids', '')
+    suburb_ids = None
+    if suburb_ids_str:
+        try:
+            suburb_ids = [int(x) for x in suburb_ids_str.split(',') if x.strip()]
+        except ValueError:
+            pass
+
+    listings = get_listings(suburb_ids=suburb_ids)
+    if not listings:
+        return jsonify({'error': 'No listings found'}), 404
+
+    def parse_price(price_text):
+        if not price_text:
+            return None
+        m = _re.search(r'\$([\d,]+)', price_text.replace(' ', ''))
+        if m:
+            try:
+                return int(m.group(1).replace(',', ''))
+            except ValueError:
+                return None
+        return None
+
+    def calc_dom(l):
+        date_str = l.get('listing_date') or l.get('first_seen') or ''
+        if not date_str:
+            return None
+        ddmm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
+        try:
+            if ddmm:
+                start = datetime(int(ddmm.group(3)), int(ddmm.group(2)), int(ddmm.group(1)))
+            else:
+                start = datetime.fromisoformat(date_str.replace('Z', ''))
+        except (ValueError, TypeError):
+            return None
+        return max(0, (datetime.utcnow() - start).days)
+
+    # Overall stats
+    active = [l for l in listings if l['status'] == 'active']
+    under_offer = [l for l in listings if l['status'] == 'under_offer']
+    sold = [l for l in listings if l['status'] == 'sold']
+    withdrawn = [l for l in listings if l['status'] == 'withdrawn']
+
+    # Price stats (active only)
+    prices = [p for p in (parse_price(l.get('price_text')) for l in active) if p and p >= 100000]
+    prices.sort()
+
+    # DOM stats (active only)
+    doms = [d for d in (calc_dom(l) for l in active) if d is not None]
+    doms.sort()
+
+    # Stale listings (60+ DOM)
+    stale = [l for l in active if (calc_dom(l) or 0) >= 60]
+
+    # Agent breakdown
+    agent_stats = {}
+    for l in listings:
+        a = l.get('agent') or 'Unknown'
+        if a not in agent_stats:
+            agent_stats[a] = {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0, 'total': 0}
+        s = l.get('status', 'active')
+        if s in agent_stats[a]:
+            agent_stats[a][s] += 1
+        agent_stats[a]['total'] += 1
+
+    # Agency breakdown
+    agency_stats = {}
+    for l in listings:
+        a = l.get('agency') or 'Unknown'
+        if a not in agency_stats:
+            agency_stats[a] = {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0, 'total': 0}
+        s = l.get('status', 'active')
+        if s in agency_stats[a]:
+            agency_stats[a][s] += 1
+        agency_stats[a]['total'] += 1
+
+    # Suburb breakdown
+    suburb_stats = {}
+    for l in listings:
+        sn = l.get('suburb_name', 'Unknown')
+        if sn not in suburb_stats:
+            suburb_stats[sn] = {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0, 'total': 0}
+        s = l.get('status', 'active')
+        if s in suburb_stats[sn]:
+            suburb_stats[sn][s] += 1
+        suburb_stats[sn]['total'] += 1
+
+    # Property type breakdown
+    type_stats = {}
+    for l in active:
+        t = l.get('listing_type') or 'Unknown'
+        type_stats[t] = type_stats.get(t, 0) + 1
+
+    report = {
+        'generated_at': datetime.utcnow().isoformat(),
+        'total_listings': len(listings),
+        'summary': {
+            'active': len(active),
+            'under_offer': len(under_offer),
+            'sold': len(sold),
+            'withdrawn': len(withdrawn),
+        },
+        'price': {
+            'count_with_price': len(prices),
+            'min': min(prices) if prices else None,
+            'max': max(prices) if prices else None,
+            'median': prices[len(prices)//2] if prices else None,
+            'avg': round(sum(prices) / len(prices)) if prices else None,
+        },
+        'dom': {
+            'count': len(doms),
+            'min': min(doms) if doms else None,
+            'max': max(doms) if doms else None,
+            'median': doms[len(doms)//2] if doms else None,
+            'avg': round(sum(doms) / len(doms)) if doms else None,
+            'stale_count': len(stale),
+        },
+        'stale_listings': [{
+            'address': l.get('address'),
+            'suburb': l.get('suburb_name'),
+            'price': l.get('price_text'),
+            'agent': l.get('agent'),
+            'agency': l.get('agency'),
+            'dom': calc_dom(l),
+            'listing_date': l.get('listing_date'),
+            'reiwa_url': l.get('reiwa_url'),
+        } for l in sorted(stale, key=lambda x: calc_dom(x) or 0, reverse=True)],
+        'agents': sorted(agent_stats.items(), key=lambda x: x[1]['total'], reverse=True),
+        'agencies': sorted(agency_stats.items(), key=lambda x: x[1]['total'], reverse=True),
+        'suburbs': sorted(suburb_stats.items(), key=lambda x: x[1]['total'], reverse=True),
+        'property_types': sorted(type_stats.items(), key=lambda x: x[1], reverse=True),
+        'withdrawn_listings': [{
+            'address': l.get('address'),
+            'suburb': l.get('suburb_name'),
+            'price': l.get('price_text'),
+            'agent': l.get('agent'),
+            'agency': l.get('agency'),
+            'listing_date': l.get('listing_date'),
+            'reiwa_url': l.get('reiwa_url'),
+        } for l in withdrawn],
+    }
+
+    return jsonify(report)
+
+
 @app.route('/api/listings/export', methods=['GET'])
 def export_listings():
     """Export filtered listings to Excel with summary sheets."""

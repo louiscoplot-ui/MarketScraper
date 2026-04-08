@@ -348,8 +348,18 @@ def _fetch_details_batch(detail_pages, listings):
     return results
 
 
+def _get_reiwa_total(soup):
+    """Extract the total listing count REIWA shows (e.g. '49 Properties Found')."""
+    for el in soup.find_all(["h1", "h2", "h3", "span", "div", "p"]):
+        txt = el.get_text(strip=True)
+        m = re.search(r"(\d+)\s+(?:propert|listing|result)", txt, re.I)
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def _load_listing_page(page, url, retries=3):
-    """Load a REIWA listing page, wait for article.p-card cards."""
+    """Load a REIWA listing page, wait for article.p-card cards, scroll to load all."""
     for attempt in range(1, retries + 1):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -357,7 +367,9 @@ def _load_listing_page(page, url, retries=3):
                 page.wait_for_selector("article.p-card", timeout=6000)
             except Exception:
                 pass
-            page.wait_for_timeout(1000)
+            # Scroll down to trigger any lazy-loaded cards
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1500)
             return True
         except Exception as e:
             if attempt < retries:
@@ -432,6 +444,21 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None):
                 html = listing_page.content()
                 soup = BeautifulSoup(html, "html.parser")
                 cards = soup.find_all("article", class_=lambda c: c and "p-card" in c)
+                # Also check for listing cards in other wrappers (featured/premium)
+                extra_cards = soup.find_all("div", class_=lambda c: c and "p-card" in c)
+                if extra_cards:
+                    # Avoid duplicates by checking if card already in list
+                    card_htmls = {str(c) for c in cards}
+                    for ec in extra_cards:
+                        if str(ec) not in card_htmls:
+                            cards.append(ec)
+
+                # On first page, grab REIWA's total count for comparison
+                if page_num == 1:
+                    reiwa_total = _get_reiwa_total(soup)
+                    if reiwa_total:
+                        results['stats']['reiwa_total'] = reiwa_total
+                        logger.info(f"{suburb_name}: REIWA says {reiwa_total} total listings")
 
                 if not cards:
                     logger.info(f"{suburb_name} p{page_num}: 0 cards -> done")

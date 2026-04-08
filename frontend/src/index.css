@@ -92,6 +92,21 @@ header h1 {
   border-color: var(--primary);
 }
 
+.btn-report {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: white;
+}
+
+.btn-report:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+.btn-report.active {
+  background: #6d28d9;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.4);
+}
+
 .btn-export {
   background: #16a34a;
   border-color: #16a34a;
@@ -757,4 +772,107 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   color: var(--text);
   font-size: 12px;
   font-family: monospace;
+}
+
+/* Market Report */
+.report-view {
+  padding: 4px 0;
+}
+
+.report-view h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.report-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.report-card h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.report-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.report-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.report-stat.stale .stat-val {
+  color: var(--danger);
+}
+
+.report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-list-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.report-count {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.report-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.report-table-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.report-table-section table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.stale-row {
+  background: rgba(239, 68, 68, 0.05) !important;
+}
+
+.withdrawn-row {
+  background: rgba(239, 68, 68, 0.08) !important;
 }
