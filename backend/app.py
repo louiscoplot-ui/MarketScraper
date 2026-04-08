@@ -2,6 +2,7 @@ import os
 import io
 import json
 import logging
+import time
 import threading
 from datetime import datetime
 from collections import Counter
@@ -694,24 +695,19 @@ def debug_rea_scrape(suburb_id):
 
 
 def _run_scrape_rea_all(suburbs):
-    """Run REA scrape for suburbs in parallel."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    max_workers = min(4, len(suburbs))  # Lower parallelism for REA (anti-bot)
+    """Run REA scrape SEQUENTIALLY with delays to avoid rate limiting (429)."""
     for s in suburbs:
         scrape_cancel.discard(s['id'])
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_run_scrape_rea, s['id'], s['name']): s
-            for s in suburbs
-        }
-        for future in as_completed(futures):
-            s = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(f"[REA] Scrape thread error for {s['name']}: {e}")
+    for s in suburbs:
+        if s['id'] in scrape_cancel:
+            continue
+        try:
+            _run_scrape_rea(s['id'], s['name'])
+        except Exception as e:
+            logger.error(f"[REA] Scrape error for {s['name']}: {e}")
+        # Wait between suburbs to avoid 429 rate limit
+        time.sleep(5)
 
 
 def _run_scrape_rea(suburb_id, name):

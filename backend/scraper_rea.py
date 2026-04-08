@@ -550,7 +550,7 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
             consecutive_empty = 0
 
         page_num += 1
-        time.sleep(random.uniform(1.5, 3.0))
+        time.sleep(random.uniform(4.0, 7.0))
 
     results['stats']['forsale_count'] = len(results['forsale_listings'])
 
@@ -596,7 +596,7 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
                 results['sold_listings'].append(rec)
 
         results['stats']['sold_pages_scraped'] = pg
-        time.sleep(random.uniform(1.5, 3.0))
+        time.sleep(random.uniform(4.0, 7.0))
 
     results['stats']['sold_count'] = len(results['sold_listings'])
     return results
