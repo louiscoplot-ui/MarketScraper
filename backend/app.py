@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import time
+import random
 import threading
 from datetime import datetime
 from collections import Counter
@@ -707,7 +708,7 @@ def _run_scrape_rea_all(suburbs):
         except Exception as e:
             logger.error(f"[REA] Scrape error for {s['name']}: {e}")
         # Wait between suburbs to avoid 429 rate limit
-        time.sleep(5)
+        time.sleep(random.uniform(10.0, 15.0))
 
 
 def _run_scrape_rea(suburb_id, name):

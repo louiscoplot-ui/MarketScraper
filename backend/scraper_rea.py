@@ -37,45 +37,78 @@ def _create_scraper():
                 'browser': 'chrome',
                 'platform': 'windows',
                 'desktop': True,
-            }
+            },
+            delay=5,
         )
     except Exception:
         # Fallback to simple requests if cloudscraper init fails
         import requests
         scraper = requests.Session()
         scraper.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         })
     scraper.headers.update({
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-AU,en;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-AU,en-GB;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
+        'Connection': 'keep-alive',
     })
+
+    # Warm up: visit REA homepage to establish a valid session/cookies
+    try:
+        logger.info("[REA] Warming up session with homepage visit...")
+        resp = scraper.get(REA_BASE, timeout=15)
+        logger.info(f"[REA] Homepage returned {resp.status_code}, cookies: {len(scraper.cookies)}")
+        time.sleep(random.uniform(2.0, 4.0))
+    except Exception as e:
+        logger.warning(f"[REA] Homepage warmup failed: {e}")
+
     return scraper
 
 
-def _fetch_rea_page(scraper, url, retries=2):
-    """Fetch a REA page. Returns (html, error). Fast fail - 10s timeout."""
+def _fetch_rea_page(scraper, url, retries=3, progress_callback=None):
+    """Fetch a REA page. Returns (html, error). Handles 429 with exponential backoff."""
+    backoff_429 = [20, 45, 90]  # seconds to wait on rate limit
+
     for attempt in range(1, retries + 1):
         try:
-            resp = scraper.get(url, timeout=10)
+            # Set referer to look like normal browsing
+            scraper.headers['Referer'] = REA_BASE + '/buy/in-wa/'
+            resp = scraper.get(url, timeout=15)
+
             if resp.status_code == 200:
                 # Check if we got actual content or a Cloudflare page
                 if len(resp.text) < 500 and ('challenge' in resp.text.lower() or 'cloudflare' in resp.text.lower()):
                     return None, "Cloudflare challenge (blocked)"
                 return resp.text, None
+            elif resp.status_code == 429:
+                wait = backoff_429[min(attempt - 1, len(backoff_429) - 1)]
+                logger.warning(f"[REA] HTTP 429 rate limited on attempt {attempt}, waiting {wait}s...")
+                if progress_callback:
+                    progress_callback(f"[REA] Rate limited (429). Waiting {wait}s before retry {attempt}/{retries}...")
+                if attempt < retries:
+                    time.sleep(wait)
+                    continue
+                return None, "HTTP 429 - rate limited (waited and retried, still blocked)"
             elif resp.status_code == 403:
-                return None, f"403 Forbidden"
+                return None, "403 Forbidden"
             else:
                 logger.warning(f"[REA] HTTP {resp.status_code} on attempt {attempt}")
                 if attempt < retries:
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
                 return None, f"HTTP {resp.status_code}"
         except Exception as e:
             err_str = str(e)
             logger.warning(f"[REA] Request error attempt {attempt}: {err_str}")
             if attempt < retries:
-                time.sleep(2)
+                time.sleep(3)
             else:
                 return None, err_str[:200]
     return None, "Max retries exceeded"
@@ -490,7 +523,7 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
         if progress_callback:
             progress_callback(f'[REA] For-sale page {page_num}...')
 
-        html, error = _fetch_rea_page(scraper, url)
+        html, error = _fetch_rea_page(scraper, url, progress_callback=progress_callback)
         if error:
             results['errors'].append(f"[REA] Page {page_num}: {error}")
             break
@@ -550,9 +583,12 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
             consecutive_empty = 0
 
         page_num += 1
-        time.sleep(random.uniform(4.0, 7.0))
+        time.sleep(random.uniform(6.0, 10.0))
 
     results['stats']['forsale_count'] = len(results['forsale_listings'])
+
+    # Longer pause between for-sale and sold sections
+    time.sleep(random.uniform(8.0, 12.0))
 
     # === SOLD (2 pages) ===
     if progress_callback:
@@ -567,7 +603,7 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
         if progress_callback:
             progress_callback(f'[REA] Sold page {pg}...')
 
-        html, error = _fetch_rea_page(scraper, url)
+        html, error = _fetch_rea_page(scraper, url, progress_callback=progress_callback)
         if error or not html:
             break
 
@@ -596,7 +632,7 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
                 results['sold_listings'].append(rec)
 
         results['stats']['sold_pages_scraped'] = pg
-        time.sleep(random.uniform(4.0, 7.0))
+        time.sleep(random.uniform(6.0, 10.0))
 
     results['stats']['sold_count'] = len(results['sold_listings'])
     return results
@@ -616,14 +652,33 @@ def debug_rea_page(suburb_name):
         'total_displayed': None, 'text_preview': '',
         'html_size': 0, 'html_preview': '',
         'bot_detected': False, 'error': None,
+        'cookies_count': 0,
     }
 
     try:
         scraper = _create_scraper()
-        html, error = _fetch_rea_page(scraper, url)
+        result['cookies_count'] = len(scraper.cookies)
 
-        if error:
-            result['error'] = error
+        # Direct request to see exact status
+        try:
+            scraper.headers['Referer'] = REA_BASE + '/buy/in-wa/'
+            resp = scraper.get(url, timeout=15)
+            result['http_status'] = resp.status_code
+
+            if resp.status_code == 429:
+                retry_after = resp.headers.get('Retry-After', 'not set')
+                result['error'] = f"HTTP 429 rate limited. Retry-After: {retry_after}. Wait a few minutes then try again."
+                result['html_size'] = len(resp.text)
+                return result
+
+            if resp.status_code != 200:
+                result['error'] = f"HTTP {resp.status_code}"
+                result['html_size'] = len(resp.text) if resp.text else 0
+                return result
+
+            html = resp.text
+        except Exception as e:
+            result['error'] = str(e)
             return result
 
         result['html_size'] = len(html)
