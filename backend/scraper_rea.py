@@ -356,56 +356,59 @@ def _get_rea_total(soup):
 
 
 def _launch_rea_browser(p):
-    """Launch a browser for REA, trying multiple strategies to bypass detection.
+    """Launch a VISIBLE (non-headless) browser for REA to bypass Cloudflare.
+    Headless browsers get blocked, so we open a real browser window.
     Returns (browser, context) tuple."""
 
-    # Strategy 1: Firefox (Cloudflare is least aggressive with Firefox)
+    # Strategy 1: Real Chrome in HEADED mode (visible window = undetectable)
     try:
-        logger.info("[REA] Trying Firefox...")
-        browser = p.firefox.launch(
-            headless=True,
-            args=[],
-        )
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
-            viewport={'width': 1366, 'height': 768},
-            locale='en-AU',
-            timezone_id='Australia/Perth',
-            extra_http_headers={
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-AU,en;q=0.5',
-            }
-        )
-        logger.info("[REA] Firefox launched successfully")
-        return browser, context
-    except Exception as e:
-        logger.warning(f"[REA] Firefox failed: {e}")
-
-    # Strategy 2: Real Chrome via channel (uses user's installed Chrome)
-    try:
-        logger.info("[REA] Trying Chrome channel...")
+        logger.info("[REA] Launching Chrome (visible window)...")
         browser = p.chromium.launch(
-            headless=True,
+            headless=False,
             channel='chrome',
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--disable-infobars',
+                '--window-position=2000,2000',  # Position off-screen to be less intrusive
+                '--window-size=1366,768',
             ],
         )
         context = _create_stealth_context(browser)
-        logger.info("[REA] Chrome channel launched successfully")
+        logger.info("[REA] Chrome (headed) launched successfully")
         return browser, context
     except Exception as e:
-        logger.warning(f"[REA] Chrome channel failed: {e}")
+        logger.warning(f"[REA] Chrome headed failed: {e}")
 
-    # Strategy 3: Chromium with stealth (fallback)
-    logger.info("[REA] Falling back to Chromium with stealth...")
+    # Strategy 2: Chromium (Playwright's) in HEADED mode
+    try:
+        logger.info("[REA] Trying Chromium headed...")
+        launch_opts = {
+            'headless': False,
+            'args': [
+                '--no-sandbox', '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars',
+                '--window-position=2000,2000',
+                '--window-size=1366,768',
+            ],
+        }
+        if CHROMIUM_PATH:
+            launch_opts['executable_path'] = CHROMIUM_PATH
+
+        browser = p.chromium.launch(**launch_opts)
+        context = _create_stealth_context(browser)
+        logger.info("[REA] Chromium (headed) launched successfully")
+        return browser, context
+    except Exception as e:
+        logger.warning(f"[REA] Chromium headed failed: {e}")
+
+    # Strategy 3: Headless fallback (may get blocked)
+    logger.info("[REA] Falling back to headless Chromium...")
     launch_opts = {
         'headless': True,
         'args': [
             '--no-sandbox', '--disable-setuid-sandbox',
             '--disable-blink-features=AutomationControlled',
-            '--disable-infobars',
         ],
     }
     if CHROMIUM_PATH:
