@@ -31,47 +31,53 @@ def _get_postcode(suburb_name):
 
 def _create_scraper():
     """Create a cloudscraper session that bypasses Cloudflare."""
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True,
-        }
-    )
+    try:
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True,
+            }
+        )
+    except Exception:
+        # Fallback to simple requests if cloudscraper init fails
+        import requests
+        scraper = requests.Session()
+        scraper.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        })
     scraper.headers.update({
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-AU,en;q=0.9',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
     })
     return scraper
 
 
-def _fetch_rea_page(scraper, url, retries=3):
-    """Fetch a REA page using cloudscraper. Returns (html, error)."""
+def _fetch_rea_page(scraper, url, retries=2):
+    """Fetch a REA page. Returns (html, error). Fast fail - 10s timeout."""
     for attempt in range(1, retries + 1):
         try:
-            resp = scraper.get(url, timeout=30)
+            resp = scraper.get(url, timeout=10)
             if resp.status_code == 200:
+                # Check if we got actual content or a Cloudflare page
+                if len(resp.text) < 500 and ('challenge' in resp.text.lower() or 'cloudflare' in resp.text.lower()):
+                    return None, "Cloudflare challenge (blocked)"
                 return resp.text, None
             elif resp.status_code == 403:
-                logger.warning(f"[REA] 403 on attempt {attempt} for {url}")
-                if attempt < retries:
-                    time.sleep(3 * attempt)
-                    continue
-                return None, f"403 Forbidden (Cloudflare block)"
+                return None, f"403 Forbidden"
             else:
                 logger.warning(f"[REA] HTTP {resp.status_code} on attempt {attempt}")
                 if attempt < retries:
-                    time.sleep(2 * attempt)
+                    time.sleep(2)
                     continue
                 return None, f"HTTP {resp.status_code}"
         except Exception as e:
-            logger.warning(f"[REA] Request error attempt {attempt}: {e}")
+            err_str = str(e)
+            logger.warning(f"[REA] Request error attempt {attempt}: {err_str}")
             if attempt < retries:
-                time.sleep(2 * attempt)
+                time.sleep(2)
             else:
-                return None, str(e)
+                return None, err_str[:200]
     return None, "Max retries exceeded"
 
 
