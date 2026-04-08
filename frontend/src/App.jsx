@@ -260,6 +260,23 @@ function App() {
   const selectAllCheck = () => setCheckedSuburbs(new Set(suburbs.map(s => s.id)))
   const deselectAllCheck = () => setCheckedSuburbs(new Set())
 
+  // --- Days on Market ---
+  const calcDOM = (listing) => {
+    const dateStr = listing.listing_date || listing.first_seen
+    if (!dateStr) return null
+    let start
+    // listing_date is dd/mm/yyyy format
+    const ddmm = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+    if (ddmm) {
+      start = new Date(parseInt(ddmm[3]), parseInt(ddmm[2]) - 1, parseInt(ddmm[1]))
+    } else {
+      start = new Date(dateStr)
+    }
+    if (isNaN(start.getTime())) return null
+    const end = listing.status === 'sold' && listing.sold_date ? new Date(listing.sold_date) : new Date()
+    return Math.max(0, Math.floor((end - start) / (1000 * 60 * 60 * 24)))
+  }
+
   // --- Sorting ---
   const toggleSort = (field) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -267,7 +284,8 @@ function App() {
   }
 
   const sortedListings = [...listings].sort((a, b) => {
-    let va = a[sortField], vb = b[sortField]
+    let va = sortField === 'dom' ? (calcDOM(a) ?? -1) : a[sortField]
+    let vb = sortField === 'dom' ? (calcDOM(b) ?? -1) : b[sortField]
     if (va == null) va = ''
     if (vb == null) vb = ''
     if (typeof va === 'number' && typeof vb === 'number')
@@ -618,10 +636,9 @@ function App() {
                         ['agency', 'Agency'],
                         ['agent', 'Agent'],
                         ['listing_date', 'Listed'],
+                        ['dom', 'DOM'],
                         ['status', 'Status'],
                         ['listing_type', 'Type'],
-                        ['first_seen', 'First Seen'],
-                        ['last_seen', 'Last Seen'],
                       ].map(([field, label]) => (
                         <th key={field} onClick={() => toggleSort(field)} className="sortable">
                           {label}
@@ -649,14 +666,16 @@ function App() {
                         <td className="agency-cell">{l.agency || '-'}</td>
                         <td>{l.agent || '-'}</td>
                         <td className="date-cell">{l.listing_date || '-'}</td>
+                        <td className={`num ${(calcDOM(l) ?? 0) >= 60 ? 'stale' : ''}`}>
+                          {calcDOM(l) != null ? calcDOM(l) : '-'}
+                          {(calcDOM(l) ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
+                        </td>
                         <td>
                           <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
                             {l.status?.replace('_', ' ')}
                           </span>
                         </td>
                         <td>{l.listing_type || '-'}</td>
-                        <td className="date-cell">{l.first_seen ? new Date(l.first_seen).toLocaleDateString() : '-'}</td>
-                        <td className="date-cell">{l.last_seen ? new Date(l.last_seen).toLocaleDateString() : '-'}</td>
                         <td className="link-cell">
                           {l.reiwa_url ? (
                             <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
@@ -666,7 +685,7 @@ function App() {
                     ))}
                     {filteredListings.length === 0 && (
                       <tr>
-                        <td colSpan="16" className="empty">
+                        <td colSpan="14" className="empty">
                           {suburbs.length === 0
                             ? 'Add a suburb to get started'
                             : 'No listings yet. Click "Scrape" to fetch data.'}

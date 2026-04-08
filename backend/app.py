@@ -94,6 +94,22 @@ def export_listings():
     """Export filtered listings to Excel with summary sheets."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    import re as _re
+
+    def _calc_dom(listing):
+        date_str = listing.get('listing_date') or listing.get('first_seen') or ''
+        if not date_str:
+            return None
+        ddmm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
+        try:
+            if ddmm:
+                start = datetime(int(ddmm.group(3)), int(ddmm.group(2)), int(ddmm.group(1)))
+            else:
+                start = datetime.fromisoformat(date_str.replace('Z', ''))
+        except (ValueError, TypeError):
+            return None
+        end = datetime.utcnow()
+        return max(0, (end - start).days)
 
     # Parse same filters as list_listings
     suburb_ids_str = request.args.get('suburb_ids', '')
@@ -138,7 +154,7 @@ def export_listings():
     ws.title = "Listings"
 
     columns = ['Address', 'Suburb', 'Price', 'Bed', 'Bath', 'Car', 'Land', 'Internal',
-               'Agency', 'Agent', 'Listed', 'Status', 'Type', 'First Seen', 'Last Seen', 'Link']
+               'Agency', 'Agent', 'Listed', 'DOM', 'Status', 'Type', 'Link']
 
     for col_idx, col_name in enumerate(columns, 1):
         cell = ws.cell(row=1, column=col_idx, value=col_name)
@@ -160,15 +176,20 @@ def export_listings():
             l.get('agency', ''),
             l.get('agent', ''),
             l.get('listing_date', ''),
+            _calc_dom(l),
             (l.get('status', '') or '').replace('_', ' ').title(),
             l.get('listing_type', ''),
-            l.get('first_seen', ''),
-            l.get('last_seen', ''),
             l.get('reiwa_url', ''),
         ]
+        stale_fill = PatternFill(start_color="ffcccc", end_color="ffcccc", fill_type="solid")
         for col_idx, val in enumerate(values, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=val)
             cell.border = thin_border
+            # Highlight DOM cell red if 60+ days
+            dom_col = columns.index('DOM') + 1
+            if col_idx == dom_col and val is not None and val >= 60:
+                cell.fill = stale_fill
+                cell.font = Font(bold=True, color="cc0000")
 
     # Auto-width
     for col_idx in range(1, len(columns) + 1):
