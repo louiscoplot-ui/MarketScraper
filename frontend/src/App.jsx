@@ -28,7 +28,7 @@ function App() {
 
   const presets = {
     'Dark (Default)': { bg: '#0f172a', surface: '#1e293b', surfaceHover: '#334155', border: '#334155', text: '#e2e8f0', textMuted: '#94a3b8', primary: '#3b82f6' },
-    'Belle Property': { bg: '#1a1a2e', surface: '#16213e', surfaceHover: '#0f3460', border: '#0f3460', text: '#e2e8f0', textMuted: '#a0aec0', primary: '#e94560' },
+    'Belle Property': { bg: '#1a2e22', surface: '#243d2e', surfaceHover: '#2f5040', border: '#3a5f4a', text: '#f0f5f2', textMuted: '#a8c5b0', primary: '#c9a84c' },
     'Light': { bg: '#f8fafc', surface: '#ffffff', surfaceHover: '#f1f5f9', border: '#e2e8f0', text: '#1e293b', textMuted: '#64748b', primary: '#3b82f6' },
     'Green Agency': { bg: '#0f1f0f', surface: '#1a2e1a', surfaceHover: '#2d4a2d', border: '#2d4a2d', text: '#e2f0e2', textMuted: '#8fbc8f', primary: '#22c55e' },
     'Gold Luxury': { bg: '#1a1710', surface: '#2a2518', surfaceHover: '#3d3522', border: '#3d3522', text: '#f0e6d0', textMuted: '#c4a96a', primary: '#d4a843' },
