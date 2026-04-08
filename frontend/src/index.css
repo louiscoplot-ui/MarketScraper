@@ -28,9 +28,10 @@ body {
 }
 
 .app {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* Header */
@@ -651,4 +652,89 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   padding: 12px 20px;
   border-top: 1px solid var(--border);
   text-align: right;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Theme Modal */
+.theme-modal {
+  width: 440px;
+}
+
+.theme-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 20px;
+}
+
+.theme-preset-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 2px solid;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: transform 0.1s;
+}
+
+.theme-preset-btn:hover {
+  transform: scale(1.05);
+}
+
+.preset-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.theme-colors {
+  padding: 0 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.theme-color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.theme-color-row label {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.color-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-input-group input[type="color"] {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+  padding: 2px;
+}
+
+.color-hex {
+  width: 80px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: monospace;
 }

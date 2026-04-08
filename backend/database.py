@@ -137,7 +137,7 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
     elif status:
         query += " AND l.status = ?"
         params.append(status)
-    query += " ORDER BY l.last_seen DESC, l.address ASC"
+    query += " ORDER BY l.listing_date DESC, l.last_seen DESC, l.address ASC"
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]

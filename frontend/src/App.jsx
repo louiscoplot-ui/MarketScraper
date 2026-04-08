@@ -15,10 +15,47 @@ function App() {
   const [showScrapeModal, setShowScrapeModal] = useState(false)
   const [logs, setLogs] = useState([])
   const [view, setView] = useState('listings')
-  const [sortField, setSortField] = useState('address')
-  const [sortDir, setSortDir] = useState('asc')
+  const [sortField, setSortField] = useState('listing_date')
+  const [sortDir, setSortDir] = useState('desc')
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')
+  const [showThemeModal, setShowThemeModal] = useState(false)
+
+  const defaultTheme = {
+    bg: '#0f172a', surface: '#1e293b', surfaceHover: '#334155', border: '#334155',
+    text: '#e2e8f0', textMuted: '#94a3b8', primary: '#3b82f6',
+  }
+
+  const presets = {
+    'Dark (Default)': { bg: '#0f172a', surface: '#1e293b', surfaceHover: '#334155', border: '#334155', text: '#e2e8f0', textMuted: '#94a3b8', primary: '#3b82f6' },
+    'Belle Property': { bg: '#1a1a2e', surface: '#16213e', surfaceHover: '#0f3460', border: '#0f3460', text: '#e2e8f0', textMuted: '#a0aec0', primary: '#e94560' },
+    'Light': { bg: '#f8fafc', surface: '#ffffff', surfaceHover: '#f1f5f9', border: '#e2e8f0', text: '#1e293b', textMuted: '#64748b', primary: '#3b82f6' },
+    'Green Agency': { bg: '#0f1f0f', surface: '#1a2e1a', surfaceHover: '#2d4a2d', border: '#2d4a2d', text: '#e2f0e2', textMuted: '#8fbc8f', primary: '#22c55e' },
+    'Gold Luxury': { bg: '#1a1710', surface: '#2a2518', surfaceHover: '#3d3522', border: '#3d3522', text: '#f0e6d0', textMuted: '#c4a96a', primary: '#d4a843' },
+  }
+
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ms_theme')
+      return saved ? JSON.parse(saved) : defaultTheme
+    } catch { return defaultTheme }
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--bg', theme.bg)
+    root.style.setProperty('--surface', theme.surface)
+    root.style.setProperty('--surface-hover', theme.surfaceHover)
+    root.style.setProperty('--border', theme.border)
+    root.style.setProperty('--text', theme.text)
+    root.style.setProperty('--text-muted', theme.textMuted)
+    root.style.setProperty('--primary', theme.primary)
+    root.style.setProperty('--primary-hover', theme.primary)
+    localStorage.setItem('ms_theme', JSON.stringify(theme))
+  }, [theme])
+
+  const updateColor = (key, val) => setTheme(prev => ({ ...prev, [key]: val }))
+
   const pollRef = useRef(null)
   const scrapeStartRef = useRef(null)
 
@@ -316,8 +353,67 @@ function App() {
           >
             {view === 'logs' ? 'View Listings' : 'View Logs'}
           </button>
+          <button className="btn btn-secondary" onClick={() => setShowThemeModal(true)}>
+            Theme
+          </button>
         </div>
       </header>
+
+      {/* Theme Modal */}
+      {showThemeModal && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowThemeModal(false) }}>
+          <div className="modal theme-modal">
+            <div className="modal-header">
+              <h2>Customize Theme</h2>
+              <button className="btn btn-icon" onClick={() => setShowThemeModal(false)}>x</button>
+            </div>
+            <div className="theme-presets">
+              {Object.entries(presets).map(([name, colors]) => (
+                <button
+                  key={name}
+                  className="theme-preset-btn"
+                  style={{ background: colors.surface, color: colors.text, borderColor: colors.primary }}
+                  onClick={() => setTheme(colors)}
+                >
+                  <span className="preset-dot" style={{ background: colors.primary }} />
+                  {name}
+                </button>
+              ))}
+            </div>
+            <div className="theme-colors">
+              {[
+                ['bg', 'Background'],
+                ['surface', 'Panels'],
+                ['border', 'Borders'],
+                ['text', 'Text'],
+                ['textMuted', 'Text Secondary'],
+                ['primary', 'Accent Color'],
+              ].map(([key, label]) => (
+                <div key={key} className="theme-color-row">
+                  <label>{label}</label>
+                  <div className="color-input-group">
+                    <input
+                      type="color"
+                      value={theme[key]}
+                      onChange={e => updateColor(key, e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      value={theme[key]}
+                      onChange={e => updateColor(key, e.target.value)}
+                      className="color-hex"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setTheme(defaultTheme)}>Reset</button>
+              <button className="btn btn-primary" onClick={() => setShowThemeModal(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scrape Progress Modal */}
       {showScrapeModal && scrapeJobs.length > 0 && (
