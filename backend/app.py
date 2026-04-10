@@ -695,24 +695,60 @@ def debug_rea_scrape(suburb_id):
     return jsonify(result)
 
 
+MAX_REA_SUBURBS_PER_SESSION = 5  # Safety limit to avoid hammering REA
+
 def _run_scrape_rea_all(suburbs):
-    """Run REA scrape SEQUENTIALLY with delays to avoid rate limiting (429)."""
+    """Run REA scrape SEQUENTIALLY with ONE shared session to avoid re-warmup."""
+    from scraper_rea import _create_scraper
+
     for s in suburbs:
         scrape_cancel.discard(s['id'])
 
-    for s in suburbs:
+    # Limit suburbs per session to avoid rate limiting
+    if len(suburbs) > MAX_REA_SUBURBS_PER_SESSION:
+        logger.warning(f"[REA] Limiting from {len(suburbs)} to {MAX_REA_SUBURBS_PER_SESSION} suburbs per session")
+        # Mark excess suburbs as skipped
+        for s in suburbs[MAX_REA_SUBURBS_PER_SESSION:]:
+            key = f"rea_{s['id']}"
+            scrape_jobs[key] = {
+                'status': 'error',
+                'progress': f'[REA] Skipped - max {MAX_REA_SUBURBS_PER_SESSION} suburbs per session to avoid rate limiting. Run again for remaining suburbs.',
+                'completed_at': datetime.utcnow().isoformat(),
+                'source': 'rea',
+            }
+        suburbs = suburbs[:MAX_REA_SUBURBS_PER_SESSION]
+
+    # Create ONE shared session for all suburbs
+    shared_scraper = _create_scraper()
+    rate_limited = False
+
+    for i, s in enumerate(suburbs):
         if s['id'] in scrape_cancel:
             continue
+        if rate_limited:
+            key = f"rea_{s['id']}"
+            scrape_jobs[key] = {
+                'status': 'error',
+                'progress': '[REA] Skipped - rate limited on previous suburb. Try again in 10-15 minutes.',
+                'completed_at': datetime.utcnow().isoformat(),
+                'source': 'rea',
+            }
+            continue
         try:
-            _run_scrape_rea(s['id'], s['name'])
+            result_ok = _run_scrape_rea(s['id'], s['name'], shared_scraper=shared_scraper)
+            if not result_ok:
+                rate_limited = True
         except Exception as e:
             logger.error(f"[REA] Scrape error for {s['name']}: {e}")
-        # Wait between suburbs to avoid 429 rate limit
-        time.sleep(random.uniform(10.0, 15.0))
+        # Wait between suburbs — longer delays for safety
+        if i < len(suburbs) - 1 and not rate_limited:
+            wait = random.uniform(30.0, 50.0)
+            logger.info(f"[REA] Waiting {wait:.0f}s before next suburb...")
+            time.sleep(wait)
 
 
-def _run_scrape_rea(suburb_id, name):
-    """Execute REA scraping for a single suburb."""
+def _run_scrape_rea(suburb_id, name, shared_scraper=None):
+    """Execute REA scraping for a single suburb. Returns True if OK, False if rate-limited."""
     job_key = f"rea_{suburb_id}"
     log_id = create_scrape_log(suburb_id)
     scrape_jobs[job_key] = {
@@ -733,7 +769,8 @@ def _run_scrape_rea(suburb_id, name):
             return suburb_id in scrape_cancel
 
         result = scrape_suburb_rea(name, suburb_id, progress_callback=progress_cb,
-                                    known_urls=known_urls, cancel_check=cancel_check)
+                                    known_urls=known_urls, cancel_check=cancel_check,
+                                    shared_scraper=shared_scraper)
 
         if suburb_id in scrape_cancel:
             scrape_cancel.discard(suburb_id)
@@ -743,7 +780,10 @@ def _run_scrape_rea(suburb_id, name):
                 'completed_at': datetime.utcnow().isoformat(),
                 'source': 'rea',
             }
-            return
+            return True
+
+        # Detect if we got rate-limited (429 errors in results)
+        got_429 = any('429' in e for e in result.get('errors', []))
 
         # Save for-sale listings
         new_count = 0
@@ -786,14 +826,24 @@ def _run_scrape_rea(suburb_id, name):
             errors=json.dumps(result['errors']) if result['errors'] else None
         )
 
+        status = 'completed'
+        if got_429 and actual_forsale == 0:
+            status = 'error'
+            msg = f'[REA] Rate limited (429) - 0 listings. Wait 10-15 min and retry.'
+        else:
+            msg = f'[REA] Done! {actual_forsale} active, {saved_sold} sold, {new_count} new'
+
         scrape_jobs[job_key] = {
-            'status': 'completed',
-            'progress': f'[REA] Done! {actual_forsale} active, {saved_sold} sold, {new_count} new',
+            'status': status,
+            'progress': msg,
             'completed_at': datetime.utcnow().isoformat(),
             'stats': result['stats'],
             'source': 'rea',
         }
         logger.info(f"[REA] Scrape completed for {name}: {result['stats']}")
+
+        # Return False if rate-limited with 0 results (signals to stop batch)
+        return not (got_429 and actual_forsale == 0)
 
     except Exception as e:
         logger.error(f"[REA] Scrape failed for {name}: {e}")
@@ -804,6 +854,7 @@ def _run_scrape_rea(suburb_id, name):
             'error': str(e),
             'source': 'rea',
         }
+        return '429' not in str(e)
 
 
 def _run_scrape_all(suburbs):

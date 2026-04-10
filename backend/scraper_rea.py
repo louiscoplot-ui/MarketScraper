@@ -487,8 +487,11 @@ def _find_rea_cards(soup):
     return cards
 
 
-def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls=None, cancel_check=None):
-    """Scrape REA listings using cloudscraper (no browser needed)."""
+def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls=None, cancel_check=None, shared_scraper=None):
+    """Scrape REA listings using cloudscraper (no browser needed).
+
+    Pass shared_scraper to reuse a session across multiple suburbs (avoids re-warmup).
+    """
     postcode = _get_postcode(suburb_name)
     if not postcode:
         return {
@@ -505,7 +508,7 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
         }
     }
 
-    scraper = _create_scraper()
+    scraper = shared_scraper or _create_scraper()
     seen_urls = set()
 
     # === FOR-SALE ===
