@@ -14,21 +14,21 @@ _ENGINE = 'none'
 try:
     import undetected_chromedriver as uc
     _ENGINE = 'undetected_chrome'
-    logger.info("[REA] Using undetected-chromedriver (real Chrome browser)")
+    print("[REA] >>> Engine: undetected-chromedriver (real Chrome)")
 except Exception as _e:
-    logger.warning(f"[REA] undetected-chromedriver not available: {_e}")
+    print(f"[REA] >>> undetected-chromedriver FAILED: {type(_e).__name__}: {_e}")
     try:
         from curl_cffi.requests import Session as CurlSession
         _ENGINE = 'curl_cffi'
-        logger.info("[REA] Using curl_cffi")
+        print("[REA] >>> Engine: curl_cffi")
     except Exception as _e2:
-        logger.warning(f"[REA] curl_cffi not available: {_e2}")
+        print(f"[REA] >>> curl_cffi FAILED: {_e2}")
         try:
             import cloudscraper
             _ENGINE = 'cloudscraper'
-            logger.info("[REA] Using cloudscraper")
+            print("[REA] >>> Engine: cloudscraper")
         except Exception:
-            logger.warning("[REA] No scraping engine available!")
+            print("[REA] >>> NO ENGINE AVAILABLE")
 
 REA_BASE = "https://www.realestate.com.au"
 MAX_PAGES = 10
