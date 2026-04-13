@@ -6,4 +6,5 @@ gunicorn==21.2.0
 openpyxl>=3.1.0
 cloudscraper>=1.2.71
 curl_cffi>=0.7.0
-browser_cookie3>=0.19.0
+undetected-chromedriver>=3.5.0
+selenium>=4.15.0

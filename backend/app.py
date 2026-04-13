@@ -698,53 +698,65 @@ def debug_rea_scrape(suburb_id):
 MAX_REA_SUBURBS_PER_SESSION = 5  # Safety limit to avoid hammering REA
 
 def _run_scrape_rea_all(suburbs):
-    """Run REA scrape SEQUENTIALLY with ONE shared session to avoid re-warmup."""
-    from scraper_rea import _create_scraper
+    """Run REA scrape SEQUENTIALLY with ONE shared Chrome/session."""
+    from scraper_rea import _ENGINE, _create_chrome_driver, _create_http_scraper
 
     for s in suburbs:
         scrape_cancel.discard(s['id'])
 
-    # Limit suburbs per session to avoid rate limiting
+    # Limit suburbs per session
     if len(suburbs) > MAX_REA_SUBURBS_PER_SESSION:
         logger.warning(f"[REA] Limiting from {len(suburbs)} to {MAX_REA_SUBURBS_PER_SESSION} suburbs per session")
-        # Mark excess suburbs as skipped
         for s in suburbs[MAX_REA_SUBURBS_PER_SESSION:]:
             key = f"rea_{s['id']}"
             scrape_jobs[key] = {
                 'status': 'error',
-                'progress': f'[REA] Skipped - max {MAX_REA_SUBURBS_PER_SESSION} suburbs per session to avoid rate limiting. Run again for remaining suburbs.',
+                'progress': f'[REA] Skipped - max {MAX_REA_SUBURBS_PER_SESSION} suburbs per session. Run again for the rest.',
                 'completed_at': datetime.utcnow().isoformat(),
                 'source': 'rea',
             }
         suburbs = suburbs[:MAX_REA_SUBURBS_PER_SESSION]
 
-    # Create ONE shared session for all suburbs
-    shared_scraper = _create_scraper()
+    # Create ONE shared driver/session for all suburbs
+    if _ENGINE == 'undetected_chrome':
+        shared = _create_chrome_driver()
+    else:
+        shared = _create_http_scraper()
+
     rate_limited = False
 
-    for i, s in enumerate(suburbs):
-        if s['id'] in scrape_cancel:
-            continue
-        if rate_limited:
-            key = f"rea_{s['id']}"
-            scrape_jobs[key] = {
-                'status': 'error',
-                'progress': '[REA] Skipped - rate limited on previous suburb. Try again in 10-15 minutes.',
-                'completed_at': datetime.utcnow().isoformat(),
-                'source': 'rea',
-            }
-            continue
-        try:
-            result_ok = _run_scrape_rea(s['id'], s['name'], shared_scraper=shared_scraper)
-            if not result_ok:
-                rate_limited = True
-        except Exception as e:
-            logger.error(f"[REA] Scrape error for {s['name']}: {e}")
-        # Wait between suburbs — longer delays for safety
-        if i < len(suburbs) - 1 and not rate_limited:
-            wait = random.uniform(30.0, 50.0)
-            logger.info(f"[REA] Waiting {wait:.0f}s before next suburb...")
-            time.sleep(wait)
+    try:
+        for i, s in enumerate(suburbs):
+            if s['id'] in scrape_cancel:
+                continue
+            if rate_limited:
+                key = f"rea_{s['id']}"
+                scrape_jobs[key] = {
+                    'status': 'error',
+                    'progress': '[REA] Skipped - rate limited on previous suburb. Try again in 10-15 minutes.',
+                    'completed_at': datetime.utcnow().isoformat(),
+                    'source': 'rea',
+                }
+                continue
+            try:
+                result_ok = _run_scrape_rea(s['id'], s['name'], shared_scraper=shared)
+                if not result_ok:
+                    rate_limited = True
+            except Exception as e:
+                logger.error(f"[REA] Scrape error for {s['name']}: {e}")
+            # Wait between suburbs
+            if i < len(suburbs) - 1 and not rate_limited:
+                wait = random.uniform(15.0, 25.0)
+                logger.info(f"[REA] Waiting {wait:.0f}s before next suburb...")
+                time.sleep(wait)
+    finally:
+        # Close Chrome driver if we used one
+        if hasattr(shared, 'quit'):
+            try:
+                shared.quit()
+                logger.info("[REA] Shared Chrome driver closed")
+            except Exception:
+                pass
 
 
 def _run_scrape_rea(suburb_id, name, shared_scraper=None):

@@ -9,18 +9,23 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-# Try to import curl_cffi first (best TLS impersonation), fallback to cloudscraper
-_USE_CURL_CFFI = False
+# Try undetected-chromedriver first (real Chrome, best bypass), then curl_cffi, then cloudscraper
+_ENGINE = 'none'
 try:
-    from curl_cffi.requests import Session as CurlSession
-    _USE_CURL_CFFI = True
-    logger.info("[REA] Using curl_cffi (Chrome TLS impersonation)")
+    import undetected_chromedriver as uc
+    _ENGINE = 'undetected_chrome'
+    logger.info("[REA] Using undetected-chromedriver (real Chrome browser)")
 except ImportError:
     try:
-        import cloudscraper
-        logger.info("[REA] curl_cffi not found, using cloudscraper")
+        from curl_cffi.requests import Session as CurlSession
+        _ENGINE = 'curl_cffi'
+        logger.info("[REA] Using curl_cffi")
     except ImportError:
-        logger.warning("[REA] Neither curl_cffi nor cloudscraper available!")
+        try:
+            import cloudscraper
+            _ENGINE = 'cloudscraper'
+        except ImportError:
+            logger.warning("[REA] No scraping engine available!")
 
 REA_BASE = "https://www.realestate.com.au"
 MAX_PAGES = 10
@@ -53,33 +58,30 @@ _HEADERS = {
 }
 
 
-def _load_chrome_cookies():
-    """Try to load REA cookies from user's Chrome browser."""
-    try:
-        import browser_cookie3
-        cj = browser_cookie3.chrome(domain_name='.realestate.com.au')
-        cookies = {c.name: c.value for c in cj}
-        if cookies:
-            logger.info(f"[REA] Loaded {len(cookies)} cookies from Chrome: {list(cookies.keys())}")
-        return cookies
-    except Exception as e:
-        logger.warning(f"[REA] Could not load Chrome cookies: {e}")
-        return {}
+def _create_chrome_driver():
+    """Create an undetected Chrome browser instance."""
+    import undetected_chromedriver as uc
+
+    options = uc.ChromeOptions()
+    options.add_argument('--headless=new')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--lang=en-AU')
+
+    driver = uc.Chrome(options=options, version_main=None)
+    driver.set_page_load_timeout(30)
+    logger.info("[REA] Chrome browser started (undetected-chromedriver)")
+    return driver
 
 
-def _create_scraper():
-    """Create a scraper session. Uses Chrome cookies if available for Cloudflare bypass."""
-    chrome_cookies = _load_chrome_cookies()
-
-    if _USE_CURL_CFFI:
+def _create_http_scraper():
+    """Create an HTTP scraper session (curl_cffi or cloudscraper fallback)."""
+    if _ENGINE == 'curl_cffi':
+        from curl_cffi.requests import Session as CurlSession
         scraper = CurlSession(impersonate="chrome124")
         scraper.headers.update(_HEADERS)
-        if chrome_cookies:
-            for name, value in chrome_cookies.items():
-                scraper.cookies.set(name, value, domain='.realestate.com.au')
-            logger.info(f"[REA] curl_cffi session with {len(chrome_cookies)} Chrome cookies")
-        else:
-            logger.info("[REA] curl_cffi session (no Chrome cookies found)")
     else:
         try:
             import cloudscraper
@@ -94,27 +96,43 @@ def _create_scraper():
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             })
         scraper.headers.update(_HEADERS)
-        if chrome_cookies:
-            for name, value in chrome_cookies.items():
-                scraper.cookies.set(name, value, domain='.realestate.com.au')
 
-    # Only warm up if we DON'T have Chrome cookies (avoid unnecessary requests)
-    if not chrome_cookies:
-        try:
-            logger.info("[REA] Warming up session with homepage visit...")
-            resp = scraper.get(REA_BASE, timeout=15)
-            cookies = len(resp.cookies) if hasattr(resp, 'cookies') else '?'
-            logger.info(f"[REA] Homepage returned {resp.status_code}, cookies: {cookies}")
-            time.sleep(random.uniform(2.0, 4.0))
-        except Exception as e:
-            logger.warning(f"[REA] Homepage warmup failed: {e}")
+    # Warm up
+    try:
+        resp = scraper.get(REA_BASE, timeout=15)
+        logger.info(f"[REA] HTTP warmup: {resp.status_code}")
+        time.sleep(random.uniform(2.0, 4.0))
+    except Exception as e:
+        logger.warning(f"[REA] HTTP warmup failed: {e}")
 
     return scraper
 
 
-def _fetch_rea_page(scraper, url, retries=3, progress_callback=None):
-    """Fetch a REA page. Returns (html, error). Handles 429 with exponential backoff."""
-    backoff_429 = [20, 45, 90]  # seconds to wait on rate limit
+def _fetch_page_chrome(driver, url):
+    """Fetch page using undetected Chrome. Returns (html, error)."""
+    try:
+        driver.get(url)
+        # Wait for page to load — check for content or Cloudflare challenge
+        time.sleep(random.uniform(3.0, 5.0))
+
+        # Check if Cloudflare challenge is showing
+        page_source = driver.page_source
+        if 'challenge-platform' in page_source or 'Just a moment' in page_source:
+            logger.info("[REA] Cloudflare challenge detected, waiting for it to resolve...")
+            time.sleep(8)
+            page_source = driver.page_source
+
+        if len(page_source) < 500:
+            return None, "Empty page"
+
+        return page_source, None
+    except Exception as e:
+        return None, str(e)[:200]
+
+
+def _fetch_page_http(scraper, url, retries=3, progress_callback=None):
+    """Fetch page using HTTP. Returns (html, error). Handles 429."""
+    backoff_429 = [20, 45, 90]
 
     for attempt in range(1, retries + 1):
         try:
@@ -124,34 +142,30 @@ def _fetch_rea_page(scraper, url, retries=3, progress_callback=None):
 
             if resp.status_code == 200:
                 html = resp.text
-                # Check if we got actual content or a Cloudflare page
                 if len(html) < 500 and ('challenge' in html.lower() or 'cloudflare' in html.lower()):
                     return None, "Cloudflare challenge (blocked)"
                 return html, None
             elif resp.status_code == 429:
                 wait = backoff_429[min(attempt - 1, len(backoff_429) - 1)]
-                logger.warning(f"[REA] HTTP 429 rate limited on attempt {attempt}, waiting {wait}s...")
+                logger.warning(f"[REA] HTTP 429 on attempt {attempt}, waiting {wait}s...")
                 if progress_callback:
                     progress_callback(f"[REA] Rate limited (429). Waiting {wait}s before retry {attempt}/{retries}...")
                 if attempt < retries:
                     time.sleep(wait)
                     continue
-                return None, "HTTP 429 - rate limited (waited and retried, still blocked)"
+                return None, "HTTP 429 - rate limited"
             elif resp.status_code == 403:
                 return None, "403 Forbidden"
             else:
-                logger.warning(f"[REA] HTTP {resp.status_code} on attempt {attempt}")
                 if attempt < retries:
                     time.sleep(3)
                     continue
                 return None, f"HTTP {resp.status_code}"
         except Exception as e:
-            err_str = str(e)
-            logger.warning(f"[REA] Request error attempt {attempt}: {err_str}")
             if attempt < retries:
                 time.sleep(3)
             else:
-                return None, err_str[:200]
+                return None, str(e)[:200]
     return None, "Max retries exceeded"
 
 
@@ -528,10 +542,18 @@ def _find_rea_cards(soup):
     return cards
 
 
-def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls=None, cancel_check=None, shared_scraper=None):
-    """Scrape REA listings using cloudscraper (no browser needed).
+def _fetch_page(driver_or_scraper, url, progress_callback=None):
+    """Fetch a page using either Chrome driver or HTTP scraper. Returns (html, error)."""
+    if _ENGINE == 'undetected_chrome' and hasattr(driver_or_scraper, 'get') and hasattr(driver_or_scraper, 'page_source'):
+        return _fetch_page_chrome(driver_or_scraper, url)
+    else:
+        return _fetch_page_http(driver_or_scraper, url, progress_callback=progress_callback)
 
-    Pass shared_scraper to reuse a session across multiple suburbs (avoids re-warmup).
+
+def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls=None, cancel_check=None, shared_scraper=None):
+    """Scrape REA listings. Uses undetected-chromedriver if available, else HTTP.
+
+    Pass shared_scraper to reuse a session/driver across multiple suburbs.
     """
     postcode = _get_postcode(suburb_name)
     if not postcode:
@@ -549,136 +571,156 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
         }
     }
 
-    scraper = shared_scraper or _create_scraper()
+    # Use shared session/driver or create new one
+    own_driver = False
+    if shared_scraper:
+        fetcher = shared_scraper
+    elif _ENGINE == 'undetected_chrome':
+        fetcher = _create_chrome_driver()
+        own_driver = True
+    else:
+        fetcher = _create_http_scraper()
+
     seen_urls = set()
 
-    # === FOR-SALE ===
-    if progress_callback:
-        progress_callback(f'[REA] Scraping for-sale pages for {suburb_name}...')
-
-    page_num = 1
-    consecutive_empty = 0
-
-    while page_num <= MAX_PAGES:
-        if cancel_check and cancel_check():
-            break
-
-        url = _build_rea_buy_url(suburb_name, postcode, page_num)
+    try:
+        # === FOR-SALE ===
         if progress_callback:
-            progress_callback(f'[REA] For-sale page {page_num}...')
+            progress_callback(f'[REA] Scraping for-sale pages for {suburb_name}...')
 
-        html, error = _fetch_rea_page(scraper, url, progress_callback=progress_callback)
-        if error:
-            results['errors'].append(f"[REA] Page {page_num}: {error}")
-            break
-        if not html:
-            break
+        page_num = 1
+        consecutive_empty = 0
 
-        # Try __NEXT_DATA__ JSON first (most reliable)
-        json_listings = _extract_next_data(html)
-
-        if json_listings:
-            new_on_page = 0
-            for rec in json_listings:
-                card_url = rec['url']
-                if card_url in seen_urls:
-                    continue
-                seen_urls.add(card_url)
-                new_on_page += 1
-                rec['reiwa_url'] = card_url
-                results['forsale_listings'].append(rec)
-
-            logger.info(f"[REA] {suburb_name} p{page_num}: {len(json_listings)} from JSON, {new_on_page} new")
-        else:
-            # Fallback: parse HTML cards
-            soup = BeautifulSoup(html, "html.parser")
-            cards = _find_rea_cards(soup)
-
-            if page_num == 1:
-                rea_total = _get_rea_total(soup)
-                if rea_total:
-                    results['stats']['rea_total'] = rea_total
-
-            new_on_page = 0
-            for card in cards:
-                rec = _parse_rea_card(card, suburb_name)
-                card_url = rec['url']
-                if not card_url or card_url in seen_urls:
-                    continue
-                if "/agent/" in card_url or "/agency/" in card_url:
-                    continue
-                seen_urls.add(card_url)
-                new_on_page += 1
-                rec['reiwa_url'] = card_url
-                results['forsale_listings'].append(rec)
-
-            logger.info(f"[REA] {suburb_name} p{page_num}: {len(cards)} cards, {new_on_page} new")
-
-        results['stats']['forsale_pages_scraped'] = page_num
-
-        if progress_callback:
-            progress_callback(f'[REA] Page {page_num}: {new_on_page} new. Total: {len(results["forsale_listings"])}')
-
-        if new_on_page == 0:
-            consecutive_empty += 1
-            if consecutive_empty >= 2:
+        while page_num <= MAX_PAGES:
+            if cancel_check and cancel_check():
                 break
-        else:
-            consecutive_empty = 0
 
-        page_num += 1
-        time.sleep(random.uniform(6.0, 10.0))
+            url = _build_rea_buy_url(suburb_name, postcode, page_num)
+            if progress_callback:
+                progress_callback(f'[REA] For-sale page {page_num}...')
 
-    results['stats']['forsale_count'] = len(results['forsale_listings'])
+            html, error = _fetch_page(fetcher, url, progress_callback=progress_callback)
+            if error:
+                results['errors'].append(f"[REA] Page {page_num}: {error}")
+                break
+            if not html:
+                break
 
-    # Longer pause between for-sale and sold sections
-    time.sleep(random.uniform(8.0, 12.0))
+            # Try __NEXT_DATA__ JSON first (most reliable)
+            json_listings = _extract_next_data(html)
 
-    # === SOLD (2 pages) ===
-    if progress_callback:
-        progress_callback(f'[REA] Scraping sold pages...')
+            if json_listings:
+                new_on_page = 0
+                for rec in json_listings:
+                    card_url = rec['url']
+                    if card_url in seen_urls:
+                        continue
+                    seen_urls.add(card_url)
+                    new_on_page += 1
+                    rec['reiwa_url'] = card_url
+                    results['forsale_listings'].append(rec)
 
-    sold_seen = set()
-    for pg in range(1, 3):
-        if cancel_check and cancel_check():
-            break
+                logger.info(f"[REA] {suburb_name} p{page_num}: {len(json_listings)} from JSON, {new_on_page} new")
+            else:
+                # Fallback: parse HTML cards
+                soup = BeautifulSoup(html, "html.parser")
+                cards = _find_rea_cards(soup)
 
-        url = _build_rea_sold_url(suburb_name, postcode, pg)
+                if page_num == 1:
+                    rea_total = _get_rea_total(soup)
+                    if rea_total:
+                        results['stats']['rea_total'] = rea_total
+
+                new_on_page = 0
+                for card in cards:
+                    rec = _parse_rea_card(card, suburb_name)
+                    card_url = rec['url']
+                    if not card_url or card_url in seen_urls:
+                        continue
+                    if "/agent/" in card_url or "/agency/" in card_url:
+                        continue
+                    seen_urls.add(card_url)
+                    new_on_page += 1
+                    rec['reiwa_url'] = card_url
+                    results['forsale_listings'].append(rec)
+
+                logger.info(f"[REA] {suburb_name} p{page_num}: {len(cards)} cards, {new_on_page} new")
+
+            results['stats']['forsale_pages_scraped'] = page_num
+
+            if progress_callback:
+                progress_callback(f'[REA] Page {page_num}: {new_on_page} new. Total: {len(results["forsale_listings"])}')
+
+            if new_on_page == 0:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:
+                    break
+            else:
+                consecutive_empty = 0
+
+            page_num += 1
+            time.sleep(random.uniform(5.0, 8.0))
+
+        results['stats']['forsale_count'] = len(results['forsale_listings'])
+
+        # Pause between for-sale and sold sections
+        time.sleep(random.uniform(5.0, 8.0))
+
+        # === SOLD (2 pages) ===
         if progress_callback:
-            progress_callback(f'[REA] Sold page {pg}...')
+            progress_callback(f'[REA] Scraping sold pages...')
 
-        html, error = _fetch_rea_page(scraper, url, progress_callback=progress_callback)
-        if error or not html:
-            break
+        sold_seen = set()
+        for pg in range(1, 3):
+            if cancel_check and cancel_check():
+                break
 
-        json_listings = _extract_next_data(html)
-        if json_listings:
-            for rec in json_listings:
-                card_url = rec['url']
-                if card_url in sold_seen:
-                    continue
-                sold_seen.add(card_url)
-                rec['status'] = 'sold'
-                rec['reiwa_url'] = card_url
-                results['sold_listings'].append(rec)
-        else:
-            soup = BeautifulSoup(html, "html.parser")
-            cards = _find_rea_cards(soup)
-            for card in cards:
-                rec = _parse_rea_card(card, suburb_name)
-                card_url = rec['url']
-                if card_url and card_url in sold_seen:
-                    continue
-                if card_url:
+            url = _build_rea_sold_url(suburb_name, postcode, pg)
+            if progress_callback:
+                progress_callback(f'[REA] Sold page {pg}...')
+
+            html, error = _fetch_page(fetcher, url, progress_callback=progress_callback)
+            if error or not html:
+                break
+
+            json_listings = _extract_next_data(html)
+            if json_listings:
+                for rec in json_listings:
+                    card_url = rec['url']
+                    if card_url in sold_seen:
+                        continue
                     sold_seen.add(card_url)
-                rec['status'] = 'sold'
-                rec['reiwa_url'] = card_url
-                results['sold_listings'].append(rec)
+                    rec['status'] = 'sold'
+                    rec['reiwa_url'] = card_url
+                    results['sold_listings'].append(rec)
+            else:
+                soup = BeautifulSoup(html, "html.parser")
+                cards = _find_rea_cards(soup)
+                for card in cards:
+                    rec = _parse_rea_card(card, suburb_name)
+                    card_url = rec['url']
+                    if card_url and card_url in sold_seen:
+                        continue
+                    if card_url:
+                        sold_seen.add(card_url)
+                    rec['status'] = 'sold'
+                    rec['reiwa_url'] = card_url
+                    results['sold_listings'].append(rec)
 
-        results['stats']['sold_pages_scraped'] = pg
-        time.sleep(random.uniform(6.0, 10.0))
+            results['stats']['sold_pages_scraped'] = pg
+            time.sleep(random.uniform(5.0, 8.0))
 
-    results['stats']['sold_count'] = len(results['sold_listings'])
+        results['stats']['sold_count'] = len(results['sold_listings'])
+
+    finally:
+        # Close the Chrome driver if we created it (not shared)
+        if own_driver and hasattr(fetcher, 'quit'):
+            try:
+                fetcher.quit()
+                logger.info("[REA] Chrome driver closed")
+            except Exception:
+                pass
+
     return results
 
 
@@ -691,44 +733,36 @@ def debug_rea_page(suburb_name):
     url = _build_rea_buy_url(suburb_name, postcode, 1)
     result = {
         'url': url, 'suburb': suburb_name, 'postcode': postcode,
-        'engine': 'curl_cffi' if _USE_CURL_CFFI else 'cloudscraper',
+        'engine': _ENGINE,
         'http_status': None, 'title': '', 'cards_found': 0,
         'json_listings_found': 0, 'sample_card_parsed': {},
         'total_displayed': None, 'text_preview': '',
         'html_size': 0, 'html_preview': '',
         'bot_detected': False, 'error': None,
-        'cookies_count': 0,
     }
 
+    driver = None
     try:
-        scraper = _create_scraper()
-        result['cookies_count'] = len(scraper.cookies)
-        result['chrome_cookies'] = list(scraper.cookies.keys()) if hasattr(scraper.cookies, 'keys') else str(len(scraper.cookies))
-
-        # Direct request to see exact status
-        try:
-            scraper.headers['Referer'] = REA_BASE + '/buy/in-wa/'
-            resp = scraper.get(url, timeout=15)
+        if _ENGINE == 'undetected_chrome':
+            # Use real Chrome for debug
+            driver = _create_chrome_driver()
+            html, error = _fetch_page_chrome(driver, url)
+            if error:
+                result['error'] = error
+                return result
+            result['http_status'] = 200
+        else:
+            scraper = _create_http_scraper()
+            resp = scraper.get(url, timeout=15, headers={'Referer': REA_BASE + '/buy/in-wa/'})
             result['http_status'] = resp.status_code
 
-            if resp.status_code == 429:
-                retry_after = resp.headers.get('Retry-After', 'not set')
+            if resp.status_code != 200:
                 body = resp.text or ''
-                result['error'] = f"HTTP 429 rate limited. Retry-After: {retry_after}."
+                result['error'] = f"HTTP {resp.status_code}"
                 result['html_size'] = len(body)
                 result['html_preview'] = body[:2000]
-                result['response_headers'] = dict(resp.headers) if hasattr(resp.headers, 'items') else str(resp.headers)
                 return result
-
-            if resp.status_code != 200:
-                result['error'] = f"HTTP {resp.status_code}"
-                result['html_size'] = len(resp.text) if resp.text else 0
-                return result
-
             html = resp.text
-        except Exception as e:
-            result['error'] = str(e)
-            return result
 
         result['html_size'] = len(html)
         result['html_preview'] = html[:2000]
@@ -739,13 +773,11 @@ def debug_rea_page(suburb_name):
         if "captcha" in html.lower() or "are you a robot" in html.lower() or "access denied" in html.lower():
             result['bot_detected'] = True
 
-        # Check __NEXT_DATA__
         json_listings = _extract_next_data(html)
         result['json_listings_found'] = len(json_listings)
         if json_listings:
             result['sample_card_parsed'] = json_listings[0]
 
-        # Check HTML cards
         cards = _find_rea_cards(soup)
         result['cards_found'] = len(cards)
         if cards and not json_listings:
@@ -756,5 +788,11 @@ def debug_rea_page(suburb_name):
 
     except Exception as e:
         result['error'] = str(e)
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
     return result
