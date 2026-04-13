@@ -62,20 +62,26 @@ _HEADERS = {
 
 
 def _create_chrome_driver():
-    """Create an undetected Chrome browser instance."""
+    """Create an undetected Chrome browser instance (visible, not headless).
+
+    PerimeterX (REA's bot detection) detects headless mode, so we run
+    Chrome visible but minimized. The window will appear briefly on the taskbar.
+    """
     import undetected_chromedriver as uc
 
     options = uc.ChromeOptions()
-    options.add_argument('--headless=new')
+    # NO headless — PerimeterX detects it. Run visible but start minimized.
+    options.add_argument('--start-minimized')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
     options.add_argument('--lang=en-AU')
+    options.add_argument('--disable-blink-features=AutomationControlled')
 
     driver = uc.Chrome(options=options, version_main=None)
-    driver.set_page_load_timeout(30)
-    logger.info("[REA] Chrome browser started (undetected-chromedriver)")
+    driver.set_page_load_timeout(45)
+    logger.info("[REA] Chrome browser started (visible, minimized)")
     return driver
 
 
@@ -112,23 +118,52 @@ def _create_http_scraper():
 
 
 def _fetch_page_chrome(driver, url):
-    """Fetch page using undetected Chrome. Returns (html, error)."""
+    """Fetch page using undetected Chrome. Returns (html, error).
+
+    Waits for PerimeterX/Cloudflare challenges to resolve before reading page.
+    """
     try:
         driver.get(url)
-        # Wait for page to load — check for content or Cloudflare challenge
+        # Initial wait for page load
         time.sleep(random.uniform(3.0, 5.0))
 
-        # Check if Cloudflare challenge is showing
-        page_source = driver.page_source
-        if 'challenge-platform' in page_source or 'Just a moment' in page_source:
-            logger.info("[REA] Cloudflare challenge detected, waiting for it to resolve...")
-            time.sleep(8)
+        # Check for bot challenges and wait for them to resolve
+        for wait_round in range(6):  # Up to ~30 seconds total
             page_source = driver.page_source
 
-        if len(page_source) < 500:
-            return None, "Empty page"
+            # PerimeterX challenge (KPSDK / ips.js)
+            is_perimeterx = 'KPSDK' in page_source or 'ips.js' in page_source
+            # Cloudflare challenge
+            is_cloudflare = 'challenge-platform' in page_source or 'Just a moment' in page_source
 
+            if is_perimeterx or is_cloudflare:
+                challenge_type = 'PerimeterX' if is_perimeterx else 'Cloudflare'
+                logger.info(f"[REA] {challenge_type} challenge detected (round {wait_round + 1}/6), waiting...")
+                time.sleep(5)
+                continue
+
+            # Check if we have real content (not just a blank/challenge page)
+            if '__NEXT_DATA__' in page_source or 'property-' in page_source or len(page_source) > 5000:
+                logger.info(f"[REA] Page loaded successfully ({len(page_source)} bytes)")
+                return page_source, None
+
+            # Small page but no challenge markers — might be an error page
+            if len(page_source) < 1000:
+                logger.info(f"[REA] Small page ({len(page_source)} bytes), waiting...")
+                time.sleep(3)
+                continue
+
+            # Page is large enough, return it
+            return page_source, None
+
+        # After all wait rounds, return whatever we have
+        page_source = driver.page_source
+        if 'KPSDK' in page_source:
+            return None, "PerimeterX challenge did not resolve (bot detected in headless?)"
+        if len(page_source) < 500:
+            return None, f"Empty page after waiting ({len(page_source)} bytes)"
         return page_source, None
+
     except Exception as e:
         return None, str(e)[:200]
 
