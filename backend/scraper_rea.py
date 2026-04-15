@@ -62,16 +62,15 @@ _HEADERS = {
 
 
 def _create_chrome_driver():
-    """Create an undetected Chrome browser instance (visible, not headless).
+    """Create an undetected Chrome browser instance.
 
-    PerimeterX (REA's bot detection) detects headless mode, so we run
-    Chrome visible but minimized. The window will appear briefly on the taskbar.
+    PerimeterX (REA's bot detection) detects headless mode.
+    Chrome opens visible — it will appear on the taskbar during scraping.
     """
     import undetected_chromedriver as uc
 
     options = uc.ChromeOptions()
-    # NO headless — PerimeterX detects it. Run visible but start minimized.
-    options.add_argument('--start-minimized')
+    # NO headless — PerimeterX detects it
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
@@ -81,7 +80,34 @@ def _create_chrome_driver():
 
     driver = uc.Chrome(options=options, version_main=None)
     driver.set_page_load_timeout(45)
-    logger.info("[REA] Chrome browser started (visible, minimized)")
+    # Minimize after creation
+    try:
+        driver.minimize_window()
+    except Exception:
+        pass
+    logger.info("[REA] Chrome browser started")
+
+    # Warm up: visit REA homepage first to resolve PerimeterX challenge
+    try:
+        logger.info("[REA] Visiting homepage to resolve PerimeterX challenge...")
+        driver.get(REA_BASE)
+        time.sleep(random.uniform(4.0, 6.0))
+
+        # Wait for PerimeterX to resolve on homepage
+        for i in range(8):
+            ps = driver.page_source
+            if 'KPSDK' in ps or 'ips.js' in ps:
+                logger.info(f"[REA] Homepage challenge still active (round {i+1}/8)...")
+                time.sleep(4)
+            else:
+                logger.info(f"[REA] Homepage loaded OK ({len(ps)} bytes)")
+                break
+
+        # Small pause to let cookies settle
+        time.sleep(random.uniform(2.0, 4.0))
+    except Exception as e:
+        logger.warning(f"[REA] Homepage warmup failed: {e}")
+
     return driver
 
 
