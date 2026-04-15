@@ -9,26 +9,32 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-# Try undetected-chromedriver first (real Chrome, best bypass), then curl_cffi, then cloudscraper
+# Engine priority: DrissionPage (CDP, best bypass) > undetected-chromedriver > curl_cffi > cloudscraper
 _ENGINE = 'none'
 try:
-    import undetected_chromedriver as uc
-    _ENGINE = 'undetected_chrome'
-    print("[REA] >>> Engine: undetected-chromedriver (real Chrome)")
+    from DrissionPage import ChromiumPage, ChromiumOptions
+    _ENGINE = 'drissionpage'
+    print("[REA] >>> Engine: DrissionPage (CDP, no WebDriver)")
 except Exception as _e:
-    print(f"[REA] >>> undetected-chromedriver FAILED: {type(_e).__name__}: {_e}")
+    print(f"[REA] >>> DrissionPage FAILED: {type(_e).__name__}: {_e}")
     try:
-        from curl_cffi.requests import Session as CurlSession
-        _ENGINE = 'curl_cffi'
-        print("[REA] >>> Engine: curl_cffi")
+        import undetected_chromedriver as uc
+        _ENGINE = 'undetected_chrome'
+        print("[REA] >>> Engine: undetected-chromedriver")
     except Exception as _e2:
-        print(f"[REA] >>> curl_cffi FAILED: {_e2}")
+        print(f"[REA] >>> undetected-chromedriver FAILED: {type(_e2).__name__}: {_e2}")
         try:
-            import cloudscraper
-            _ENGINE = 'cloudscraper'
-            print("[REA] >>> Engine: cloudscraper")
-        except Exception:
-            print("[REA] >>> NO ENGINE AVAILABLE")
+            from curl_cffi.requests import Session as CurlSession
+            _ENGINE = 'curl_cffi'
+            print("[REA] >>> Engine: curl_cffi")
+        except Exception as _e3:
+            print(f"[REA] >>> curl_cffi FAILED: {_e3}")
+            try:
+                import cloudscraper
+                _ENGINE = 'cloudscraper'
+                print("[REA] >>> Engine: cloudscraper")
+            except Exception:
+                print("[REA] >>> NO ENGINE AVAILABLE")
 
 REA_BASE = "https://www.realestate.com.au"
 MAX_PAGES = 10
@@ -61,16 +67,47 @@ _HEADERS = {
 }
 
 
-def _create_chrome_driver():
-    """Create an undetected Chrome browser instance.
+def _create_drission_page():
+    """Create a DrissionPage browser (CDP-based, no WebDriver = invisible to PerimeterX)."""
+    from DrissionPage import ChromiumPage, ChromiumOptions
 
-    PerimeterX (REA's bot detection) detects headless mode.
-    Chrome opens visible — it will appear on the taskbar during scraping.
-    """
+    co = ChromiumOptions()
+    co.set_argument('--no-sandbox')
+    co.set_argument('--disable-gpu')
+    co.set_argument('--window-size', '1920,1080')
+    co.set_argument('--lang', 'en-AU')
+    co.auto_port()  # Use random debug port
+
+    page = ChromiumPage(co)
+    logger.info("[REA] DrissionPage browser started (CDP, no WebDriver)")
+
+    # Warm up: visit REA homepage to resolve PerimeterX
+    try:
+        logger.info("[REA] Visiting homepage to resolve PerimeterX...")
+        page.get(REA_BASE)
+        time.sleep(random.uniform(3.0, 5.0))
+
+        for i in range(8):
+            html = page.html
+            if 'KPSDK' in html or 'ips.js' in html:
+                logger.info(f"[REA] Homepage challenge active (round {i+1}/8)...")
+                time.sleep(4)
+            else:
+                logger.info(f"[REA] Homepage loaded OK ({len(html)} bytes)")
+                break
+
+        time.sleep(random.uniform(2.0, 3.0))
+    except Exception as e:
+        logger.warning(f"[REA] Homepage warmup failed: {e}")
+
+    return page
+
+
+def _create_chrome_driver():
+    """Create an undetected-chromedriver instance (fallback if DrissionPage unavailable)."""
     import undetected_chromedriver as uc
 
     options = uc.ChromeOptions()
-    # NO headless — PerimeterX detects it
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
@@ -80,34 +117,11 @@ def _create_chrome_driver():
 
     driver = uc.Chrome(options=options, version_main=None)
     driver.set_page_load_timeout(45)
-    # Minimize after creation
     try:
         driver.minimize_window()
     except Exception:
         pass
-    logger.info("[REA] Chrome browser started")
-
-    # Warm up: visit REA homepage first to resolve PerimeterX challenge
-    try:
-        logger.info("[REA] Visiting homepage to resolve PerimeterX challenge...")
-        driver.get(REA_BASE)
-        time.sleep(random.uniform(4.0, 6.0))
-
-        # Wait for PerimeterX to resolve on homepage
-        for i in range(8):
-            ps = driver.page_source
-            if 'KPSDK' in ps or 'ips.js' in ps:
-                logger.info(f"[REA] Homepage challenge still active (round {i+1}/8)...")
-                time.sleep(4)
-            else:
-                logger.info(f"[REA] Homepage loaded OK ({len(ps)} bytes)")
-                break
-
-        # Small pause to let cookies settle
-        time.sleep(random.uniform(2.0, 4.0))
-    except Exception as e:
-        logger.warning(f"[REA] Homepage warmup failed: {e}")
-
+    logger.info("[REA] Chrome browser started (undetected-chromedriver)")
     return driver
 
 
@@ -141,6 +155,36 @@ def _create_http_scraper():
         logger.warning(f"[REA] HTTP warmup failed: {e}")
 
     return scraper
+
+
+def _fetch_page_drission(page, url):
+    """Fetch page using DrissionPage (CDP). Returns (html, error)."""
+    try:
+        page.get(url)
+        time.sleep(random.uniform(3.0, 5.0))
+
+        for wait_round in range(8):
+            html = page.html
+            if 'KPSDK' in html or 'ips.js' in html:
+                logger.info(f"[REA] PerimeterX challenge (round {wait_round + 1}/8)...")
+                time.sleep(4)
+                continue
+            if '__NEXT_DATA__' in html or 'property-' in html or len(html) > 5000:
+                logger.info(f"[REA] Page loaded ({len(html)} bytes)")
+                return html, None
+            if len(html) < 1000:
+                time.sleep(3)
+                continue
+            return html, None
+
+        html = page.html
+        if 'KPSDK' in html:
+            return None, "PerimeterX challenge did not resolve"
+        if len(html) < 500:
+            return None, f"Empty page ({len(html)} bytes)"
+        return html, None
+    except Exception as e:
+        return None, str(e)[:200]
 
 
 def _fetch_page_chrome(driver, url):
@@ -607,8 +651,10 @@ def _find_rea_cards(soup):
 
 
 def _fetch_page(driver_or_scraper, url, progress_callback=None):
-    """Fetch a page using either Chrome driver or HTTP scraper. Returns (html, error)."""
-    if _ENGINE == 'undetected_chrome' and hasattr(driver_or_scraper, 'get') and hasattr(driver_or_scraper, 'page_source'):
+    """Fetch a page using DrissionPage, Chrome driver, or HTTP scraper. Returns (html, error)."""
+    if _ENGINE == 'drissionpage' and hasattr(driver_or_scraper, 'html'):
+        return _fetch_page_drission(driver_or_scraper, url)
+    elif _ENGINE == 'undetected_chrome' and hasattr(driver_or_scraper, 'page_source'):
         return _fetch_page_chrome(driver_or_scraper, url)
     else:
         return _fetch_page_http(driver_or_scraper, url, progress_callback=progress_callback)
@@ -639,6 +685,9 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
     own_driver = False
     if shared_scraper:
         fetcher = shared_scraper
+    elif _ENGINE == 'drissionpage':
+        fetcher = _create_drission_page()
+        own_driver = True
     elif _ENGINE == 'undetected_chrome':
         fetcher = _create_chrome_driver()
         own_driver = True
@@ -777,11 +826,14 @@ def scrape_suburb_rea(suburb_name, suburb_id, progress_callback=None, known_urls
         results['stats']['sold_count'] = len(results['sold_listings'])
 
     finally:
-        # Close the Chrome driver if we created it (not shared)
-        if own_driver and hasattr(fetcher, 'quit'):
+        # Close the browser if we created it (not shared)
+        if own_driver:
             try:
-                fetcher.quit()
-                logger.info("[REA] Chrome driver closed")
+                if hasattr(fetcher, 'quit'):
+                    fetcher.quit()
+                elif hasattr(fetcher, 'close'):
+                    fetcher.close()
+                logger.info("[REA] Browser closed")
             except Exception:
                 pass
 
@@ -807,8 +859,14 @@ def debug_rea_page(suburb_name):
 
     driver = None
     try:
-        if _ENGINE == 'undetected_chrome':
-            # Use real Chrome for debug
+        if _ENGINE == 'drissionpage':
+            driver = _create_drission_page()
+            html, error = _fetch_page_drission(driver, url)
+            if error:
+                result['error'] = error
+                return result
+            result['http_status'] = 200
+        elif _ENGINE == 'undetected_chrome':
             driver = _create_chrome_driver()
             html, error = _fetch_page_chrome(driver, url)
             if error:
@@ -855,7 +913,10 @@ def debug_rea_page(suburb_name):
     finally:
         if driver:
             try:
-                driver.quit()
+                if hasattr(driver, 'quit'):
+                    driver.quit()
+                elif hasattr(driver, 'close'):
+                    driver.close()
             except Exception:
                 pass
 

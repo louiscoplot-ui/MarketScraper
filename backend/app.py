@@ -699,7 +699,7 @@ MAX_REA_SUBURBS_PER_SESSION = 5  # Safety limit to avoid hammering REA
 
 def _run_scrape_rea_all(suburbs):
     """Run REA scrape SEQUENTIALLY with ONE shared Chrome/session."""
-    from scraper_rea import _ENGINE, _create_chrome_driver, _create_http_scraper
+    from scraper_rea import _ENGINE, _create_drission_page, _create_chrome_driver, _create_http_scraper
 
     for s in suburbs:
         scrape_cancel.discard(s['id'])
@@ -718,7 +718,9 @@ def _run_scrape_rea_all(suburbs):
         suburbs = suburbs[:MAX_REA_SUBURBS_PER_SESSION]
 
     # Create ONE shared driver/session for all suburbs
-    if _ENGINE == 'undetected_chrome':
+    if _ENGINE == 'drissionpage':
+        shared = _create_drission_page()
+    elif _ENGINE == 'undetected_chrome':
         shared = _create_chrome_driver()
     else:
         shared = _create_http_scraper()
