@@ -787,7 +787,7 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
 .report-suburb-selector {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 12px;
   margin-bottom: 20px;
   align-items: center;
   padding: 10px 14px;
@@ -796,26 +796,36 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   border-radius: 10px;
 }
 
-.report-filter-label {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-right: 6px;
-  font-weight: 600;
-}
-
-.filter-btn.small {
-  padding: 5px 14px;
-  font-size: 12px;
-  font-weight: 500;
+.report-check-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
   border-radius: 6px;
-  transition: all 0.15s;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  transition: background 0.1s;
+  user-select: none;
 }
 
-.filter-btn.small.active {
-  background: var(--primary) !important;
-  border-color: var(--primary) !important;
-  color: white !important;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+.report-check-item:hover {
+  background: var(--surface-hover);
+}
+
+.report-check-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  margin: 0;
+}
+
+.report-check-item:first-child {
+  border-right: 1px solid var(--border);
+  padding-right: 16px;
+  margin-right: 4px;
 }
 
 .report-grid {

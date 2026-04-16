@@ -629,35 +629,22 @@ function App() {
                 ? ` — ${[...reportSuburbs].map(id => suburbs.find(s => s.id === id)?.name).filter(Boolean).join(', ')}`
                 : ''}</h2>
               <div className="report-suburb-selector">
-                <span className="report-filter-label">Suburbs:</span>
-                <button
-                  className={`filter-btn small ${reportSuburbs.size === suburbs.length ? 'active' : ''}`}
-                  onClick={() => { setReportSuburbs(new Set(suburbs.map(s => s.id))); fetchReport(new Set(suburbs.map(s => s.id))) }}
-                >
-                  ALL
-                </button>
+                <label className="report-check-item" onClick={() => { setReportSuburbs(new Set(suburbs.map(s => s.id))); fetchReport(new Set(suburbs.map(s => s.id))) }}>
+                  <input type="checkbox" checked={reportSuburbs.size === suburbs.length} readOnly />
+                  <span>All Suburbs</span>
+                </label>
                 {suburbs.map(s => (
-                  <button
-                    key={s.id}
-                    className={`filter-btn small ${reportSuburbs.has(s.id) && reportSuburbs.size < suburbs.length ? 'active' : ''}`}
-                    onClick={(e) => {
-                      let next
-                      if (e.ctrlKey || e.metaKey) {
-                        // Ctrl/Cmd+click = toggle this suburb in multi-select
-                        next = new Set(reportSuburbs)
-                        if (next.has(s.id)) next.delete(s.id)
-                        else next.add(s.id)
-                        if (next.size === 0) next = new Set(suburbs.map(x => x.id))
-                      } else {
-                        // Single click = only this suburb
-                        next = new Set([s.id])
-                      }
-                      setReportSuburbs(next)
-                      fetchReport(next)
-                    }}
-                  >
-                    {s.name}
-                  </button>
+                  <label key={s.id} className="report-check-item" onClick={(e) => {
+                    e.preventDefault()
+                    const next = new Set(reportSuburbs)
+                    if (next.has(s.id)) { next.delete(s.id) } else { next.add(s.id) }
+                    if (next.size === 0) { setReportSuburbs(new Set(suburbs.map(x => x.id))); fetchReport(new Set(suburbs.map(x => x.id))); return }
+                    setReportSuburbs(next)
+                    fetchReport(next)
+                  }}>
+                    <input type="checkbox" checked={reportSuburbs.has(s.id)} readOnly />
+                    <span>{s.name}</span>
+                  </label>
                 ))}
               </div>
               <div className="report-grid">
