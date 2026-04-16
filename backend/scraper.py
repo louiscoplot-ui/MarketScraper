@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 REIWA_BASE = "https://reiwa.com.au"
-MAX_PAGES = 15
+MAX_PAGES = 50
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 DETAIL_TABS = 3  # Number of concurrent detail page tabs
 
@@ -596,8 +596,20 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         logger.info(f"{suburb_name}: REIWA says {reiwa_total} total listings")
 
                 if not cards:
-                    logger.info(f"{suburb_name} p{page_num}: 0 cards -> done")
-                    break
+                    reiwa_target = results['stats'].get('reiwa_total', 0)
+                    current_total = len(results['forsale_listings'])
+                    if reiwa_target and current_total < reiwa_target:
+                        logger.info(f"{suburb_name} p{page_num}: 0 cards but only {current_total}/{reiwa_target}, trying next page...")
+                        consecutive_empty += 1
+                        if consecutive_empty >= 3:
+                            logger.info(f"{suburb_name}: 3 consecutive empty pages, stopping pagination")
+                            break
+                        page_num += 1
+                        time.sleep(random.uniform(0.5, 1.0))
+                        continue
+                    else:
+                        logger.info(f"{suburb_name} p{page_num}: 0 cards -> done")
+                        break
 
                 # Parse all cards first
                 page_listings = []
@@ -710,9 +722,12 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                 if new_on_page == 0:
                     consecutive_empty += 1
-                    # If we haven't reached REIWA's total, keep going despite empty pages
                     if reiwa_target and current_total < reiwa_target:
+                        # Below REIWA total: keep going, allow up to 3 empty pages
                         logger.info(f"{suburb_name} p{page_num}: 0 new but only {current_total}/{reiwa_target}, continuing...")
+                        if consecutive_empty >= 3:
+                            logger.info(f"{suburb_name}: 3 consecutive empty pages despite being below target, stopping")
+                            break
                     elif consecutive_empty >= 2:
                         break
                 else:
@@ -937,6 +952,7 @@ def compare_suburb(suburb_slug, db_urls):
 
             all_reiwa_urls = set()
             page_num = 1
+            consecutive_empty = 0
 
             while page_num <= MAX_PAGES:
                 url = _build_url(suburb_slug, page_num)
@@ -970,8 +986,18 @@ def compare_suburb(suburb_slug, db_urls):
                 new_found = len(all_reiwa_urls) - before
                 result['pages_scraped'] = page_num
 
+                reiwa_target = result.get('reiwa_total') or 0
                 if new_found == 0 and page_num > 1:
-                    break
+                    consecutive_empty += 1
+                    if reiwa_target and len(all_reiwa_urls) < reiwa_target:
+                        logger.info(f"{suburb_name} compare p{page_num}: 0 new but only {len(all_reiwa_urls)}/{reiwa_target}, continuing...")
+                        if consecutive_empty >= 3:
+                            logger.info(f"{suburb_name} compare: 3 consecutive empty pages, stopping")
+                            break
+                    else:
+                        break
+                else:
+                    consecutive_empty = 0
 
                 page_num += 1
                 time.sleep(0.5)
