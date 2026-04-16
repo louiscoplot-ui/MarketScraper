@@ -704,9 +704,16 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                 if progress_callback:
                     progress_callback(f'For-sale page {page_num}: {len(cards)} cards, {new_on_page} new. Total: {len(results["forsale_listings"])}')
 
+                # Decide whether to continue pagination
+                reiwa_target = results['stats'].get('reiwa_total', 0)
+                current_total = len(results['forsale_listings'])
+
                 if new_on_page == 0:
                     consecutive_empty += 1
-                    if consecutive_empty >= 2:
+                    # If we haven't reached REIWA's total, keep going despite empty pages
+                    if reiwa_target and current_total < reiwa_target:
+                        logger.info(f"{suburb_name} p{page_num}: 0 new but only {current_total}/{reiwa_target}, continuing...")
+                    elif consecutive_empty >= 2:
                         break
                 else:
                     consecutive_empty = 0
@@ -730,7 +737,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                 existing_urls = {r['url'] for r in results['forsale_listings']}
                 pages_scraped = results['stats'].get('forsale_pages_scraped', 1)
 
-                for fb_page in range(1, pages_scraped + 2):  # +1 extra page just in case
+                for fb_page in range(1, MAX_PAGES + 1):  # scan all possible pages
                     if recovered >= missing:
                         break
                     fb_url = _build_url(suburb_slug, fb_page)
@@ -740,6 +747,14 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     html = listing_page.content()
                     fb_soup = BeautifulSoup(html, "html.parser")
 
+                    # Also use JS extraction in fallback
+                    try:
+                        fb_js_urls = _extract_all_listing_urls_js(listing_page)
+                    except Exception:
+                        fb_js_urls = []
+
+                    # Collect all candidate URLs from BS4 + JS
+                    fb_candidate_urls = set()
                     for a_tag in fb_soup.find_all("a", href=True):
                         href = a_tag["href"]
                         if not re.search(r"-\d{5,8}/?$", href):
@@ -747,21 +762,35 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         if any(x in href for x in EXCLUDE_FALLBACK):
                             continue
                         full_url = ("https://reiwa.com.au" + href) if href.startswith("/") else href
+                        fb_candidate_urls.add(full_url.rstrip('/'))
+                    for u in fb_js_urls:
+                        fb_candidate_urls.add(u.rstrip('/'))
+
+                    new_on_fb_page = 0
+                    for full_url in fb_candidate_urls:
                         if full_url in seen_urls:
                             continue
 
                         seen_urls.add(full_url)
+                        new_on_fb_page += 1
 
-                        # Find parent card if possible
-                        parent_card = a_tag.find_parent(True, class_=lambda c: c and "p-card" in c)
+                        # Try to find matching card in BS4 for this URL
+                        matched_card = None
+                        for a_tag in fb_soup.find_all("a", href=True):
+                            href = a_tag["href"]
+                            norm = ("https://reiwa.com.au" + href).rstrip('/') if href.startswith("/") else href.rstrip('/')
+                            if norm == full_url:
+                                pc = a_tag.find_parent(True, class_=lambda c: c and "p-card" in c)
+                                if pc:
+                                    matched_card = pc
+                                    break
 
-                        if parent_card:
-                            rec = _parse_card(parent_card, suburb_name)
+                        if matched_card:
+                            rec = _parse_card(matched_card, suburb_name)
                         else:
-                            txt = a_tag.get_text(strip=True)
                             rec = {
                                 "url": full_url,
-                                "address": txt if txt and 3 < len(txt) < 120 else "Address not disclosed",
+                                "address": "Address not disclosed",
                                 "price_text": "", "listing_type": "",
                                 "bedrooms": None, "bathrooms": None, "parking": None,
                                 "land_size": "", "internal_size": "",
@@ -769,7 +798,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                                 "listing_date": "",
                             }
 
-                        if rec['url'] and rec['url'] not in existing_urls:
+                        if rec.get('url') and rec['url'].rstrip('/') not in existing_urls:
                             # Always fetch detail page for recovered listings to get full info
                             if rec['url'] not in (known_urls or set()):
                                 detail = _fetch_detail(detail_pages[0], rec['url'])
@@ -788,6 +817,9 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                             recovered += 1
                             logger.info(f"{suburb_name}: recovered missed listing from page {fb_page}: {rec['url']}")
 
+                    # Stop if this page had nothing new at all
+                    if new_on_fb_page == 0 and fb_page > pages_scraped:
+                        break
                     time.sleep(0.3)
 
                 if recovered:
