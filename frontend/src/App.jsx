@@ -640,9 +640,18 @@ function App() {
                   <button
                     key={s.id}
                     className={`filter-btn small ${reportSuburbs.has(s.id) && reportSuburbs.size < suburbs.length ? 'active' : ''}`}
-                    onClick={() => {
-                      // Single click = show only this suburb
-                      const next = new Set([s.id])
+                    onClick={(e) => {
+                      let next
+                      if (e.ctrlKey || e.metaKey) {
+                        // Ctrl/Cmd+click = toggle this suburb in multi-select
+                        next = new Set(reportSuburbs)
+                        if (next.has(s.id)) next.delete(s.id)
+                        else next.add(s.id)
+                        if (next.size === 0) next = new Set(suburbs.map(x => x.id))
+                      } else {
+                        // Single click = only this suburb
+                        next = new Set([s.id])
+                      }
                       setReportSuburbs(next)
                       fetchReport(next)
                     }}
