@@ -616,7 +616,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         skipped += 1
                         logger.debug(f"{suburb_name} p{page_num}: skipped agent card: {card_url}")
                         continue
-                    if card_url in seen_urls:
+                    if card_url.rstrip('/') in seen_urls:
                         continue
 
                     seen_urls.add(card_url.rstrip('/'))
@@ -734,7 +734,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                 EXCLUDE_FALLBACK = ["/real-estate-agent/", "/agency/", "/suburb/", "/news/", "/advice/"]
                 recovered = 0
-                existing_urls = {r['url'] for r in results['forsale_listings']}
+                existing_urls = {r['url'].rstrip('/') for r in results['forsale_listings']}
                 pages_scraped = results['stats'].get('forsale_pages_scraped', 1)
 
                 for fb_page in range(1, MAX_PAGES + 1):  # scan all possible pages
@@ -813,7 +813,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                             rec['reiwa_url'] = rec['url']
                             results['forsale_listings'].append(rec)
-                            existing_urls.add(rec['url'])
+                            existing_urls.add(rec['url'].rstrip('/'))
                             recovered += 1
                             logger.info(f"{suburb_name}: recovered missed listing from page {fb_page}: {rec['url']}")
 
