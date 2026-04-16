@@ -596,20 +596,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         logger.info(f"{suburb_name}: REIWA says {reiwa_total} total listings")
 
                 if not cards:
-                    reiwa_target = results['stats'].get('reiwa_total', 0)
-                    current_total = len(results['forsale_listings'])
-                    if reiwa_target and current_total < reiwa_target:
-                        logger.info(f"{suburb_name} p{page_num}: 0 cards but only {current_total}/{reiwa_target}, trying next page...")
-                        consecutive_empty += 1
-                        if consecutive_empty >= 3:
-                            logger.info(f"{suburb_name}: 3 consecutive empty pages, stopping pagination")
-                            break
-                        page_num += 1
-                        time.sleep(random.uniform(0.5, 1.0))
-                        continue
-                    else:
-                        logger.info(f"{suburb_name} p{page_num}: 0 cards -> done")
-                        break
+                    logger.info(f"{suburb_name} p{page_num}: 0 BS4 cards, checking JS URLs...")
 
                 # Parse all cards first
                 page_listings = []
@@ -832,9 +819,15 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                             recovered += 1
                             logger.info(f"{suburb_name}: recovered missed listing from page {fb_page}: {rec['url']}")
 
-                    # Stop if this page had nothing new at all
+                    # Stop if this page had nothing new AND we're past what we originally scraped
                     if new_on_fb_page == 0 and fb_page > pages_scraped:
-                        break
+                        # But keep going if we still haven't recovered everything
+                        if recovered < missing:
+                            # Allow a few more pages before giving up
+                            if fb_page > pages_scraped + 3:
+                                break
+                        else:
+                            break
                     time.sleep(0.3)
 
                 if recovered:
