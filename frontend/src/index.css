@@ -822,7 +822,7 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   margin: 0;
 }
 
-.report-check-item:nth-child(2) {
+.report-check-item:first-child {
   border-right: 1px solid var(--border);
   padding-right: 16px;
   margin-right: 4px;

@@ -629,13 +629,17 @@ function App() {
                 ? ` — ${[...reportSuburbs].map(id => suburbs.find(s => s.id === id)?.name).filter(Boolean).join(', ')}`
                 : ''}</h2>
               <div className="report-suburb-selector">
-                <label className="report-check-item" onClick={() => { setReportSuburbs(new Set(suburbs.map(s => s.id))); fetchReport(new Set(suburbs.map(s => s.id))) }}>
+                <label className="report-check-item" onClick={() => {
+                  if (reportSuburbs.size === suburbs.length) {
+                    setReportSuburbs(new Set())
+                  } else {
+                    const all = new Set(suburbs.map(s => s.id))
+                    setReportSuburbs(all)
+                    fetchReport(all)
+                  }
+                }}>
                   <input type="checkbox" checked={reportSuburbs.size === suburbs.length} readOnly />
                   <span>All</span>
-                </label>
-                <label className="report-check-item" onClick={() => { setReportSuburbs(new Set()); }}>
-                  <input type="checkbox" checked={reportSuburbs.size === 0} readOnly />
-                  <span>None</span>
                 </label>
                 {suburbs.map(s => (
                   <label key={s.id} className="report-check-item" onClick={(e) => {
