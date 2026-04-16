@@ -797,11 +797,15 @@ def _run_scrape(suburb_id, slug, name):
             upsert_listing(suburb_id, url, listing)
             saved_sold += 1
 
-        # Mark withdrawn — by URL, not address
-        # If we scraped at least as many as REIWA's stated total, we're confident we got everything
+        # Mark withdrawn — ONLY if we captured everything REIWA has
+        # If our count < REIWA total, we missed some listings and can't safely withdraw
         progress_cb('Checking for withdrawn listings...')
         reiwa_total = result['stats'].get('reiwa_total', 0)
         confident = reiwa_total > 0 and len(forsale_urls) >= reiwa_total
+        if confident:
+            logger.info(f"[{name}] Confident scrape: {len(forsale_urls)} found >= {reiwa_total} REIWA total — checking withdrawals")
+        else:
+            logger.info(f"[{name}] Incomplete scrape: {len(forsale_urls)} found vs {reiwa_total} REIWA total — skipping withdrawals")
         withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
 
         # Keep only 40 most recent sold listings

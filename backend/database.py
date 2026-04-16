@@ -317,10 +317,19 @@ def upsert_listing(suburb_id, reiwa_url, data):
 def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
     """Mark listings as withdrawn if their URL disappeared from for-sale and isn't in sold.
 
-    Safety check: only mark withdrawn if we scraped at least 70% of known active listings.
-    If confident=True (we matched REIWA's stated total), skip the safety check and trust
-    the scrape was complete.
+    Only marks withdrawn when confident=True (our scrape count >= REIWA's stated total),
+    meaning we're sure we captured every active listing on the site.
+    If not confident, we skip entirely — better to keep a stale listing than to falsely
+    mark an active one as withdrawn.
     """
+    if not confident:
+        import logging
+        logging.getLogger(__name__).info(
+            f"Suburb {suburb_id}: scrape count < REIWA total, skipping withdrawn detection "
+            f"(need a complete scrape to safely mark withdrawals)"
+        )
+        return 0
+
     conn = get_db()
     now = datetime.utcnow().isoformat()
 
@@ -334,19 +343,6 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
         return 0
 
     all_seen = set(seen_urls) | set(sold_urls)
-
-    if not confident:
-        # Safety: if we scraped less than 70% of known active listings, skip withdrawn marking
-        active_count = len(current_active)
-        matched = sum(1 for l in current_active if l['reiwa_url'] in all_seen)
-        if active_count > 5 and matched < active_count * 0.7:
-            import logging
-            logging.getLogger(__name__).warning(
-                f"Suburb {suburb_id}: only matched {matched}/{active_count} active listings. "
-                f"Skipping withdrawn marking to prevent false positives."
-            )
-            conn.close()
-            return 0
 
     withdrawn_count = 0
     for listing in current_active:
