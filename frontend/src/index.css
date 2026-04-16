@@ -788,19 +788,34 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   align-items: center;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .report-filter-label {
   font-size: 13px;
   color: var(--text-muted);
-  margin-right: 4px;
+  margin-right: 6px;
+  font-weight: 600;
 }
 
 .filter-btn.small {
-  padding: 3px 10px;
-  font-size: 11px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.filter-btn.small.active {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: white !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
 }
 
 .report-grid {

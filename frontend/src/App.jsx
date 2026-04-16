@@ -625,11 +625,13 @@ function App() {
         <main className="content">
           {view === 'report' && report ? (
             <div className="report-view">
-              <h2>Market Report</h2>
+              <h2>Market Report{reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length
+                ? ` — ${[...reportSuburbs].map(id => suburbs.find(s => s.id === id)?.name).filter(Boolean).join(', ')}`
+                : ''}</h2>
               <div className="report-suburb-selector">
                 <span className="report-filter-label">Suburbs:</span>
                 <button
-                  className={`filter-btn small ${reportSuburbs.size === 0 || reportSuburbs.size === suburbs.length ? 'active' : ''}`}
+                  className={`filter-btn small ${reportSuburbs.size === suburbs.length ? 'active' : ''}`}
                   onClick={() => { setReportSuburbs(new Set(suburbs.map(s => s.id))); fetchReport(new Set(suburbs.map(s => s.id))) }}
                 >
                   ALL
@@ -637,15 +639,13 @@ function App() {
                 {suburbs.map(s => (
                   <button
                     key={s.id}
-                    className={`filter-btn small ${reportSuburbs.has(s.id) ? 'active' : ''}`}
+                    className={`filter-btn small ${reportSuburbs.has(s.id) && reportSuburbs.size < suburbs.length ? 'active' : ''}`}
                     onClick={() => {
-                      const next = new Set(reportSuburbs)
-                      if (next.has(s.id)) next.delete(s.id)
-                      else next.add(s.id)
+                      // Single click = show only this suburb
+                      const next = new Set([s.id])
                       setReportSuburbs(next)
                       fetchReport(next)
                     }}
-                    style={reportSuburbs.has(s.id) ? { borderColor: 'var(--primary)', backgroundColor: 'var(--primary)33', color: 'var(--primary)' } : {}}
                   >
                     {s.name}
                   </button>
