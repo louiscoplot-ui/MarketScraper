@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from bs4 import BeautifulSoup
 
@@ -18,6 +19,18 @@ DETAIL_TABS = 3  # Number of concurrent detail page tabs
 CHROMIUM_PATH = os.environ.get('CHROMIUM_PATH', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome')
 if not os.path.exists(CHROMIUM_PATH):
     CHROMIUM_PATH = None
+
+
+def _clean_listing_url(href):
+    """Return canonical listing URL (no query params, no trailing slash), or None if not a listing."""
+    if not href:
+        return None
+    full = ("https://reiwa.com.au" + href) if href.startswith("/") else href
+    parsed = urlparse(full)
+    path = parsed.path  # strips query string and fragment
+    if not re.search(r"-\d{5,8}/?$", path):
+        return None
+    return "https://reiwa.com.au" + path.rstrip("/")
 
 
 def _build_url(suburb_slug, page=1):
@@ -101,13 +114,16 @@ def _parse_card(card, suburb_name):
     if h2:
         a = h2.find("a", href=True)
         if a and not any(x in a["href"] for x in EXCLUDE_URL_PATTERNS):
-            url = ("https://reiwa.com.au" + a["href"]) if a["href"].startswith("/") else a["href"]
-    # Method 2: any link with REIWA listing ID pattern
+            url = _clean_listing_url(a["href"]) or ""
+    # Method 2: any link with REIWA listing ID pattern (handles query params via _clean_listing_url)
     if not url:
         for a in card.find_all("a", href=True):
             href = a["href"]
-            if re.search(r"-\d{5,8}/?$", href) and not any(x in href for x in EXCLUDE_URL_PATTERNS):
-                url = ("https://reiwa.com.au" + href) if href.startswith("/") else href
+            if any(x in href for x in EXCLUDE_URL_PATTERNS):
+                continue
+            clean = _clean_listing_url(href)
+            if clean:
+                url = clean
                 break
     # Method 3: link containing /buy/ or /sold/ or /for-sale/ (safe property URLs only)
     if not url:
@@ -407,17 +423,20 @@ def _count_cards(page):
 
 def _extract_all_listing_urls_js(page):
     """Extract ALL listing URLs directly from the live DOM via JavaScript.
-    More reliable than BeautifulSoup for dynamically loaded content."""
+    Uses pathname to handle query-param decorated hrefs (featured/promoted listings)."""
     return page.evaluate("""() => {
         const urls = new Set();
         const exclude = ['/real-estate-agent/', '/agency/', '/suburb/', '/news/', '/advice/'];
         document.querySelectorAll('a[href]').forEach(a => {
-            let href = a.href || a.getAttribute('href');
-            if (!href) return;
-            if (href.startsWith('/')) href = 'https://reiwa.com.au' + href;
-            if (!href.includes('reiwa.com.au')) return;
-            if (exclude.some(x => href.includes(x))) return;
-            if (/-\\d{5,8}\\/?$/.test(href)) urls.add(href.replace(/\\/$/, ''));
+            try {
+                const parsed = new URL(a.href, 'https://reiwa.com.au');
+                if (!parsed.hostname.includes('reiwa.com.au')) return;
+                const path = parsed.pathname;
+                if (exclude.some(x => path.includes(x))) return;
+                if (/-\\d{5,8}\\/?$/.test(path)) {
+                    urls.add('https://reiwa.com.au' + path.replace(/\\/$/, ''));
+                }
+            } catch(e) {}
         });
         return [...urls];
     }""")
@@ -575,15 +594,16 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     pass
 
                 # Also scan BS4 for listing links NOT inside any p-card (featured/promoted)
+                # _clean_listing_url strips query params so tracking URLs don't get missed
                 EXCLUDE = ["/real-estate-agent/", "/agency/", "/suburb/", "/news/", "/advice/"]
                 page_link_urls = set()
                 for a_tag in soup.find_all("a", href=True):
                     href = a_tag["href"]
-                    if not re.search(r"-\d{5,8}/?$", href):
-                        continue
                     if any(x in href for x in EXCLUDE):
                         continue
-                    full_url = ("https://reiwa.com.au" + href) if href.startswith("/") else href
+                    full_url = _clean_listing_url(href)
+                    if not full_url:
+                        continue
                     parent_card = a_tag.find_parent(True, class_=lambda c: c and "p-card" in c)
                     if parent_card is None:
                         page_link_urls.add(full_url)
@@ -755,16 +775,15 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     except Exception:
                         fb_js_urls = []
 
-                    # Collect all candidate URLs from BS4 + JS
+                    # Collect all candidate URLs from BS4 + JS (query params stripped)
                     fb_candidate_urls = set()
                     for a_tag in fb_soup.find_all("a", href=True):
                         href = a_tag["href"]
-                        if not re.search(r"-\d{5,8}/?$", href):
-                            continue
                         if any(x in href for x in EXCLUDE_FALLBACK):
                             continue
-                        full_url = ("https://reiwa.com.au" + href) if href.startswith("/") else href
-                        fb_candidate_urls.add(full_url.rstrip('/'))
+                        clean = _clean_listing_url(href)
+                        if clean:
+                            fb_candidate_urls.add(clean)
                     for u in fb_js_urls:
                         fb_candidate_urls.add(u.rstrip('/'))
 
@@ -965,16 +984,15 @@ def compare_suburb(suburb_slug, db_urls):
                 for u in js_urls:
                     all_reiwa_urls.add(u.rstrip('/'))
 
-                # Method 2: extract from BeautifulSoup as backup
+                # Method 2: extract from BeautifulSoup as backup (query params stripped)
                 EXCLUDE = ["/real-estate-agent/", "/agency/", "/suburb/", "/news/", "/advice/"]
                 for a_tag in soup.find_all("a", href=True):
                     href = a_tag["href"]
-                    if not re.search(r"-\d{5,8}/?$", href):
-                        continue
                     if any(x in href for x in EXCLUDE):
                         continue
-                    full = ("https://reiwa.com.au" + href) if href.startswith("/") else href
-                    all_reiwa_urls.add(full.rstrip('/'))
+                    clean = _clean_listing_url(href)
+                    if clean:
+                        all_reiwa_urls.add(clean)
 
                 new_found = len(all_reiwa_urls) - before
                 result['pages_scraped'] = page_num
