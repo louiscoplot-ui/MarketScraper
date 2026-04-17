@@ -237,13 +237,20 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
 def upsert_listing(suburb_id, reiwa_url, data):
     """Insert or update a listing. Keyed by reiwa_url (each REIWA listing is unique).
     Same property listed by 2 agencies = 2 different URLs = 2 rows."""
+    reiwa_url = reiwa_url.rstrip('/')  # always store without trailing slash
     conn = get_db()
     now = datetime.utcnow().isoformat()
 
+    # Match both normalized URL and legacy format (with trailing slash)
     existing = conn.execute(
-        "SELECT * FROM listings WHERE reiwa_url = ?",
-        (reiwa_url,)
+        "SELECT * FROM listings WHERE reiwa_url = ? OR reiwa_url = ?",
+        (reiwa_url, reiwa_url + '/')
     ).fetchone()
+
+    # Silently migrate legacy slash URL to normalized form
+    if existing and existing['reiwa_url'] != reiwa_url:
+        conn.execute("UPDATE listings SET reiwa_url = ? WHERE id = ?", (reiwa_url, existing['id']))
+        conn.commit()
 
     if existing:
         # Detect price change
@@ -342,11 +349,12 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
         conn.close()
         return 0
 
-    all_seen = set(seen_urls) | set(sold_urls)
+    # Normalize both sides — strip trailing slashes for consistent comparison
+    all_seen = {u.rstrip('/') for u in set(seen_urls) | set(sold_urls)}
 
     withdrawn_count = 0
     for listing in current_active:
-        if listing['reiwa_url'] not in all_seen:
+        if listing['reiwa_url'].rstrip('/') not in all_seen:
             conn.execute(
                 "UPDATE listings SET status = 'withdrawn', last_seen = ? WHERE id = ?",
                 (now, listing['id'])
@@ -366,7 +374,7 @@ def get_existing_urls(suburb_id):
         (suburb_id,)
     ).fetchall()
     conn.close()
-    return {r['reiwa_url'] for r in rows}
+    return {r['reiwa_url'].rstrip('/') for r in rows}
 
 
 def trim_sold_listings(suburb_id, keep=40):
