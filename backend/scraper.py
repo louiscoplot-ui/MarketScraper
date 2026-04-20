@@ -261,7 +261,24 @@ def _fetch_detail(page, url):
 
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=20000)
-        page.wait_for_timeout(800)
+        # REIWA's property snapshot (Landsize, Floor area, Bed/Bath/Car) is
+        # rendered client-side after DOMContentLoaded. Wait until those key
+        # labels actually appear in the DOM before grabbing HTML, with a
+        # generous fallback for slow pages.
+        try:
+            page.wait_for_function(
+                "document.body && /landsize|land\\s+size|floor\\s+area|internal|bedroom/i"
+                ".test(document.body.innerText)",
+                timeout=6000,
+            )
+        except Exception:
+            pass
+        # A short scroll nudges any lazy-loaded feature blocks into rendering.
+        try:
+            page.evaluate("window.scrollTo(0, 600)")
+        except Exception:
+            pass
+        page.wait_for_timeout(1500)
         html = page.content()
         soup = BeautifulSoup(html, "html.parser")
 

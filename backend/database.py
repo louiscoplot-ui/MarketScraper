@@ -369,9 +369,11 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
 def get_existing_urls(suburb_id):
     """URLs whose detail pages can safely be skipped on re-scrape.
 
-    Excludes entries that look incomplete (missing land_size on a House, or
-    missing internal_size on a Unit/Apartment/Townhouse) — those get their
-    detail page re-fetched so stale rows from earlier scrapes can self-heal.
+    A row is considered complete (detail skippable) only when both sizes can
+    plausibly be trusted. Any row where BOTH land_size AND internal_size are
+    empty is re-fetched unconditionally — those are stale scraps that never
+    got their sizes filled. Typed rows get a stricter check (house needs
+    land, strata types need internal).
     """
     conn = get_db()
     rows = conn.execute(
@@ -384,16 +386,17 @@ def get_existing_urls(suburb_id):
     ).fetchall()
     conn.close()
 
+    STRATA_TYPES = {'unit', 'apartment', 'townhouse', 'villa', 'studio', 'duplex'}
     complete = set()
     for r in rows:
         t = (r['listing_type'] or '').strip().lower()
         land = (r['land_size'] or '').strip()
         internal = (r['internal_size'] or '').strip()
-        # Houses must have a land size; units must have an internal size.
-        # Anything else (land-only, rural, or unknown type) we trust as-is.
+        if not land and not internal:
+            continue  # nothing populated — always refetch
         if t == 'house' and not land:
             continue
-        if t in ('unit', 'apartment', 'townhouse', 'villa', 'studio', 'duplex') and not internal:
+        if t in STRATA_TYPES and not internal:
             continue
         complete.add(r['reiwa_url'].rstrip('/'))
     return complete
