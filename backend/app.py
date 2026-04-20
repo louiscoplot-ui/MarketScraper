@@ -812,6 +812,130 @@ def compare_scrape(suburb_id):
     return jsonify(result)
 
 
+@app.route('/api/scrape/audit', methods=['GET'])
+def audit_suburbs():
+    """Multi-suburb audit — data completeness + optional REIWA comparison.
+
+    Query params:
+      suburb_ids=1,2,3   REQUIRED — comma-separated suburb IDs
+      compare=true       OPTIONAL — if set, also fetch REIWA live and diff URLs
+                         (slow: adds ~10-15s per suburb)
+
+    Returns per suburb:
+      - db_count               total active/under_offer rows in DB
+      - reiwa_total, matched, missing_from_db, sold_excluded  (compare only)
+      - completeness           counts of rows missing each important field
+      - incomplete_examples    up to 10 sample rows for diagnosis
+    """
+    ids_str = request.args.get('suburb_ids', '').strip()
+    if not ids_str:
+        return jsonify({'error': 'suburb_ids required (comma-separated)'}), 400
+    try:
+        suburb_ids = [int(x) for x in ids_str.split(',') if x.strip()]
+    except ValueError:
+        return jsonify({'error': 'invalid suburb_ids'}), 400
+    do_compare = request.args.get('compare', '').lower() in ('1', 'true', 'yes')
+
+    conn = get_db()
+    results = []
+
+    STRATA_TYPES = {'unit', 'apartment', 'townhouse', 'villa', 'studio', 'duplex'}
+
+    for sid in suburb_ids:
+        suburb = conn.execute("SELECT * FROM suburbs WHERE id = ?", (sid,)).fetchone()
+        if not suburb:
+            results.append({'suburb_id': sid, 'error': 'Suburb not found'})
+            continue
+
+        rows = conn.execute(
+            """
+            SELECT address, reiwa_url, listing_type, land_size, internal_size,
+                   price_text, agent, agency, bedrooms, bathrooms, listing_date
+            FROM listings
+            WHERE suburb_id = ? AND status IN ('active', 'under_offer')
+            """,
+            (sid,)
+        ).fetchall()
+
+        # Completeness tally
+        missing_land = []
+        missing_internal = []
+        missing_type = []
+        missing_price = []
+        missing_agent = []
+        missing_agency = []
+        missing_date = []
+        missing_beds = []
+        for r in rows:
+            t = (r['listing_type'] or '').strip().lower()
+            addr = r['address'] or '(no address)'
+            url = r['reiwa_url']
+            land = (r['land_size'] or '').strip()
+            internal = (r['internal_size'] or '').strip()
+            if t == 'house' and not land:
+                missing_land.append({'address': addr, 'url': url})
+            if t in STRATA_TYPES and not internal:
+                missing_internal.append({'address': addr, 'url': url})
+            if not land and not internal:
+                # unknown type with no sizes
+                missing_land.append({'address': addr, 'url': url, 'type': t or '(unknown)'})
+            if not t:
+                missing_type.append({'address': addr, 'url': url})
+            if not (r['price_text'] or '').strip():
+                missing_price.append({'address': addr, 'url': url})
+            if not (r['agent'] or '').strip():
+                missing_agent.append({'address': addr, 'url': url})
+            if not (r['agency'] or '').strip():
+                missing_agency.append({'address': addr, 'url': url})
+            if not (r['listing_date'] or '').strip():
+                missing_date.append({'address': addr, 'url': url})
+            if r['bedrooms'] is None:
+                missing_beds.append({'address': addr, 'url': url})
+
+        entry = {
+            'suburb_id': sid,
+            'suburb': suburb['name'],
+            'db_count': len(rows),
+            'completeness': {
+                'missing_land_size': len(missing_land),
+                'missing_internal_size': len(missing_internal),
+                'missing_listing_type': len(missing_type),
+                'missing_price': len(missing_price),
+                'missing_agent': len(missing_agent),
+                'missing_agency': len(missing_agency),
+                'missing_listing_date': len(missing_date),
+                'missing_bedrooms': len(missing_beds),
+            },
+            'examples': {
+                'missing_land': missing_land[:10],
+                'missing_internal': missing_internal[:10],
+                'missing_type': missing_type[:10],
+                'missing_price': missing_price[:10],
+            },
+        }
+
+        if do_compare:
+            db_urls = {r['reiwa_url'] for r in rows if r['reiwa_url']}
+            try:
+                cmp_result = compare_suburb(suburb['slug'], db_urls)
+                entry['reiwa_total'] = cmp_result.get('reiwa_total')
+                entry['matched'] = cmp_result.get('matched')
+                entry['missing_from_db'] = cmp_result.get('missing_from_db', [])
+                entry['sold_excluded'] = cmp_result.get('sold_excluded', [])
+                entry['extra_in_db'] = cmp_result.get('extra_in_db', [])
+                entry['pages_scraped'] = cmp_result.get('pages_scraped')
+            except Exception as e:
+                entry['compare_error'] = str(e)
+
+        results.append(entry)
+
+    conn.close()
+    return jsonify({
+        'suburbs': results,
+        'compare_mode': do_compare,
+    })
+
+
 @app.route('/api/scrape/selected', methods=['POST'])
 def scrape_selected():
     """Scrape only selected suburb IDs."""
