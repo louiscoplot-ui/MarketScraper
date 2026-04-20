@@ -17,7 +17,7 @@ from database import init_db, get_db, add_suburb, remove_suburb, get_suburbs, ge
 from database import upsert_listing, mark_withdrawn, create_scrape_log, update_scrape_log, get_scrape_logs
 from database import get_existing_urls, trim_sold_listings, cleanup_agent_entries, restore_false_withdrawn
 from database import backup_db, get_price_changes, take_market_snapshot, get_market_snapshots
-from scraper import scrape_suburb, debug_page, compare_suburb
+from scraper import scrape_suburb, debug_page, compare_suburb, debug_detail
 
 app = Flask(__name__)
 CORS(app)
@@ -777,6 +777,19 @@ def debug_scrape(suburb_id):
         return jsonify({'error': 'Suburb not found'}), 404
     result = debug_page(suburb['slug'])
     return jsonify(result)
+
+
+@app.route('/api/scrape/debug-detail', methods=['GET'])
+def debug_scrape_detail():
+    """Debug a single listing URL: returns extracted fields, text snippets,
+    and regex-match results so we can see why land/internal sizes are empty.
+
+    Usage: /api/scrape/debug-detail?url=https://reiwa.com.au/28-forrest-street-cottesloe-5011589
+    """
+    url = request.args.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'Missing ?url=...'}), 400
+    return jsonify(debug_detail(url))
 
 
 @app.route('/api/scrape/compare/<int:suburb_id>', methods=['GET'])

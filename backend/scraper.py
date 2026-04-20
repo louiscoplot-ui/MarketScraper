@@ -935,6 +935,74 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
     return results
 
 
+def debug_detail(url):
+    """Diagnose what _fetch_detail sees on a single listing URL.
+
+    Returns the extracted fields plus raw text snippets around the size
+    labels so we can tell whether the regex failed, the page never rendered,
+    or the data simply isn't published.
+    """
+    out = {
+        'url': url,
+        'extracted': {},
+        'text_length': 0,
+        'snippets': {},
+        'regex_matches': {},
+        'error': None,
+    }
+    try:
+        with sync_playwright() as p:
+            launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
+            if CHROMIUM_PATH:
+                launch_opts['executable_path'] = CHROMIUM_PATH
+            browser = p.chromium.launch(**launch_opts)
+            context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800}, locale='en-AU')
+            page = context.new_page()
+
+            out['extracted'] = _fetch_detail(page, url)
+
+            # Grab the same text the regex operates on
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
+            raw = soup.get_text(" ", strip=True)
+            t = re.sub(r"m\s+2|sqm|sq\.?\s*m", "m2", raw, flags=re.I)
+            out['text_length'] = len(t)
+
+            # Find snippets around the interesting keywords
+            for kw in ['landsize', 'land size', 'floor area', 'internal', 'strata']:
+                idx = t.lower().find(kw)
+                if idx >= 0:
+                    out['snippets'][kw] = t[max(0, idx - 30): idx + 120]
+
+            # Test each regex pattern against the live text
+            land_patterns = [r"landsize\s*([\d,]+)\s*m", r"land\s*(?:size|area)[^\d]{0,10}([\d,]+)\s*m",
+                             r"([\d,]+)\s*m2\s*(?:land|block|lot)"]
+            internal_patterns = [r"floor\s*area\s*([\d,]+)\s*m", r"internal\s*(?:size|area)[^\d]{0,10}([\d,]+)\s*m",
+                                 r"strata\s*(?:total\s*)?area[:\s]*([\d,]+)\s*m",
+                                 r"([\d,]+)\s*m2\s*(?:internal|living|floor|strata)"]
+            out['regex_matches']['land'] = []
+            for pat in land_patterns:
+                m = re.search(pat, t, re.I)
+                out['regex_matches']['land'].append({
+                    'pattern': pat,
+                    'match': m.group(0) if m else None,
+                    'value': m.group(1) if m else None,
+                })
+            out['regex_matches']['internal'] = []
+            for pat in internal_patterns:
+                m = re.search(pat, t, re.I)
+                out['regex_matches']['internal'].append({
+                    'pattern': pat,
+                    'match': m.group(0) if m else None,
+                    'value': m.group(1) if m else None,
+                })
+
+            browser.close()
+    except Exception as e:
+        out['error'] = str(e)
+    return out
+
+
 def debug_page(suburb_slug):
     """Debug: see what the scraper sees on a REIWA for-sale page."""
     url = _build_url(suburb_slug, 1)
