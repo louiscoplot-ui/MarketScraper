@@ -7,7 +7,7 @@ function App() {
   const [listings, setListings] = useState([])
   const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
   const [checkedSuburbs, setCheckedSuburbs] = useState(new Set())
-  const [selectedStatuses, setSelectedStatuses] = useState(new Set())
+  const [selectedStatuses, setSelectedStatuses] = useState(new Set(['active', 'under_offer']))
   const [newSuburb, setNewSuburb] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -100,6 +100,7 @@ function App() {
               if (!Object.values(d).some(j => j.status === 'running')) {
                 clearInterval(pollRef.current)
                 pollRef.current = null
+                setSelectedStatuses(new Set(['active', 'under_offer']))
                 fetchSuburbs()
                 fetchListings()
               }
