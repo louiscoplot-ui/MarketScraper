@@ -17,7 +17,9 @@ function App() {
   const [view, setView] = useState('listings')
   const [report, setReport] = useState(null)
   const [reportSuburbs, setReportSuburbs] = useState(new Set())
-  const [sortField, setSortField] = useState('listing_date')
+  // Empty sortField means "default sort" (by listing_date desc, newest first).
+  // First click on a column header then explicitly selects that column.
+  const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')
@@ -309,22 +311,25 @@ function App() {
   }
 
   const sortedListings = [...listings].sort((a, b) => {
+    // When no explicit sort, fall back to newest-first by listing_date
+    const effectiveField = sortField || 'listing_date'
+    const effectiveDir = sortField ? sortDir : 'desc'
     let va, vb
-    if (sortField === 'dom') {
+    if (effectiveField === 'dom') {
       va = calcDOM(a) ?? -1
       vb = calcDOM(b) ?? -1
-    } else if (sortField === 'listing_date') {
+    } else if (effectiveField === 'listing_date') {
       va = parseDateToSortable(a.listing_date || a.first_seen)
       vb = parseDateToSortable(b.listing_date || b.first_seen)
     } else {
-      va = a[sortField]
-      vb = b[sortField]
+      va = a[effectiveField]
+      vb = b[effectiveField]
     }
     if (va == null) va = ''
     if (vb == null) vb = ''
     if (typeof va === 'number' && typeof vb === 'number')
-      return sortDir === 'asc' ? va - vb : vb - va
-    return sortDir === 'asc'
+      return effectiveDir === 'asc' ? va - vb : vb - va
+    return effectiveDir === 'asc'
       ? String(va).localeCompare(String(vb))
       : String(vb).localeCompare(String(va))
   })

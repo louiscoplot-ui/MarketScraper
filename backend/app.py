@@ -307,9 +307,16 @@ def market_report():
 
 @app.route('/api/listings/export', methods=['GET'])
 def export_listings():
-    """Export filtered listings to Excel with summary sheets."""
+    """Export filtered listings to a polished Excel workbook with native Tables.
+
+    Features: sortable/filterable Excel Tables on every sheet, typed cells
+    (Price as currency, Listed as date, Land/Internal as numeric m²), clickable
+    REIWA hyperlinks, colored status text, DOM stale highlight, totals rows,
+    freeze panes.
+    """
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Font
+    from openpyxl.worksheet.table import Table, TableStyleInfo
     import re as _re
 
     def _calc_dom(listing):
@@ -324,8 +331,56 @@ def export_listings():
                 start = datetime.fromisoformat(date_str.replace('Z', ''))
         except (ValueError, TypeError):
             return None
-        end = datetime.utcnow()
-        return max(0, (end - start).days)
+        return max(0, (datetime.utcnow() - start).days)
+
+    def _parse_price_numeric(text):
+        """Extract a plausible AUD value from REIWA's free-form price string."""
+        if not text:
+            return None
+        s = str(text).replace(',', '').replace(' ', '')
+        m = _re.search(r'\$?(\d+(?:\.\d+)?)\s*([MmKk]?)', s)
+        if not m:
+            return None
+        try:
+            val = float(m.group(1))
+        except ValueError:
+            return None
+        suffix = (m.group(2) or '').lower()
+        if suffix == 'm':
+            val *= 1_000_000
+        elif suffix == 'k':
+            val *= 1_000
+        return int(val) if val >= 10_000 else None
+
+    def _parse_size_numeric(text):
+        if not text:
+            return None
+        m = _re.search(r'(\d[\d,]*)', str(text))
+        if not m:
+            return None
+        try:
+            return int(m.group(1).replace(',', ''))
+        except ValueError:
+            return None
+
+    def _parse_listing_date(text):
+        if not text:
+            return None
+        m = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', str(text).strip())
+        if not m:
+            return None
+        try:
+            return datetime(int(m.group(3)), int(m.group(2)), int(m.group(1))).date()
+        except ValueError:
+            return None
+
+    STATUS_COLORS = {
+        'active':      '15803D',  # green
+        'under_offer': 'B45309',  # amber
+        'sold':        '4B5563',  # slate
+        'withdrawn':   'B91C1C',  # red
+    }
+    TABLE_STYLE = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
 
     # Parse same filters as list_listings
     suburb_ids_str = request.args.get('suburb_ids', '')
@@ -344,188 +399,178 @@ def export_listings():
         statuses = [s.strip() for s in statuses_str.split(',') if s.strip()]
 
     listings = get_listings(suburb_ids=suburb_ids, statuses=statuses)
-
-    # Apply agent/agency filters
     if agent:
         listings = [l for l in listings if l.get('agent') == agent]
     if agency:
         listings = [l for l in listings if l.get('agency') == agency]
 
-    # Styles
-    header_font = Font(bold=True, color="FFFFFF", size=11)
-    header_fill = PatternFill(start_color="1e293b", end_color="1e293b", fill_type="solid")
-    header_align = Alignment(horizontal="center", vertical="center")
-    thin_border = Border(
-        left=Side(style='thin', color='cccccc'),
-        right=Side(style='thin', color='cccccc'),
-        top=Side(style='thin', color='cccccc'),
-        bottom=Side(style='thin', color='cccccc'),
+    # Default order: newest listing_date first
+    listings = sorted(
+        listings,
+        key=lambda l: _parse_listing_date(l.get('listing_date')) or datetime.min.date(),
+        reverse=True,
     )
-    summary_header_fill = PatternFill(start_color="334155", end_color="334155", fill_type="solid")
 
     wb = Workbook()
 
     # === Sheet 1: Listings ===
     ws = wb.active
     ws.title = "Listings"
-
-    columns = ['Address', 'Suburb', 'Price', 'Bed', 'Bath', 'Car', 'Land', 'Internal',
-               'Agency', 'Agent', 'Listed', 'DOM', 'Status', 'Type', 'Link']
-
+    columns = ['Address', 'Suburb', 'Price', 'Price (AUD)', 'Bed', 'Bath', 'Car',
+               'Land (m²)', 'Internal (m²)', 'Agency', 'Agent', 'Listed', 'DOM',
+               'Status', 'Type', 'Link']
     for col_idx, col_name in enumerate(columns, 1):
-        cell = ws.cell(row=1, column=col_idx, value=col_name)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_align
-        cell.border = thin_border
+        ws.cell(row=1, column=col_idx, value=col_name)
+
+    stale_font = Font(bold=True, color="CC0000")
 
     for row_idx, l in enumerate(listings, 2):
-        values = [
-            l.get('address', ''),
-            l.get('suburb_name', ''),
-            l.get('price_text', ''),
-            l.get('bedrooms'),
-            l.get('bathrooms'),
-            l.get('parking'),
-            l.get('land_size', ''),
-            l.get('internal_size', ''),
-            l.get('agency', ''),
-            l.get('agent', ''),
-            l.get('listing_date', ''),
-            _calc_dom(l),
-            (l.get('status', '') or '').replace('_', ' ').title(),
-            l.get('listing_type', ''),
-            l.get('reiwa_url', ''),
-        ]
-        stale_fill = PatternFill(start_color="ffcccc", end_color="ffcccc", fill_type="solid")
-        for col_idx, val in enumerate(values, 1):
-            cell = ws.cell(row=row_idx, column=col_idx, value=val)
-            cell.border = thin_border
-            # Highlight DOM cell red if 60+ days
-            dom_col = columns.index('DOM') + 1
-            if col_idx == dom_col and val is not None and val >= 60:
-                cell.fill = stale_fill
-                cell.font = Font(bold=True, color="cc0000")
+        status_raw = (l.get('status') or '').lower()
+        price_text = l.get('price_text') or ''
+        price_num = _parse_price_numeric(price_text)
+        land_num = _parse_size_numeric(l.get('land_size'))
+        internal_num = _parse_size_numeric(l.get('internal_size'))
+        listed_date = _parse_listing_date(l.get('listing_date'))
+        url = l.get('reiwa_url') or ''
+        dom = _calc_dom(l)
 
-    # Auto-width
-    for col_idx in range(1, len(columns) + 1):
-        max_len = len(str(ws.cell(row=1, column=col_idx).value))
-        for row_idx in range(2, min(len(listings) + 2, 50)):
-            val = ws.cell(row=row_idx, column=col_idx).value
-            if val:
-                max_len = max(max_len, min(len(str(val)), 40))
-        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = max_len + 3
+        ws.cell(row=row_idx, column=1, value=l.get('address', ''))
+        ws.cell(row=row_idx, column=2, value=l.get('suburb_name', ''))
+        ws.cell(row=row_idx, column=3, value=price_text)
+        pcell = ws.cell(row=row_idx, column=4, value=price_num)
+        if price_num is not None:
+            pcell.number_format = '"$"#,##0'
+        ws.cell(row=row_idx, column=5, value=l.get('bedrooms'))
+        ws.cell(row=row_idx, column=6, value=l.get('bathrooms'))
+        ws.cell(row=row_idx, column=7, value=l.get('parking'))
+        lcell = ws.cell(row=row_idx, column=8, value=land_num)
+        if land_num is not None:
+            lcell.number_format = '#,##0" m²"'
+        icell = ws.cell(row=row_idx, column=9, value=internal_num)
+        if internal_num is not None:
+            icell.number_format = '#,##0" m²"'
+        ws.cell(row=row_idx, column=10, value=l.get('agency', ''))
+        ws.cell(row=row_idx, column=11, value=l.get('agent', ''))
+        dcell = ws.cell(row=row_idx, column=12, value=listed_date)
+        if listed_date:
+            dcell.number_format = 'DD/MM/YYYY'
+        dom_cell = ws.cell(row=row_idx, column=13, value=dom)
+        if dom is not None and dom >= 60:
+            dom_cell.font = stale_font
+        scell = ws.cell(row=row_idx, column=14,
+                        value=status_raw.replace('_', ' ').title() if status_raw else '')
+        color = STATUS_COLORS.get(status_raw)
+        if color:
+            scell.font = Font(bold=True, color=color)
+        ws.cell(row=row_idx, column=15, value=l.get('listing_type', ''))
+        link_cell = ws.cell(row=row_idx, column=16, value="View on REIWA" if url else '')
+        if url:
+            link_cell.hyperlink = url
+            link_cell.style = "Hyperlink"
 
-    # Freeze header row
+    # Fixed widths tuned for the column contents
+    for col_idx, width in enumerate(
+        [34, 18, 20, 14, 6, 6, 6, 13, 15, 28, 22, 12, 8, 14, 14, 18], 1
+    ):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
     ws.freeze_panes = "A2"
 
-    # === Sheet 2: Agent Summary ===
-    ws_agents = wb.create_sheet("Agents")
-    agent_counts = Counter(l.get('agent', 'Unknown') for l in listings if l.get('agent'))
-    agent_status = {}
-    for l in listings:
-        a = l.get('agent') or 'Unknown'
-        if a not in agent_status:
-            agent_status[a] = {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0}
-        s = l.get('status', 'active')
-        if s in agent_status[a]:
-            agent_status[a][s] += 1
+    last_col_letter = ws.cell(row=1, column=len(columns)).column_letter
+    last_row = max(2, len(listings) + 1)
+    listings_table = Table(displayName="ListingsTable",
+                           ref=f"A1:{last_col_letter}{last_row}")
+    listings_table.tableStyleInfo = TABLE_STYLE
+    ws.add_table(listings_table)
 
-    agent_headers = ['Agent', 'Total', 'Active', 'Under Offer', 'Sold', 'Withdrawn']
-    for col_idx, h in enumerate(agent_headers, 1):
-        cell = ws_agents.cell(row=1, column=col_idx, value=h)
-        cell.font = header_font
-        cell.fill = summary_header_fill
-        cell.alignment = header_align
-        cell.border = thin_border
+    # === Summary sheet helper ===
+    def _write_summary(sheet_name, table_name, headers, rows_data, col_widths):
+        s = wb.create_sheet(sheet_name)
+        for col_idx, h in enumerate(headers, 1):
+            s.cell(row=1, column=col_idx, value=h)
+        for row_idx, row_vals in enumerate(rows_data, 2):
+            for col_idx, val in enumerate(row_vals, 1):
+                s.cell(row=row_idx, column=col_idx, value=val)
+        # Totals row below the table (not inside the Table range)
+        if rows_data:
+            totals_row = len(rows_data) + 2
+            s.cell(row=totals_row, column=1, value='Total').font = Font(bold=True)
+            for col_idx in range(2, len(headers) + 1):
+                letter = s.cell(row=1, column=col_idx).column_letter
+                cell = s.cell(row=totals_row, column=col_idx,
+                              value=f"=SUM({letter}2:{letter}{totals_row - 1})")
+                cell.font = Font(bold=True)
+        for col_idx, w in enumerate(col_widths, 1):
+            s.column_dimensions[s.cell(row=1, column=col_idx).column_letter].width = w
+        s.freeze_panes = "A2"
+        last_data_row = max(2, len(rows_data) + 1)
+        last_letter = s.cell(row=1, column=len(headers)).column_letter
+        tbl = Table(displayName=table_name, ref=f"A1:{last_letter}{last_data_row}")
+        tbl.tableStyleInfo = TABLE_STYLE
+        s.add_table(tbl)
 
-    for row_idx, (agent_name, total) in enumerate(agent_counts.most_common(), 2):
-        stats = agent_status.get(agent_name, {})
-        values = [agent_name, total, stats.get('active', 0), stats.get('under_offer', 0),
-                  stats.get('sold', 0), stats.get('withdrawn', 0)]
-        for col_idx, val in enumerate(values, 1):
-            cell = ws_agents.cell(row=row_idx, column=col_idx, value=val)
-            cell.border = thin_border
+    def _group_stats(listings_, key):
+        buckets = {}
+        for l in listings_:
+            k = l.get(key) or 'Unknown'
+            b = buckets.setdefault(k, {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0, 'total': 0})
+            b['total'] += 1
+            st = (l.get('status') or 'active').lower()
+            if st in b:
+                b[st] += 1
+        rows = [
+            [k, v['total'], v['active'], v['under_offer'], v['sold'], v['withdrawn']]
+            for k, v in buckets.items()
+        ]
+        rows.sort(key=lambda r: -r[1])
+        return rows
 
-    for col_idx in range(1, len(agent_headers) + 1):
-        ws_agents.column_dimensions[ws_agents.cell(row=1, column=col_idx).column_letter].width = 20
-    ws_agents.freeze_panes = "A2"
+    # === Sheet 2: Agents ===
+    _write_summary('Agents', 'AgentsTable',
+                   ['Agent', 'Total', 'Active', 'Under Offer', 'Sold', 'Withdrawn'],
+                   _group_stats(listings, 'agent'),
+                   [26, 10, 10, 14, 10, 12])
 
-    # === Sheet 3: Agency Summary ===
-    ws_agencies = wb.create_sheet("Agencies")
-    agency_counts = Counter(l.get('agency', 'Unknown') for l in listings if l.get('agency'))
-    agency_status = {}
-    for l in listings:
-        a = l.get('agency') or 'Unknown'
-        if a not in agency_status:
-            agency_status[a] = {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0}
-        s = l.get('status', 'active')
-        if s in agency_status[a]:
-            agency_status[a][s] += 1
-
-    agency_headers = ['Agency', 'Total', 'Active', 'Under Offer', 'Sold', 'Withdrawn']
-    for col_idx, h in enumerate(agency_headers, 1):
-        cell = ws_agencies.cell(row=1, column=col_idx, value=h)
-        cell.font = header_font
-        cell.fill = summary_header_fill
-        cell.alignment = header_align
-        cell.border = thin_border
-
-    for row_idx, (agency_name, total) in enumerate(agency_counts.most_common(), 2):
-        stats = agency_status.get(agency_name, {})
-        values = [agency_name, total, stats.get('active', 0), stats.get('under_offer', 0),
-                  stats.get('sold', 0), stats.get('withdrawn', 0)]
-        for col_idx, val in enumerate(values, 1):
-            cell = ws_agencies.cell(row=row_idx, column=col_idx, value=val)
-            cell.border = thin_border
-
-    for col_idx in range(1, len(agency_headers) + 1):
-        ws_agencies.column_dimensions[ws_agencies.cell(row=1, column=col_idx).column_letter].width = 30
-    ws_agencies.freeze_panes = "A2"
+    # === Sheet 3: Agencies ===
+    _write_summary('Agencies', 'AgenciesTable',
+                   ['Agency', 'Total', 'Active', 'Under Offer', 'Sold', 'Withdrawn'],
+                   _group_stats(listings, 'agency'),
+                   [34, 10, 10, 14, 10, 12])
 
     # === Sheet 4: Suburb Summary (only if multiple suburbs) ===
     suburb_names = set(l.get('suburb_name', '') for l in listings)
     if len(suburb_names) > 1:
-        ws_suburbs = wb.create_sheet("Suburb Summary")
         suburb_data = {}
         for l in listings:
             sn = l.get('suburb_name', 'Unknown')
-            if sn not in suburb_data:
-                suburb_data[sn] = {'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0, 'agents': set(), 'agencies': set()}
-            s = l.get('status', 'active')
-            if s in suburb_data[sn]:
-                suburb_data[sn][s] += 1
+            d = suburb_data.setdefault(sn, {
+                'active': 0, 'under_offer': 0, 'sold': 0, 'withdrawn': 0,
+                'agents': set(), 'agencies': set(),
+            })
+            st = (l.get('status') or 'active').lower()
+            if st in d:
+                d[st] += 1
             if l.get('agent'):
-                suburb_data[sn]['agents'].add(l['agent'])
+                d['agents'].add(l['agent'])
             if l.get('agency'):
-                suburb_data[sn]['agencies'].add(l['agency'])
-
-        sub_headers = ['Suburb', 'Total', 'Active', 'Under Offer', 'Sold', 'Withdrawn', 'Agents', 'Agencies']
-        for col_idx, h in enumerate(sub_headers, 1):
-            cell = ws_suburbs.cell(row=1, column=col_idx, value=h)
-            cell.font = header_font
-            cell.fill = summary_header_fill
-            cell.alignment = header_align
-            cell.border = thin_border
-
-        for row_idx, (sname, data) in enumerate(sorted(suburb_data.items()), 2):
+                d['agencies'].add(l['agency'])
+        suburb_rows = []
+        for sname, data in sorted(suburb_data.items()):
             total = data['active'] + data['under_offer'] + data['sold'] + data['withdrawn']
-            values = [sname, total, data['active'], data['under_offer'], data['sold'], data['withdrawn'],
-                      len(data['agents']), len(data['agencies'])]
-            for col_idx, val in enumerate(values, 1):
-                cell = ws_suburbs.cell(row=row_idx, column=col_idx, value=val)
-                cell.border = thin_border
-
-        for col_idx in range(1, len(sub_headers) + 1):
-            ws_suburbs.column_dimensions[ws_suburbs.cell(row=1, column=col_idx).column_letter].width = 20
-        ws_suburbs.freeze_panes = "A2"
+            suburb_rows.append([
+                sname, total, data['active'], data['under_offer'], data['sold'],
+                data['withdrawn'], len(data['agents']), len(data['agencies'])
+            ])
+        _write_summary('Suburb Summary', 'SuburbsTable',
+                       ['Suburb', 'Total', 'Active', 'Under Offer', 'Sold',
+                        'Withdrawn', 'Agents', 'Agencies'],
+                       suburb_rows,
+                       [22, 10, 10, 14, 10, 12, 10, 12])
 
     # Save to buffer and send
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
 
-    # Filename with date
     date_str = datetime.now().strftime('%Y-%m-%d')
     suburb_label = ''
     if suburb_ids:
