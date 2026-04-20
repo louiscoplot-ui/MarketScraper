@@ -265,36 +265,42 @@ def _fetch_detail(page, url):
         html = page.content()
         soup = BeautifulSoup(html, "html.parser")
 
-        # Under Offer detection
+        # Status detection — Sold detection only via tight badge-class check
+        # (avoids false positives from "recently sold" widgets, agent bios, etc.)
         STATUS_CLASSES = ["status", "badge", "banner", "label", "tag", "ribbon", "flag",
                           "pill", "listing-status", "property-status", "listing__status", "p-status"]
 
+        is_sold = False
         is_under_offer = False
 
         for el in soup.find_all(["span", "div", "p", "strong", "h1", "h2", "h3"], class_=True):
             cls = " ".join(el.get("class", []))
+            if not any(k in cls for k in STATUS_CLASSES):
+                continue
             txt = el.get_text(strip=True).lower()
-            if "under offer" in txt and any(k in cls for k in STATUS_CLASSES):
-                is_under_offer = True
+            if txt == "sold":
+                is_sold = True
                 break
+            if "under offer" in txt:
+                is_under_offer = True
 
-        if not is_under_offer:
+        if not is_sold and not is_under_offer:
             header = (
                 soup.find("div", class_=re.compile(r"listing-header|property-header|p-header", re.I))
                 or soup.find("section", class_=re.compile(r"listing|property|detail", re.I))
                 or soup.find("header")
             )
-            if header:
-                if re.search(r"\bunder\s+offer\b", header.get_text(" ", strip=True)[:800], re.I):
-                    is_under_offer = True
+            if header and re.search(r"\bunder\s+offer\b", header.get_text(" ", strip=True)[:800], re.I):
+                is_under_offer = True
 
-        if not is_under_offer:
+        if not is_sold and not is_under_offer:
             main = soup.find("main")
-            if main:
-                if re.search(r"\bunder\s+offer\b", main.get_text(" ", strip=True)[:1500], re.I):
-                    is_under_offer = True
+            if main and re.search(r"\bunder\s+offer\b", main.get_text(" ", strip=True)[:1500], re.I):
+                is_under_offer = True
 
-        if is_under_offer:
+        if is_sold:
+            out["status"] = "sold"
+        elif is_under_offer:
             out["status"] = "under_offer"
 
         t = re.sub(r"m\s+2|sqm|sq\.?\s*m", "m2", soup.get_text(" ", strip=True), flags=re.I)
@@ -820,17 +826,25 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                             }
 
                         if rec.get('url') and rec['url'].rstrip('/') not in existing_urls:
-                            # Always fetch detail page for recovered listings to get full info
-                            if rec['url'] not in (known_urls or set()):
-                                detail = _fetch_detail(detail_pages[0], rec['url'])
-                                for field in ['land_size', 'internal_size', 'price_text', 'listing_date',
-                                              'address', 'agency', 'agent', 'bedrooms', 'bathrooms',
-                                              'parking', 'listing_type']:
-                                    if detail.get(field) and not rec.get(field):
-                                        rec[field] = detail[field]
-                                if detail.get('status') == 'under_offer':
-                                    rec['status'] = 'under_offer'
-                                results['stats']['detail_pages_scraped'] += 1
+                            # Always fetch detail to learn the true status — REIWA's for-sale page
+                            # sometimes lists already-SOLD properties, which the sold scrape captures.
+                            # We must skip them here to avoid stomping their 'sold' status.
+                            detail = _fetch_detail(detail_pages[0], rec['url'])
+                            results['stats']['detail_pages_scraped'] += 1
+
+                            if detail.get('status') == 'sold':
+                                logger.info(f"{suburb_name}: missing URL is SOLD, leaving for sold scrape: {rec['url']}")
+                                # Count as recovered so the loop can terminate (REIWA included it in total)
+                                recovered += 1
+                                continue
+
+                            for field in ['land_size', 'internal_size', 'price_text', 'listing_date',
+                                          'address', 'agency', 'agent', 'bedrooms', 'bathrooms',
+                                          'parking', 'listing_type']:
+                                if detail.get(field) and not rec.get(field):
+                                    rec[field] = detail[field]
+                            if detail.get('status') == 'under_offer':
+                                rec['status'] = 'under_offer'
 
                             rec['reiwa_url'] = rec['url']
                             results['forsale_listings'].append(rec)
@@ -946,8 +960,9 @@ def compare_suburb(suburb_slug, db_urls):
         'reiwa_total': None,
         'reiwa_urls': [],
         'db_urls_count': len(db_urls),
-        'missing_from_db': [],   # on REIWA but not in our DB
-        'extra_in_db': [],       # in our DB but not on REIWA
+        'missing_from_db': [],    # on REIWA's for-sale list but not in our DB (active/under_offer)
+        'sold_excluded': [],      # on REIWA's for-sale list but actually SOLD (sold scrape handles them)
+        'extra_in_db': [],        # in our DB but not on REIWA
         'matched': 0,
         'pages_scraped': 0,
         'error': None,
@@ -1013,14 +1028,33 @@ def compare_suburb(suburb_slug, db_urls):
                 page_num += 1
                 time.sleep(0.5)
 
-            browser.close()
-
             # Normalize all URLs for comparison
             reiwa_set = {u.rstrip('/') for u in all_reiwa_urls}
             db_set = {u.rstrip('/') for u in db_urls}
 
+            initial_missing = sorted(reiwa_set - db_set)
+
+            # REIWA's for-sale listing pages occasionally include already-SOLD properties
+            # in their total count. Fetch detail for each "missing" URL — if SOLD, exclude
+            # from missing_from_db so the user doesn't get a false-alarm.
+            sold_excluded = []
+            real_missing = []
+            detail_page = context.new_page()
+            detail_page.route("**/*", lambda route: route.abort()
+                              if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                              else route.continue_())
+            for url in initial_missing:
+                detail = _fetch_detail(detail_page, url)
+                if detail.get('status') == 'sold':
+                    sold_excluded.append(url)
+                else:
+                    real_missing.append(url)
+
+            browser.close()
+
             result['reiwa_urls'] = sorted(reiwa_set)
-            result['missing_from_db'] = sorted(reiwa_set - db_set)
+            result['missing_from_db'] = real_missing
+            result['sold_excluded'] = sold_excluded
             result['extra_in_db'] = sorted(db_set - reiwa_set)
             result['matched'] = len(reiwa_set & db_set)
 
