@@ -367,14 +367,36 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
 
 
 def get_existing_urls(suburb_id):
-    """Get all known listing URLs for a suburb (to skip detail pages on re-scrape)."""
+    """URLs whose detail pages can safely be skipped on re-scrape.
+
+    Excludes entries that look incomplete (missing land_size on a House, or
+    missing internal_size on a Unit/Apartment/Townhouse) — those get their
+    detail page re-fetched so stale rows from earlier scrapes can self-heal.
+    """
     conn = get_db()
     rows = conn.execute(
-        "SELECT reiwa_url FROM listings WHERE suburb_id = ? AND reiwa_url IS NOT NULL",
+        """
+        SELECT reiwa_url, listing_type, land_size, internal_size
+        FROM listings
+        WHERE suburb_id = ? AND reiwa_url IS NOT NULL
+        """,
         (suburb_id,)
     ).fetchall()
     conn.close()
-    return {r['reiwa_url'].rstrip('/') for r in rows}
+
+    complete = set()
+    for r in rows:
+        t = (r['listing_type'] or '').strip().lower()
+        land = (r['land_size'] or '').strip()
+        internal = (r['internal_size'] or '').strip()
+        # Houses must have a land size; units must have an internal size.
+        # Anything else (land-only, rural, or unknown type) we trust as-is.
+        if t == 'house' and not land:
+            continue
+        if t in ('unit', 'apartment', 'townhouse', 'villa', 'studio', 'duplex') and not internal:
+            continue
+        complete.add(r['reiwa_url'].rstrip('/'))
+    return complete
 
 
 def trim_sold_listings(suburb_id, keep=40):

@@ -315,7 +315,7 @@ def export_listings():
     freeze panes.
     """
     from openpyxl import Workbook
-    from openpyxl.styles import Font
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.worksheet.table import Table, TableStyleInfo
     import re as _re
 
@@ -380,7 +380,34 @@ def export_listings():
         'sold':        '4B5563',  # slate
         'withdrawn':   'B91C1C',  # red
     }
-    TABLE_STYLE = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+
+    # Palette — dark forest green header, warm gold totals, mint banding
+    HEADER_FILL = PatternFill('solid', fgColor='1E3A2B')
+    HEADER_FONT = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
+    HEADER_ALIGN = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    BAND_FILL = PatternFill('solid', fgColor='F4F7F5')
+    TOTAL_FILL = PatternFill('solid', fgColor='F5E6A8')
+    TOTAL_FONT = Font(name='Calibri', bold=True, color='1E3A2B', size=11)
+    BODY_FONT = Font(name='Calibri', size=10)
+    BODY_ALIGN_LEFT = Alignment(horizontal='left', vertical='center', indent=1)
+    BODY_ALIGN_CENTER = Alignment(horizontal='center', vertical='center')
+    BODY_ALIGN_RIGHT = Alignment(horizontal='right', vertical='center', indent=1)
+    SUBTLE_BORDER = Border(bottom=Side(style='thin', color='D4E0D8'))
+
+    # Light1 means "no extra styling" — our custom fills come through cleanly;
+    # we keep the Table purely for the per-column filter/sort buttons in Excel.
+    TABLE_STYLE = TableStyleInfo(name="TableStyleLight1", showRowStripes=False,
+                                 showColumnStripes=False, showFirstColumn=False,
+                                 showLastColumn=False)
+
+    def _style_header_row(sheet, n_cols, height=30):
+        sheet.row_dimensions[1].height = height
+        for c in range(1, n_cols + 1):
+            cell = sheet.cell(row=1, column=c)
+            cell.fill = HEADER_FILL
+            cell.font = HEADER_FONT
+            cell.alignment = HEADER_ALIGN
+            cell.border = SUBTLE_BORDER
 
     # Parse same filters as list_listings
     suburb_ids_str = request.args.get('suburb_ids', '')
@@ -422,7 +449,16 @@ def export_listings():
     for col_idx, col_name in enumerate(columns, 1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
-    stale_font = Font(bold=True, color="CC0000")
+    stale_font = Font(name='Calibri', bold=True, color='CC0000', size=10)
+    # Per-column alignment (1-indexed matching `columns`)
+    col_align = {
+        1: BODY_ALIGN_LEFT, 2: BODY_ALIGN_LEFT, 3: BODY_ALIGN_LEFT,
+        4: BODY_ALIGN_RIGHT, 5: BODY_ALIGN_CENTER, 6: BODY_ALIGN_CENTER,
+        7: BODY_ALIGN_CENTER, 8: BODY_ALIGN_RIGHT, 9: BODY_ALIGN_RIGHT,
+        10: BODY_ALIGN_LEFT, 11: BODY_ALIGN_LEFT, 12: BODY_ALIGN_CENTER,
+        13: BODY_ALIGN_CENTER, 14: BODY_ALIGN_CENTER, 15: BODY_ALIGN_CENTER,
+        16: BODY_ALIGN_CENTER,
+    }
 
     for row_idx, l in enumerate(listings, 2):
         status_raw = (l.get('status') or '').lower()
@@ -433,6 +469,7 @@ def export_listings():
         listed_date = _parse_listing_date(l.get('listing_date'))
         url = l.get('reiwa_url') or ''
         dom = _calc_dom(l)
+        row_fill = BAND_FILL if row_idx % 2 == 0 else None
 
         ws.cell(row=row_idx, column=1, value=l.get('address', ''))
         ws.cell(row=row_idx, column=2, value=l.get('suburb_name', ''))
@@ -455,24 +492,39 @@ def export_listings():
         if listed_date:
             dcell.number_format = 'DD/MM/YYYY'
         dom_cell = ws.cell(row=row_idx, column=13, value=dom)
-        if dom is not None and dom >= 60:
-            dom_cell.font = stale_font
         scell = ws.cell(row=row_idx, column=14,
                         value=status_raw.replace('_', ' ').title() if status_raw else '')
-        color = STATUS_COLORS.get(status_raw)
-        if color:
-            scell.font = Font(bold=True, color=color)
         ws.cell(row=row_idx, column=15, value=l.get('listing_type', ''))
         link_cell = ws.cell(row=row_idx, column=16, value="View on REIWA" if url else '')
         if url:
             link_cell.hyperlink = url
-            link_cell.style = "Hyperlink"
+
+        # Row-wide styling (font, alignment, banding, bottom border)
+        for c in range(1, len(columns) + 1):
+            cell = ws.cell(row=row_idx, column=c)
+            cell.font = BODY_FONT
+            cell.alignment = col_align[c]
+            cell.border = SUBTLE_BORDER
+            if row_fill:
+                cell.fill = row_fill
+
+        # Per-cell overrides on top of the row styling
+        if dom is not None and dom >= 60:
+            dom_cell.font = stale_font
+        color = STATUS_COLORS.get(status_raw)
+        if color:
+            scell.font = Font(name='Calibri', bold=True, color=color, size=10)
+        if url:
+            link_cell.font = Font(name='Calibri', color='1E3A8A', underline='single', size=10)
+
+        ws.row_dimensions[row_idx].height = 22
 
     # Fixed widths tuned for the column contents
     for col_idx, width in enumerate(
         [34, 18, 20, 14, 6, 6, 6, 13, 15, 28, 22, 12, 8, 14, 14, 18], 1
     ):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
+    _style_header_row(ws, len(columns), height=34)
     ws.freeze_panes = "A2"
 
     last_col_letter = ws.cell(row=1, column=len(columns)).column_letter
@@ -488,19 +540,33 @@ def export_listings():
         for col_idx, h in enumerate(headers, 1):
             s.cell(row=1, column=col_idx, value=h)
         for row_idx, row_vals in enumerate(rows_data, 2):
+            row_fill = BAND_FILL if row_idx % 2 == 0 else None
             for col_idx, val in enumerate(row_vals, 1):
-                s.cell(row=row_idx, column=col_idx, value=val)
+                cell = s.cell(row=row_idx, column=col_idx, value=val)
+                cell.font = BODY_FONT
+                cell.alignment = BODY_ALIGN_LEFT if col_idx == 1 else BODY_ALIGN_CENTER
+                cell.border = SUBTLE_BORDER
+                if row_fill:
+                    cell.fill = row_fill
+            s.row_dimensions[row_idx].height = 20
         # Totals row below the table (not inside the Table range)
         if rows_data:
             totals_row = len(rows_data) + 2
-            s.cell(row=totals_row, column=1, value='Total').font = Font(bold=True)
+            lbl = s.cell(row=totals_row, column=1, value='Total')
+            lbl.font = TOTAL_FONT
+            lbl.fill = TOTAL_FILL
+            lbl.alignment = BODY_ALIGN_LEFT
             for col_idx in range(2, len(headers) + 1):
                 letter = s.cell(row=1, column=col_idx).column_letter
                 cell = s.cell(row=totals_row, column=col_idx,
                               value=f"=SUM({letter}2:{letter}{totals_row - 1})")
-                cell.font = Font(bold=True)
+                cell.font = TOTAL_FONT
+                cell.fill = TOTAL_FILL
+                cell.alignment = BODY_ALIGN_CENTER
+            s.row_dimensions[totals_row].height = 22
         for col_idx, w in enumerate(col_widths, 1):
             s.column_dimensions[s.cell(row=1, column=col_idx).column_letter].width = w
+        _style_header_row(s, len(headers), height=30)
         s.freeze_panes = "A2"
         last_data_row = max(2, len(rows_data) + 1)
         last_letter = s.cell(row=1, column=len(headers)).column_letter
