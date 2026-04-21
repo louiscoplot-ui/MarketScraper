@@ -369,16 +369,16 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
 def get_existing_urls(suburb_id):
     """URLs whose detail pages can safely be skipped on re-scrape.
 
-    A row is considered complete (detail skippable) only when both sizes can
-    plausibly be trusted. Any row where BOTH land_size AND internal_size are
-    empty is re-fetched unconditionally — those are stale scraps that never
-    got their sizes filled. Typed rows get a stricter check (house needs
-    land, strata types need internal).
+    A row is considered complete (detail skippable) only when sizes AND
+    listing_date are populated. Missing date triggers a refetch because the
+    detail page is the only reliable source for "Added X days ago" on REIWA.
+    Any row where BOTH sizes are empty is also refetched unconditionally.
+    Typed rows get a stricter check (house needs land, strata needs internal).
     """
     conn = get_db()
     rows = conn.execute(
         """
-        SELECT reiwa_url, listing_type, land_size, internal_size
+        SELECT reiwa_url, listing_type, land_size, internal_size, listing_date
         FROM listings
         WHERE suburb_id = ? AND reiwa_url IS NOT NULL
         """,
@@ -392,6 +392,10 @@ def get_existing_urls(suburb_id):
         t = (r['listing_type'] or '').strip().lower()
         land = (r['land_size'] or '').strip()
         internal = (r['internal_size'] or '').strip()
+        listing_date = (r['listing_date'] or '').strip()
+
+        if not listing_date:
+            continue  # dates drive DOM/withdrawn tracking — always refetch if missing
         if not land and not internal:
             continue  # nothing populated — always refetch
         if t == 'house' and not land:

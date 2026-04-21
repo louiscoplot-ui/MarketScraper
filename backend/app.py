@@ -857,7 +857,7 @@ def audit_suburbs():
             (sid,)
         ).fetchall()
 
-        # Completeness tally
+        # Completeness tally — each listing counted AT MOST ONCE per bucket
         missing_land = []
         missing_internal = []
         missing_type = []
@@ -872,13 +872,14 @@ def audit_suburbs():
             url = r['reiwa_url']
             land = (r['land_size'] or '').strip()
             internal = (r['internal_size'] or '').strip()
-            if t == 'house' and not land:
-                missing_land.append({'address': addr, 'url': url})
-            if t in STRATA_TYPES and not internal:
-                missing_internal.append({'address': addr, 'url': url})
-            if not land and not internal:
-                # unknown type with no sizes
+
+            # Land only required for houses (and for unknown types with no sizes
+            # at all — those are suspicious, count them once here).
+            if (t == 'house' and not land) or (not t and not land and not internal):
                 missing_land.append({'address': addr, 'url': url, 'type': t or '(unknown)'})
+            # Internal only required for strata-style dwellings.
+            if t in STRATA_TYPES and not internal:
+                missing_internal.append({'address': addr, 'url': url, 'type': t})
             if not t:
                 missing_type.append({'address': addr, 'url': url})
             if not (r['price_text'] or '').strip():
