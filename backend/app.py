@@ -785,6 +785,22 @@ def debug_scrape(suburb_id):
     return jsonify(result)
 
 
+@app.route('/api/admin/reset-listing-dates', methods=['POST'])
+def reset_listing_dates():
+    """Clear listing_date on all rows so the next scrape repopulates them.
+
+    Needed once after the regex broadening introduced a false-positive that
+    set many listings to today's date — NULLIF upsert would otherwise
+    preserve those wrong values forever.
+    """
+    conn = get_db()
+    cur = conn.execute("UPDATE listings SET listing_date = NULL WHERE listing_date IS NOT NULL")
+    affected = cur.rowcount
+    conn.commit()
+    conn.close()
+    return jsonify({'cleared': affected})
+
+
 @app.route('/api/scrape/debug-detail', methods=['GET'])
 def debug_scrape_detail():
     """Debug a single listing URL: returns extracted fields, text snippets,

@@ -51,63 +51,52 @@ def _listing_id(url):
 def _parse_date_text(text):
     """Parse REIWA's listing-age wording into dd/mm/yyyy, or empty.
 
-    Handles: "Added today/yesterday", "Listed today", "Just listed", "2 hours ago",
-    "11 days ago" (with or without Added/Listed/Posted prefix), "3 weeks ago",
-    "2 months ago", "Added 15 Apr", "Listed on 15 April", "15/04/2026".
+    Strict: every pattern REQUIRES an 'Added' / 'Listed' / 'Posted' prefix.
+    This avoids false matches from sidebars like 'Properties you may be
+    interested in' which contain stray date-like text ('New', '2 hours ago'
+    on agent cards, 'Just listed' category labels, etc.) and were making
+    every listing get today's date.
     """
     if not text:
         return ""
     today = datetime.now()
     s = text.lower()
 
-    if re.search(r"(?:added|listed|posted)\s+today", s) or re.search(r"\bjust\s+listed\b", s):
-        return today.strftime("%d/%m/%Y")
-    if re.search(r"(?:added|listed|posted)\s+yesterday", s):
-        return (today - timedelta(days=1)).strftime("%d/%m/%Y")
-    if re.search(r"\b\d+\s+hours?\s+ago\b", s):
-        return today.strftime("%d/%m/%Y")
+    PREFIX = r"(?:added|listed|posted)"
 
-    # "X days ago" (standalone) or "Added/Listed/Posted X days"
-    m = (re.search(r"\b(\d+)\s+days?\s+ago\b", s)
-         or re.search(r"(?:added|listed|posted)\s+(\d+)\s+days?", s))
+    if re.search(PREFIX + r"\s+today\b", s):
+        return today.strftime("%d/%m/%Y")
+    if re.search(PREFIX + r"\s+yesterday\b", s):
+        return (today - timedelta(days=1)).strftime("%d/%m/%Y")
+
+    m = re.search(PREFIX + r"\s+(\d+)\s+days?(?:\s+ago)?\b", s)
     if m:
         try:
             return (today - timedelta(days=int(m.group(1)))).strftime("%d/%m/%Y")
         except (ValueError, OverflowError):
             pass
 
-    m = (re.search(r"\b(\d+)\s+weeks?\s+ago\b", s)
-         or re.search(r"(?:added|listed|posted)\s+(\d+)\s+weeks?", s))
+    m = re.search(PREFIX + r"\s+(\d+)\s+weeks?(?:\s+ago)?\b", s)
     if m:
         try:
             return (today - timedelta(weeks=int(m.group(1)))).strftime("%d/%m/%Y")
         except (ValueError, OverflowError):
             pass
 
-    m = (re.search(r"\b(\d+)\s+months?\s+ago\b", s)
-         or re.search(r"(?:added|listed|posted)\s+(\d+)\s+months?", s))
+    m = re.search(PREFIX + r"\s+(\d+)\s+months?(?:\s+ago)?\b", s)
     if m:
         try:
             return (today - timedelta(days=int(m.group(1)) * 30)).strftime("%d/%m/%Y")
         except (ValueError, OverflowError):
             pass
 
-    m = re.search(r"(?:added|listed|posted|on)\s+(\d{1,2})\s+([A-Za-z]{3,})", text, re.I)
+    m = re.search(PREFIX + r"\s+(?:on\s+)?(\d{1,2})\s+([A-Za-z]{3,})", text, re.I)
     if m:
         try:
             dt = datetime.strptime(f"{m.group(1)} {m.group(2)[:3].capitalize()} {today.year}", "%d %b %Y")
             if dt > today:
                 dt = dt.replace(year=dt.year - 1)
             return dt.strftime("%d/%m/%Y")
-        except ValueError:
-            pass
-
-    m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b", text)
-    if m:
-        try:
-            dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-            if dt <= today + timedelta(days=1):
-                return dt.strftime("%d/%m/%Y")
         except ValueError:
             pass
 
@@ -464,10 +453,11 @@ def _fetch_detail(page, url):
             if m:
                 out["price_text"] = m.group(0).strip()[:120]
 
-        # Listing date from detail page — scan a generous slice of the full text
-        # so composite elements ("Acton | Belle Property Cottesloe · Added 11
-        # days ago · 4 bedrooms") still match.
-        out["listing_date"] = _parse_date_text(t[:5000])
+        # Listing date from detail page — scan only the property header area
+        # (first ~1500 chars) to avoid false matches from the 'Properties you
+        # may be interested in' sidebar further down the page, which shows
+        # badges like 'New' or 'Just Listed' on unrelated properties.
+        out["listing_date"] = _parse_date_text(t[:1500])
 
         # Address from detail page (h1 or h2.p-details__add)
         addr_el = soup.find("h2", class_="p-details__add") or soup.find("h1")
