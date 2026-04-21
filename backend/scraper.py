@@ -49,20 +49,50 @@ def _listing_id(url):
 
 
 def _parse_date_text(text):
+    """Parse REIWA's listing-age wording into dd/mm/yyyy, or empty.
+
+    Handles: "Added today/yesterday", "Listed today", "Just listed", "2 hours ago",
+    "11 days ago" (with or without Added/Listed/Posted prefix), "3 weeks ago",
+    "2 months ago", "Added 15 Apr", "Listed on 15 April", "15/04/2026".
+    """
     if not text:
         return ""
     today = datetime.now()
-    if re.search(r"added\s+today", text, re.I):
+    s = text.lower()
+
+    if re.search(r"(?:added|listed|posted)\s+today", s) or re.search(r"\bjust\s+listed\b", s):
         return today.strftime("%d/%m/%Y")
-    if re.search(r"added\s+yesterday", text, re.I):
+    if re.search(r"(?:added|listed|posted)\s+yesterday", s):
         return (today - timedelta(days=1)).strftime("%d/%m/%Y")
-    m = re.search(r"added\s+(\d+)\s+day", text, re.I)
+    if re.search(r"\b\d+\s+hours?\s+ago\b", s):
+        return today.strftime("%d/%m/%Y")
+
+    # "X days ago" (standalone) or "Added/Listed/Posted X days"
+    m = (re.search(r"\b(\d+)\s+days?\s+ago\b", s)
+         or re.search(r"(?:added|listed|posted)\s+(\d+)\s+days?", s))
     if m:
-        return (today - timedelta(days=int(m.group(1)))).strftime("%d/%m/%Y")
-    m = re.search(r"added\s+(\d+)\s+week", text, re.I)
+        try:
+            return (today - timedelta(days=int(m.group(1)))).strftime("%d/%m/%Y")
+        except (ValueError, OverflowError):
+            pass
+
+    m = (re.search(r"\b(\d+)\s+weeks?\s+ago\b", s)
+         or re.search(r"(?:added|listed|posted)\s+(\d+)\s+weeks?", s))
     if m:
-        return (today - timedelta(weeks=int(m.group(1)))).strftime("%d/%m/%Y")
-    m = re.search(r"added\s+(\d{1,2})\s+([A-Za-z]{3,})", text, re.I)
+        try:
+            return (today - timedelta(weeks=int(m.group(1)))).strftime("%d/%m/%Y")
+        except (ValueError, OverflowError):
+            pass
+
+    m = (re.search(r"\b(\d+)\s+months?\s+ago\b", s)
+         or re.search(r"(?:added|listed|posted)\s+(\d+)\s+months?", s))
+    if m:
+        try:
+            return (today - timedelta(days=int(m.group(1)) * 30)).strftime("%d/%m/%Y")
+        except (ValueError, OverflowError):
+            pass
+
+    m = re.search(r"(?:added|listed|posted|on)\s+(\d{1,2})\s+([A-Za-z]{3,})", text, re.I)
     if m:
         try:
             dt = datetime.strptime(f"{m.group(1)} {m.group(2)[:3].capitalize()} {today.year}", "%d %b %Y")
@@ -71,6 +101,16 @@ def _parse_date_text(text):
             return dt.strftime("%d/%m/%Y")
         except ValueError:
             pass
+
+    m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b", text)
+    if m:
+        try:
+            dt = datetime(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+            if dt <= today + timedelta(days=1):
+                return dt.strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+
     return ""
 
 
@@ -84,11 +124,16 @@ def _extract_date(card):
             except ValueError:
                 pass
         txt = el.get_text(strip=True)
-        if not txt or len(txt) > 50:
+        if not txt or len(txt) > 120:
             continue
         result = _parse_date_text(txt)
         if result:
             return result
+    # Fallback: scan the whole card text (helps when the date sits inside a
+    # longer composite element).
+    full = card.get_text(" ", strip=True)
+    if full and len(full) < 3000:
+        return _parse_date_text(full)
     return ""
 
 
@@ -141,32 +186,63 @@ def _parse_card(card, suburb_name):
     if not address:
         address = "Address not disclosed"
 
+    # Price detection — text labels first, then $-based formulas.
+    # Western suburbs rarely state a number; common formats:
+    # "Offers Closing 5th May", "CONTACT ANDREW", "NEW PRICE - $3,000,000",
+    # "Early $1,000,000s", "EOI", "By Negotiation".
+    TEXT_PRICE_LABELS = re.compile(
+        r"\b(?:auction|price\s+on\s+application|by\s+negotiation|"
+        r"expressions?\s+of\s+interest|eoi|"
+        r"offers?\s+clos(?:e|ing)|bids?\s+clos(?:e|ing)|"
+        r"all\s+offers?(?:\s+presented)?|best\s+offers?|"
+        r"under\s+instructions|price\s+guide)\b",
+        re.I,
+    )
+    CONTACT_RE = re.compile(r"^(?:contact|call)\s+[\w\s&|.\'\-]{1,40}$", re.I)
+    MODIFIER_DOLLAR = re.compile(
+        r"((?:early|mid|late|high|low|offers?\s+(?:from|over|above|around)|"
+        r"from|above|over|around|new\s+price\s*-?\s*)"
+        r"\s*\$[\d,\.]+\s*[MmKk]?(?:illion)?s?)",
+        re.I,
+    )
+    DOLLAR_RANGE = re.compile(r"\$([\d,]+)\s*[-\u2013]\s*\$([\d,]+)")
+    PLAIN_DOLLAR = re.compile(r"\$(\d{1,3}(?:,\d{3})+|\d+\.\d+[MmKk]|\d+[MmKk])")
+
     price = ""
     for el in card.find_all(["span", "div", "p", "strong", "h2", "h3"]):
         txt = el.get_text(strip=True)
-        if not txt or len(txt) > 100 or len(txt) < 2:
+        if not txt or len(txt) > 120 or len(txt) < 2:
             continue
         if "p-details__add" in " ".join(el.get("class", [])):
             continue
         txt = re.sub(r"save listing.*$", "", txt, flags=re.I).strip()
         if not txt:
             continue
-        if re.match(r"^(auction|price on application|contact agent|by negotiation|expressions? of interest)$", txt, re.I):
+
+        if TEXT_PRICE_LABELS.search(txt):
             price = txt
             break
-        m = re.search(r"\$([\d,]+)\s*[-\u2013]\s*\$([\d,]+)", txt)
-        if m:
-            price = f"${m.group(1)} - ${m.group(2)}"
+        if CONTACT_RE.match(txt):
+            price = txt
             break
-        m = re.search(r"((?:offers?\s+(?:from|over|above|around)|from|above|over)\s*\$[\d,\.]+(?:[Mm](?:illion)?)?)", txt, re.I)
+        m = MODIFIER_DOLLAR.search(txt)
         if m:
             price = m.group(1).strip()
             break
-        m = re.search(r"\$(\d{1,3}(?:,\d{3})+|\d+\.\d+[Mm]|\d+[Mm])", txt)
+        m = DOLLAR_RANGE.search(txt)
         if m:
+            price = f"${m.group(1)} - ${m.group(2)}"
+            break
+        m = PLAIN_DOLLAR.search(txt)
+        if m:
+            raw = m.group(1).replace(",", "").lower()
             try:
-                raw = m.group(1).replace(",", "").replace("M", "000000").replace("m", "000000")
-                if float(raw) >= 100000:
+                v = float(re.sub(r"[mk]", "", raw))
+                if "m" in raw:
+                    v *= 1_000_000
+                elif "k" in raw:
+                    v *= 1_000
+                if v >= 100_000:
                     price = f"${m.group(1)}"
                     break
             except ValueError:
@@ -347,18 +423,51 @@ def _fetch_detail(page, url):
                 except ValueError:
                     pass
 
-        m = re.search(r"\$([\d]{1,3}(?:,[\d]{3})+)", t[:600])
+        # Price from detail page header. Accepts any of:
+        # - $X,XXX,XXX / $1.2M / $3m
+        # - "From/Over/Above/Around $X", "Offers From/Over $X"
+        # - "Mid/Early/Late/High/Low $X[s]"
+        # - "NEW PRICE - $X"
+        # - Text-only labels: Auction, Offers Closing, Contact Agent/Name,
+        #   Call [Name], EOI, Expressions of Interest, Price on Application,
+        #   By Negotiation, All Offers, Best Offers, Under Instructions
+        head = t[:800]
+        TEXT_PRICE_RE = re.compile(
+            r"(?:offers?\s+clos(?:e|ing)[^.\n]{0,40})"
+            r"|(?:bids?\s+clos(?:e|ing)[^.\n]{0,40})"
+            r"|(?:contact\s+(?:agent|the\s+agent|\w+))"
+            r"|(?:call\s+\w+)"
+            r"|(?:expressions?\s+of\s+interest)"
+            r"|(?:\beoi\b)"
+            r"|(?:all\s+offers(?:\s+presented)?)"
+            r"|(?:best\s+offers?)"
+            r"|(?:by\s+negotiation)"
+            r"|(?:under\s+instructions)"
+            r"|(?:price\s+(?:on\s+application|guide))"
+            r"|(?:\bauction\b)",
+            re.I,
+        )
+        m = re.search(
+            r"((?:offers?\s+|mid\s+|early\s+|late\s+|high\s+|low\s+|new\s+price\s*-?\s*|from\s+|over\s+|above\s+|around\s+)?"
+            r"\$\d+(?:,\d{3})*(?:\.\d+)?\s*[MmKk]?(?:[a-z]{0,8})?)",
+            head, re.I,
+        )
         if m:
-            out["price_text"] = f"${m.group(1)}"
+            candidate = m.group(1).strip()
+            # sanity: must contain a number >= 100k or have a M suffix
+            digits = re.sub(r"[^\d.MmKk]", "", candidate)
+            if digits and ("m" in digits.lower() or
+                           (re.fullmatch(r"[\d.]+", digits) and float(digits) >= 100)):
+                out["price_text"] = candidate
+        if not out["price_text"]:
+            m = TEXT_PRICE_RE.search(head)
+            if m:
+                out["price_text"] = m.group(0).strip()[:120]
 
-        # Listing date from detail page
-        for el in soup.find_all(["span", "div", "p", "time"]):
-            txt = el.get_text(strip=True)
-            if txt and len(txt) < 60:
-                d = _parse_date_text(txt)
-                if d:
-                    out["listing_date"] = d
-                    break
+        # Listing date from detail page — scan a generous slice of the full text
+        # so composite elements ("Acton | Belle Property Cottesloe · Added 11
+        # days ago · 4 bedrooms") still match.
+        out["listing_date"] = _parse_date_text(t[:5000])
 
         # Address from detail page (h1 or h2.p-details__add)
         addr_el = soup.find("h2", class_="p-details__add") or soup.find("h1")
@@ -1065,11 +1174,21 @@ def compare_suburb(suburb_slug, db_urls):
             all_reiwa_urls = set()
             page_num = 1
             consecutive_empty = 0
+            failed_pages = 0
 
             while page_num <= MAX_PAGES:
                 url = _build_url(suburb_slug, page_num)
                 if not _load_listing_page(page, url):
-                    break
+                    failed_pages += 1
+                    # Allow up to 2 non-contiguous page-load failures before giving up —
+                    # avoids the early break that leaves pages_scraped=1 and a bogus
+                    # extra_in_db full of URLs we just didn't get around to checking.
+                    if failed_pages >= 2:
+                        logger.warning(f"{suburb_name} compare: {failed_pages} page loads failed, stopping")
+                        break
+                    logger.info(f"{suburb_name} compare: page {page_num} load failed, skipping to next")
+                    page_num += 1
+                    continue
 
                 html = page.content()
                 soup = BeautifulSoup(html, "html.parser")
