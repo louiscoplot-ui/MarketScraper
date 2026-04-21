@@ -262,24 +262,29 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 (existing['id'], old_price, new_price)
             )
 
+        # NULLIF(?, '') coerces empty strings to NULL so COALESCE preserves the
+        # existing populated value rather than overwriting it with blank data
+        # (e.g. when a known URL is re-scraped and the card parse can't see
+        # landsize/internal/date — those fields should NEVER wipe previously
+        # captured values from detail-page fetches).
         conn.execute("""
             UPDATE listings SET
-                address = COALESCE(?, address),
-                price_text = COALESCE(?, price_text),
+                address = COALESCE(NULLIF(?, ''), address),
+                price_text = COALESCE(NULLIF(?, ''), price_text),
                 bedrooms = COALESCE(?, bedrooms),
                 bathrooms = COALESCE(?, bathrooms),
                 parking = COALESCE(?, parking),
-                land_size = COALESCE(?, land_size),
-                internal_size = COALESCE(?, internal_size),
-                agency = COALESCE(?, agency),
-                agent = COALESCE(?, agent),
+                land_size = COALESCE(NULLIF(?, ''), land_size),
+                internal_size = COALESCE(NULLIF(?, ''), internal_size),
+                agency = COALESCE(NULLIF(?, ''), agency),
+                agent = COALESCE(NULLIF(?, ''), agent),
                 status = ?,
                 last_seen = ?,
-                sold_price = COALESCE(?, sold_price),
-                sold_date = COALESCE(?, sold_date),
-                listing_type = COALESCE(?, listing_type),
-                listing_date = COALESCE(?, listing_date),
-                source = COALESCE(?, source)
+                sold_price = COALESCE(NULLIF(?, ''), sold_price),
+                sold_date = COALESCE(NULLIF(?, ''), sold_date),
+                listing_type = COALESCE(NULLIF(?, ''), listing_type),
+                listing_date = COALESCE(NULLIF(?, ''), listing_date),
+                source = COALESCE(NULLIF(?, ''), source)
             WHERE id = ?
         """, (
             data.get('address'), data.get('price_text'),
