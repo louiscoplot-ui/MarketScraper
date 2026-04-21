@@ -25,22 +25,34 @@ function App() {
   const [selectedAgency, setSelectedAgency] = useState('')
   const [showThemeModal, setShowThemeModal] = useState(false)
 
+  // Terracotta & Jade — warm paper with deep ocean-jade, terracotta accent (DEFAULT)
   const defaultTheme = {
-    bg: '#0f172a', surface: '#1e293b', surfaceHover: '#334155', border: '#334155',
-    text: '#e2e8f0', textMuted: '#94a3b8', primary: '#3b82f6',
+    bg: '#EFE2C7', surface: '#F7ECD4', surfaceHover: '#E5D3B0', border: '#D4C09A',
+    text: '#1B3842', textMuted: '#5C6F77', primary: '#D2775A',
   }
 
   const presets = {
-    'Dark (Default)': { bg: '#0f172a', surface: '#1e293b', surfaceHover: '#334155', border: '#334155', text: '#e2e8f0', textMuted: '#94a3b8', primary: '#3b82f6' },
-    'Belle Property': { bg: '#1a2e22', surface: '#243d2e', surfaceHover: '#2f5040', border: '#3a5f4a', text: '#f0f5f2', textMuted: '#a8c5b0', primary: '#c9a84c' },
-    'Light': { bg: '#f8fafc', surface: '#ffffff', surfaceHover: '#f1f5f9', border: '#e2e8f0', text: '#1e293b', textMuted: '#64748b', primary: '#3b82f6' },
-    'Green Agency': { bg: '#0f1f0f', surface: '#1a2e1a', surfaceHover: '#2d4a2d', border: '#2d4a2d', text: '#e2f0e2', textMuted: '#8fbc8f', primary: '#22c55e' },
-    'Gold Luxury': { bg: '#1a1710', surface: '#2a2518', surfaceHover: '#3d3522', border: '#3d3522', text: '#f0e6d0', textMuted: '#c4a96a', primary: '#d4a843' },
+    'Terracotta & Jade': {
+      bg: '#EFE2C7', surface: '#F7ECD4', surfaceHover: '#E5D3B0', border: '#D4C09A',
+      text: '#1B3842', textMuted: '#5C6F77', primary: '#D2775A',
+    },
+    'Burgundy & Rye': {
+      bg: '#E8D8B8', surface: '#F1E4C6', surfaceHover: '#D8C69D', border: '#BFA97A',
+      text: '#1E1B14', textMuted: '#6B5E45', primary: '#8A2420',
+    },
+    'Nocturnal': {
+      bg: '#0E1A28', surface: '#172739', surfaceHover: '#22334A', border: '#3A4B62',
+      text: '#E4EAF1', textMuted: '#8FA3B8', primary: '#D4AA4A',
+    },
+    'Tropical Vivid': {
+      bg: '#0F2A4D', surface: '#173862', surfaceHover: '#224A82', border: '#2D5B95',
+      text: '#F7E6D4', textMuted: '#B3C3D8', primary: '#E77D37',
+    },
   }
 
   const [theme, setTheme] = useState(() => {
     try {
-      const saved = localStorage.getItem('ms_theme')
+      const saved = localStorage.getItem('ms_theme_v2')
       return saved ? JSON.parse(saved) : defaultTheme
     } catch { return defaultTheme }
   })
@@ -55,7 +67,7 @@ function App() {
     root.style.setProperty('--text-muted', theme.textMuted)
     root.style.setProperty('--primary', theme.primary)
     root.style.setProperty('--primary-hover', theme.primary)
-    localStorage.setItem('ms_theme', JSON.stringify(theme))
+    localStorage.setItem('ms_theme_v2', JSON.stringify(theme))
   }, [theme])
 
   const updateColor = (key, val) => setTheme(prev => ({ ...prev, [key]: val }))
