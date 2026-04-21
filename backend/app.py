@@ -123,7 +123,10 @@ def market_report():
         return None
 
     def calc_dom(l):
-        date_str = l.get('listing_date') or l.get('first_seen') or ''
+        # Only count DOM when REIWA actually published a listing date —
+        # first_seen would just fabricate a number based on when we first
+        # scraped the listing.
+        date_str = l.get('listing_date') or ''
         if not date_str:
             return None
         ddmm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
@@ -320,7 +323,10 @@ def export_listings():
     import re as _re
 
     def _calc_dom(listing):
-        date_str = listing.get('listing_date') or listing.get('first_seen') or ''
+        # Only count DOM when REIWA published a listing date; don't fall back
+        # to first_seen because that invents a DOM measured from when we
+        # started scraping, not from the real listing day.
+        date_str = listing.get('listing_date') or ''
         if not date_str:
             return None
         ddmm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', date_str)
@@ -1134,7 +1140,7 @@ def _run_scrape(suburb_id, slug, name):
             # Avg DOM
             snap_doms = []
             for r in snap_active:
-                ds = r['listing_date'] or r['first_seen'] or ''
+                ds = r['listing_date'] or ''
                 dm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', ds)
                 try:
                     if dm:

@@ -292,8 +292,11 @@ function App() {
   const deselectAllCheck = () => setCheckedSuburbs(new Set())
 
   // --- Days on Market ---
+  // DOM — only calculable when REIWA actually published a listing date.
+  // We deliberately don't fall back to first_seen (the day our scraper first
+  // saw the listing): that would invent a DOM. Better to show "-" than lie.
   const calcDOM = (listing) => {
-    const dateStr = listing.listing_date || listing.first_seen
+    const dateStr = listing.listing_date
     if (!dateStr) return null
     let start
     // listing_date is dd/mm/yyyy format
@@ -331,8 +334,8 @@ function App() {
       va = calcDOM(a) ?? -1
       vb = calcDOM(b) ?? -1
     } else if (effectiveField === 'listing_date') {
-      va = parseDateToSortable(a.listing_date || a.first_seen)
-      vb = parseDateToSortable(b.listing_date || b.first_seen)
+      va = parseDateToSortable(a.listing_date)
+      vb = parseDateToSortable(b.listing_date)
     } else {
       va = a[effectiveField]
       vb = b[effectiveField]
