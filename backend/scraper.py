@@ -1078,7 +1078,8 @@ def debug_detail(url):
             out['text_length'] = len(t)
 
             # Find snippets around the interesting keywords
-            for kw in ['landsize', 'land size', 'floor area', 'internal', 'strata']:
+            for kw in ['landsize', 'land size', 'floor area', 'internal', 'strata',
+                       'added ', 'listed ', 'posted ', 'days ago', 'weeks ago', 'hours ago']:
                 idx = t.lower().find(kw)
                 if idx >= 0:
                     out['snippets'][kw] = t[max(0, idx - 30): idx + 120]
