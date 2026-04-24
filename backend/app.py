@@ -76,6 +76,23 @@ def delete_suburb(suburb_id):
 
 # --- LISTINGS ---
 
+@app.route('/api/listings/<int:listing_id>', methods=['DELETE'])
+def delete_listing(listing_id):
+    """Manual delete of a single listing row — useful for cleaning stale
+    withdrawn rows that the auto re-list detector couldn't match (e.g. the
+    withdrawn row has 'Address not disclosed' so no address to normalise)."""
+    conn = get_db()
+    row = conn.execute("SELECT id, address, status FROM listings WHERE id = ?",
+                       (listing_id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Listing not found'}), 404
+    conn.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'deleted': listing_id, 'address': row['address'], 'status': row['status']})
+
+
 @app.route('/api/listings', methods=['GET'])
 def list_listings():
     suburb_id = request.args.get('suburb_id', type=int)
@@ -451,7 +468,7 @@ def export_listings():
     ws.title = "Listings"
     columns = ['Address', 'Suburb', 'Price', 'Price (AUD)', 'Bed', 'Bath', 'Car',
                'Land (m²)', 'Internal (m²)', 'Agency', 'Agent', 'Listed', 'DOM',
-               'Status', 'Type', 'Link']
+               'Withdrawn', 'Status', 'Type', 'Link']
     for col_idx, col_name in enumerate(columns, 1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
@@ -463,8 +480,16 @@ def export_listings():
         7: BODY_ALIGN_CENTER, 8: BODY_ALIGN_RIGHT, 9: BODY_ALIGN_RIGHT,
         10: BODY_ALIGN_LEFT, 11: BODY_ALIGN_LEFT, 12: BODY_ALIGN_CENTER,
         13: BODY_ALIGN_CENTER, 14: BODY_ALIGN_CENTER, 15: BODY_ALIGN_CENTER,
-        16: BODY_ALIGN_CENTER,
+        16: BODY_ALIGN_CENTER, 17: BODY_ALIGN_CENTER,
     }
+
+    def _iso_to_date(iso):
+        if not iso:
+            return None
+        try:
+            return datetime.fromisoformat(iso.replace('Z', '').split('.')[0]).date()
+        except (ValueError, AttributeError):
+            return None
 
     for row_idx, l in enumerate(listings, 2):
         status_raw = (l.get('status') or '').lower()
@@ -498,10 +523,14 @@ def export_listings():
         if listed_date:
             dcell.number_format = 'DD/MM/YYYY'
         dom_cell = ws.cell(row=row_idx, column=13, value=dom)
-        scell = ws.cell(row=row_idx, column=14,
+        withdrawn_date = _iso_to_date(l.get('withdrawn_date'))
+        wcell = ws.cell(row=row_idx, column=14, value=withdrawn_date)
+        if withdrawn_date:
+            wcell.number_format = 'DD/MM/YYYY'
+        scell = ws.cell(row=row_idx, column=15,
                         value=status_raw.replace('_', ' ').title() if status_raw else '')
-        ws.cell(row=row_idx, column=15, value=l.get('listing_type', ''))
-        link_cell = ws.cell(row=row_idx, column=16, value="View on REIWA" if url else '')
+        ws.cell(row=row_idx, column=16, value=l.get('listing_type', ''))
+        link_cell = ws.cell(row=row_idx, column=17, value="View on REIWA" if url else '')
         if url:
             link_cell.hyperlink = url
 
@@ -526,8 +555,9 @@ def export_listings():
         ws.row_dimensions[row_idx].height = 22
 
     # Fixed widths tuned for the column contents
+    #                  Addr Sub  Pri  P(AUD) B  B  C  Land Intl Agcy Agt  Lstd DOM Wdrn Sts Typ Link
     for col_idx, width in enumerate(
-        [34, 18, 20, 14, 6, 6, 6, 13, 15, 28, 22, 12, 8, 14, 14, 18], 1
+        [34, 18, 20, 14, 6, 6, 6, 13, 15, 28, 22, 12, 8, 12, 14, 14, 18], 1
     ):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
     _style_header_row(ws, len(columns), height=34)

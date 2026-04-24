@@ -320,9 +320,31 @@ function App() {
     return dateStr // ISO format already sortable
   }
 
+  // withdrawn_date is stored as ISO ("2026-04-24T05:30:00"); display dd/mm/yyyy
+  const formatIsoDate = (iso) => {
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return iso
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
+  }
+
+  const DESC_DEFAULT_FIELDS = new Set(['listing_date', 'dom', 'withdrawn_date'])
   const toggleSort = (field) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortField(field); setSortDir(field === 'listing_date' || field === 'dom' ? 'desc' : 'asc') }
+    else { setSortField(field); setSortDir(DESC_DEFAULT_FIELDS.has(field) ? 'desc' : 'asc') }
+  }
+
+  const deleteListing = async (listing) => {
+    if (!listing?.id) return
+    const label = listing.address || `#${listing.id}`
+    if (!confirm(`Delete this ${listing.status || 'listing'}?\n\n${label}\n\nThis removes the row from the database. Cannot be undone (but a future scrape will re-add it if the URL reappears on REIWA).`)) return
+    const res = await fetch(`${API}/listings/${listing.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      fetchListings()
+      fetchSuburbs()  // refresh per-suburb counts
+    } else {
+      alert('Delete failed')
+    }
   }
 
   const sortedListings = [...listings].sort((a, b) => {
@@ -1024,6 +1046,7 @@ function App() {
                         ['agent', 'Agent'],
                         ['listing_date', 'Listed'],
                         ['dom', 'DOM'],
+                        ['withdrawn_date', 'Withdrawn'],
                         ['status', 'Status'],
                         ['listing_type', 'Type'],
                       ].map(([field, label]) => (
@@ -1033,6 +1056,7 @@ function App() {
                         </th>
                       ))}
                       <th>Link</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1057,6 +1081,7 @@ function App() {
                           {calcDOM(l) != null ? calcDOM(l) : '-'}
                           {(calcDOM(l) ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
                         </td>
+                        <td className="date-cell">{formatIsoDate(l.withdrawn_date) || '-'}</td>
                         <td>
                           <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
                             {l.status?.replace('_', ' ')}
@@ -1068,11 +1093,18 @@ function App() {
                             <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
                           ) : '-'}
                         </td>
+                        <td className="link-cell">
+                          <button
+                            className="btn-delete-row"
+                            title={`Delete this ${l.status} listing`}
+                            onClick={() => deleteListing(l)}
+                          >×</button>
+                        </td>
                       </tr>
                     ))}
                     {filteredListings.length === 0 && (
                       <tr>
-                        <td colSpan="15" className="empty">
+                        <td colSpan="17" className="empty">
                           {suburbs.length === 0
                             ? 'Add a suburb to get started'
                             : 'No listings yet. Click "Scrape" to fetch data.'}

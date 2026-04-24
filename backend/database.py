@@ -173,6 +173,14 @@ def init_db():
         conn.execute("ALTER TABLE listings ADD COLUMN withdrawn_date TEXT")
     except Exception:
         pass
+    # Backfill withdrawn_date for existing withdrawn rows using last_seen as a
+    # best-effort approximation (mark_withdrawn updates last_seen at the same
+    # time it flips the status, so the two timestamps match for any future
+    # withdrawal; for pre-migration rows last_seen is the closest proxy we have).
+    conn.execute(
+        "UPDATE listings SET withdrawn_date = last_seen "
+        "WHERE status = 'withdrawn' AND withdrawn_date IS NULL"
+    )
     # Migrate: normalized address for cross-agency re-list detection
     try:
         conn.execute("ALTER TABLE listings ADD COLUMN normalized_address TEXT")
