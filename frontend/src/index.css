@@ -445,6 +445,11 @@ header h1 {
 
 table {
   width: 100%;
+  /* When the sum of natural column widths exceeds the viewport the table
+     stays at its intrinsic width and the wrapper scrolls horizontally —
+     otherwise th[white-space: nowrap] would silently truncate the last
+     columns (Status / Type / Link / Delete) on narrower screens. */
+  min-width: max-content;
   border-collapse: collapse;
   font-size: 13px;
 }
