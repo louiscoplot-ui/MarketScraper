@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import shutil
 import os
@@ -5,6 +6,38 @@ from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'reiwa.db')
 BACKUP_DIR = os.path.join(os.path.dirname(__file__), 'backups')
+
+
+_STREET_ABBREVS = {
+    'street': 'st', 'st.': 'st',
+    'road': 'rd', 'rd.': 'rd',
+    'avenue': 'av', 'ave': 'av', 'av.': 'av',
+    'drive': 'dr', 'dr.': 'dr',
+    'court': 'ct', 'ct.': 'ct',
+    'place': 'pl', 'pl.': 'pl',
+    'crescent': 'cres',
+    'parade': 'pde',
+    'highway': 'hwy', 'hway': 'hwy',
+    'terrace': 'tce',
+    'lane': 'ln',
+    'close': 'cl',
+    'boulevard': 'bvd', 'blvd': 'bvd',
+    'boulevarde': 'bvd',
+}
+
+
+def normalize_address(addr):
+    """Cheap address normaliser used to match the same property listed by
+    different agencies (different REIWA URLs but same building/door)."""
+    if not addr:
+        return ''
+    s = addr.lower().strip()
+    s = re.sub(r'[,\.]', ' ', s)
+    s = re.sub(r'\s+', ' ', s)
+    for full, short in _STREET_ABBREVS.items():
+        s = re.sub(r'\b' + re.escape(full) + r'\b', short, s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
 
 
 def restore_false_withdrawn(suburb_id=None):
@@ -16,12 +49,14 @@ def restore_false_withdrawn(suburb_id=None):
 
     if suburb_id:
         result = conn.execute(
-            "UPDATE listings SET status = 'active' WHERE status = 'withdrawn' AND last_seen > ? AND suburb_id = ?",
+            "UPDATE listings SET status = 'active', withdrawn_date = NULL "
+            "WHERE status = 'withdrawn' AND last_seen > ? AND suburb_id = ?",
             (yesterday, suburb_id)
         )
     else:
         result = conn.execute(
-            "UPDATE listings SET status = 'active' WHERE status = 'withdrawn' AND last_seen > ?",
+            "UPDATE listings SET status = 'active', withdrawn_date = NULL "
+            "WHERE status = 'withdrawn' AND last_seen > ?",
             (yesterday,)
         )
     restored = result.rowcount
@@ -133,6 +168,32 @@ def init_db():
         conn.execute("ALTER TABLE listings ADD COLUMN source TEXT DEFAULT 'reiwa'")
     except Exception:
         pass  # column already exists
+    # Migrate: timestamp of when a listing was marked withdrawn
+    try:
+        conn.execute("ALTER TABLE listings ADD COLUMN withdrawn_date TEXT")
+    except Exception:
+        pass
+    # Migrate: normalized address for cross-agency re-list detection
+    try:
+        conn.execute("ALTER TABLE listings ADD COLUMN normalized_address TEXT")
+    except Exception:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_listings_normaddr "
+                 "ON listings(suburb_id, normalized_address)")
+    # Backfill normalized_address for any rows that have an address but no
+    # normalized_address yet — needed for re-list detection on existing data.
+    rows_to_backfill = conn.execute(
+        "SELECT id, address FROM listings "
+        "WHERE address IS NOT NULL AND address != '' "
+        "AND (normalized_address IS NULL OR normalized_address = '')"
+    ).fetchall()
+    for r in rows_to_backfill:
+        conn.execute(
+            "UPDATE listings SET normalized_address = ? WHERE id = ?",
+            (normalize_address(r['address']), r['id'])
+        )
+    if rows_to_backfill:
+        conn.commit()
 
     # Price history tracking
     conn.executescript("""
@@ -236,10 +297,15 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
 
 def upsert_listing(suburb_id, reiwa_url, data):
     """Insert or update a listing. Keyed by reiwa_url (each REIWA listing is unique).
-    Same property listed by 2 agencies = 2 different URLs = 2 rows."""
+    Same property listed by 2 agencies SIMULTANEOUSLY = 2 different URLs = 2 rows.
+    But if a previously-withdrawn row exists for the same address (any agency)
+    and we're now seeing a fresh active/under_offer/sold listing, the old
+    withdrawn row is deleted — the property is effectively back on the market."""
     reiwa_url = reiwa_url.rstrip('/')  # always store without trailing slash
     conn = get_db()
     now = datetime.utcnow().isoformat()
+    norm_addr = normalize_address(data.get('address') or '')
+    new_status = data.get('status', 'active')
 
     # Match both normalized URL and legacy format (with trailing slash)
     existing = conn.execute(
@@ -252,6 +318,17 @@ def upsert_listing(suburb_id, reiwa_url, data):
         conn.execute("UPDATE listings SET reiwa_url = ? WHERE id = ?", (reiwa_url, existing['id']))
         conn.commit()
 
+    # If this listing is back on the market, drop any stale withdrawn rows for
+    # the same property at the same address (different URL, possibly different
+    # agency — REIWA assigns a fresh ID on re-list, so the old row is dead).
+    if norm_addr and new_status in ('active', 'under_offer', 'sold'):
+        excluded_id = existing['id'] if existing else -1
+        conn.execute(
+            "DELETE FROM listings WHERE suburb_id = ? AND status = 'withdrawn' "
+            "AND normalized_address = ? AND id != ?",
+            (suburb_id, norm_addr, excluded_id)
+        )
+
     if existing:
         # Detect price change
         new_price = data.get('price_text')
@@ -262,14 +339,22 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 (existing['id'], old_price, new_price)
             )
 
+        # If transitioning OUT of withdrawn, clear the withdrawn_date.
+        # If transitioning INTO withdrawn, stamp it (mark_withdrawn handles bulk
+        # but a single-row UPDATE here covers any caller setting status directly).
+        clear_withdrawn = existing['status'] == 'withdrawn' and new_status != 'withdrawn'
+        stamp_withdrawn = existing['status'] != 'withdrawn' and new_status == 'withdrawn'
+        new_withdrawn_date = (
+            None if clear_withdrawn
+            else (now if stamp_withdrawn else existing['withdrawn_date'])
+        )
+
         # NULLIF(?, '') coerces empty strings to NULL so COALESCE preserves the
-        # existing populated value rather than overwriting it with blank data
-        # (e.g. when a known URL is re-scraped and the card parse can't see
-        # landsize/internal/date — those fields should NEVER wipe previously
-        # captured values from detail-page fetches).
+        # existing populated value rather than overwriting it with blank data.
         conn.execute("""
             UPDATE listings SET
                 address = COALESCE(NULLIF(?, ''), address),
+                normalized_address = COALESCE(NULLIF(?, ''), normalized_address),
                 price_text = COALESCE(NULLIF(?, ''), price_text),
                 bedrooms = COALESCE(?, bedrooms),
                 bathrooms = COALESCE(?, bathrooms),
@@ -279,6 +364,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 agency = COALESCE(NULLIF(?, ''), agency),
                 agent = COALESCE(NULLIF(?, ''), agent),
                 status = ?,
+                withdrawn_date = ?,
                 last_seen = ?,
                 sold_price = COALESCE(NULLIF(?, ''), sold_price),
                 sold_date = COALESCE(NULLIF(?, ''), sold_date),
@@ -287,11 +373,12 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 source = COALESCE(NULLIF(?, ''), source)
             WHERE id = ?
         """, (
-            data.get('address'), data.get('price_text'),
+            data.get('address'), norm_addr, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            data.get('status', existing['status']),
+            new_status,
+            new_withdrawn_date,
             now,
             data.get('sold_price'), data.get('sold_date'),
             data.get('listing_type'),
@@ -305,17 +392,19 @@ def upsert_listing(suburb_id, reiwa_url, data):
     else:
         conn.execute("""
             INSERT INTO listings (
-                suburb_id, address, reiwa_url, price_text,
+                suburb_id, address, normalized_address, reiwa_url, price_text,
                 bedrooms, bathrooms, parking, land_size, internal_size,
-                agency, agent, status, first_seen, last_seen,
+                agency, agent, status, withdrawn_date, first_seen, last_seen,
                 sold_price, sold_date, listing_type, listing_date, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            suburb_id, data.get('address', ''), reiwa_url, data.get('price_text'),
+            suburb_id, data.get('address', ''), norm_addr, reiwa_url, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            data.get('status', 'active'), now, now,
+            new_status,
+            now if new_status == 'withdrawn' else None,
+            now, now,
             data.get('sold_price'), data.get('sold_date'),
             data.get('listing_type'),
             data.get('listing_date'),
@@ -361,8 +450,9 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
     for listing in current_active:
         if listing['reiwa_url'].rstrip('/') not in all_seen:
             conn.execute(
-                "UPDATE listings SET status = 'withdrawn', last_seen = ? WHERE id = ?",
-                (now, listing['id'])
+                "UPDATE listings SET status = 'withdrawn', withdrawn_date = ?, "
+                "last_seen = ? WHERE id = ?",
+                (now, now, listing['id'])
             )
             withdrawn_count += 1
 
