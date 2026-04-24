@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import HotVendorScoring from './HotVendorScoring'
 
 const API = '/api'
 
@@ -462,6 +463,12 @@ function App() {
           >
             {view === 'logs' ? 'View Listings' : 'View Logs'}
           </button>
+          <button
+            className={`btn btn-hot-vendor ${view === 'hot-vendors' ? 'active' : ''}`}
+            onClick={() => setView(v => v === 'hot-vendors' ? 'listings' : 'hot-vendors')}
+          >
+            {view === 'hot-vendors' ? 'View Listings' : 'Hot Vendors'}
+          </button>
           <button className="btn btn-secondary" onClick={() => setShowThemeModal(true)}>
             Theme
           </button>
@@ -666,7 +673,9 @@ function App() {
         </aside>
 
         <main className="content">
-          {view === 'report' && report ? (
+          {view === 'hot-vendors' ? (
+            <HotVendorScoring />
+          ) : view === 'report' && report ? (
             <div className="report-view">
               <h2>Market Report{reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length
                 ? ` — ${[...reportSuburbs].map(id => suburbs.find(s => s.id === id)?.name).filter(Boolean).join(', ')}`
