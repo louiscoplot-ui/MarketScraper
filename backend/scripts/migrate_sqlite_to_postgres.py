@@ -90,7 +90,27 @@ def main():
             print(f"  {table}: empty")
             continue
         total_in += len(rows)
-        cols = list(rows[0].keys())
+        src_cols = list(rows[0].keys())
+
+        # Schema-drift defence: only insert columns that exist on BOTH sides.
+        # Source-only columns (legacy ALTERs that never made it into init_db,
+        # like reiwa_position) get silently dropped with a one-line notice.
+        cur = raw.cursor()
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (table,),
+        )
+        dst_cols = {r[0] for r in cur.fetchall()}
+        cols = [c for c in src_cols if c in dst_cols]
+        dropped = [c for c in src_cols if c not in dst_cols]
+        if dropped:
+            print(f"  (skipping {len(dropped)} source-only column(s) "
+                  f"absent in Postgres: {dropped})")
+        if not cols:
+            print(f"  {table}: no usable columns, skipping")
+            continue
+
         col_sql = ','.join(cols)
         sql = (f"INSERT INTO {table} ({col_sql}) VALUES %s "
                f"ON CONFLICT DO NOTHING")
