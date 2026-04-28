@@ -17,7 +17,7 @@ from database import init_db, get_db, add_suburb, remove_suburb, get_suburbs, ge
 from database import upsert_listing, mark_withdrawn, create_scrape_log, update_scrape_log, get_scrape_logs
 from database import get_existing_urls, trim_sold_listings, cleanup_agent_entries, restore_false_withdrawn
 from database import backup_db, get_price_changes, take_market_snapshot, get_market_snapshots
-from scraper import scrape_suburb, debug_page, compare_suburb, debug_detail
+from scraper import scrape_suburb, debug_page, compare_suburb, debug_detail, verify_disappeared_listings
 
 app = Flask(__name__)
 CORS(app)
@@ -1118,9 +1118,44 @@ def _run_scrape(suburb_id, slug, name):
             upsert_listing(suburb_id, url, listing)
             saved_sold += 1
 
-        # Mark withdrawn — if we captured all (or nearly all) listings REIWA has
-        # REIWA's stated total can be stale (includes recently sold/withdrawn), so
-        # we're confident if we got >= 95% of it or within 3 listings
+        # Pre-withdrawn verification — rescue listings that disappeared from
+        # the for-sale grid AND fell past page 10 of sold (so they weren't in
+        # sold_urls either). Visit each candidate's detail page; REIWA usually
+        # still serves the page with a clear SOLD or UNDER OFFER badge.
+        progress_cb('Verifying disappeared listings...')
+        conn = get_db()
+        db_active_rows = conn.execute(
+            "SELECT reiwa_url FROM listings WHERE suburb_id = ? "
+            "AND status IN ('active', 'under_offer') AND reiwa_url IS NOT NULL",
+            (suburb_id,)
+        ).fetchall()
+        conn.close()
+        db_active_urls = {r['reiwa_url'].rstrip('/') for r in db_active_rows}
+        seen_set = {u.rstrip('/') for u in (forsale_urls + sold_urls)}
+        candidates = list(db_active_urls - seen_set)
+
+        rescued_sold = 0
+        rescued_active = 0
+        if candidates:
+            logger.info(f"[{name}] Verifying {len(candidates)} disappeared URL(s) via detail pages")
+            verify = verify_disappeared_listings(candidates)
+            for url, status in verify.items():
+                if status == 'sold':
+                    upsert_listing(suburb_id, url, {'status': 'sold'})
+                    sold_urls.append(url)
+                    rescued_sold += 1
+                elif status in ('active', 'under_offer'):
+                    upsert_listing(suburb_id, url, {'status': status})
+                    forsale_urls.append(url)
+                    rescued_active += 1
+                # 'gone' → leave it, the next mark_withdrawn call handles it
+            if rescued_sold:
+                logger.info(f"[{name}] Rescued {rescued_sold} from withdrawn → marked SOLD")
+            if rescued_active:
+                logger.info(f"[{name}] Rescued {rescued_active} from withdrawn → still active")
+
+        # Mark withdrawn — only what's left after individual verification can
+        # confidently be considered withdrawn, so we don't gate on coverage %.
         progress_cb('Checking for withdrawn listings...')
         reiwa_total = result['stats'].get('reiwa_total', 0)
         our_count = len(forsale_urls)
@@ -1128,8 +1163,14 @@ def _run_scrape(suburb_id, slug, name):
             confident = our_count >= reiwa_total or (our_count >= reiwa_total * 0.95 and reiwa_total - our_count <= 3)
         else:
             confident = False
+        # Verification tightens us up: any candidate still missing after a
+        # successful detail-page round trip is genuinely withdrawn, regardless
+        # of overall scrape coverage. Only skip the mark step if we had no
+        # candidates to verify AND the scrape was incomplete.
+        if candidates:
+            confident = True
         if confident:
-            logger.info(f"[{name}] Confident scrape: {our_count} found vs {reiwa_total} REIWA total — checking withdrawals")
+            logger.info(f"[{name}] Confident scrape (verified): {our_count} found vs {reiwa_total} REIWA total — checking withdrawals")
         else:
             logger.info(f"[{name}] Incomplete scrape: {our_count} found vs {reiwa_total} REIWA total — skipping withdrawals")
         withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)

@@ -983,12 +983,15 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     results['stats']['forsale_count'] = len(results['forsale_listings'])
                     logger.info(f"{suburb_name}: recovered {recovered}/{missing} missed listing(s), new total: {results['stats']['forsale_count']}")
 
-            # === SOLD (2 pages) ===
+            # === SOLD (up to 10 pages — REIWA shows ~20 sold per page; high-
+            # turnover suburbs like Ellenbrook can have recently-sold listings
+            # past page 4. Stop early on empty/duplicate pages.)
             if progress_callback:
                 progress_callback('Scraping sold pages...')
 
+            SOLD_MAX_PAGES = 10
             sold_seen = set()
-            for pg in range(1, 3):
+            for pg in range(1, SOLD_MAX_PAGES + 1):
                 if cancel_check and cancel_check():
                     break
                 url = _build_sold_url(suburb_slug, pg)
@@ -1005,6 +1008,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                 if not cards:
                     break
 
+                new_on_page = 0
                 for card in cards:
                     rec = _parse_card(card, suburb_name)
                     card_url = rec['url']
@@ -1013,14 +1017,19 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         continue
                     if card_url:
                         sold_seen.add(card_url)
+                        new_on_page += 1
 
                     rec['status'] = 'sold'
                     rec['reiwa_url'] = card_url
                     results['sold_listings'].append(rec)
 
                 results['stats']['sold_pages_scraped'] = pg
-                logger.info(f"{suburb_name} sold p{pg}: {len(cards)} cards")
+                logger.info(f"{suburb_name} sold p{pg}: {len(cards)} cards, {new_on_page} new")
 
+                if new_on_page == 0 and pg > 1:
+                    # Page returned only duplicates — REIWA likely loops back to
+                    # earlier results. No point scanning further.
+                    break
                 time.sleep(random.uniform(0.3, 0.8))
 
             results['stats']['sold_count'] = len(results['sold_listings'])
@@ -1032,6 +1041,52 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
             browser.close()
 
     return results
+
+
+def verify_disappeared_listings(urls):
+    """For each URL, visit its detail page and report what REIWA actually says.
+
+    Used to rescue listings that are about to be marked withdrawn just because
+    they fell off the for-sale grid + weren't in the first N sold pages. The
+    detail page is the source of truth — if REIWA still shows it as Sold or
+    Under Offer there, we should NOT mark withdrawn.
+
+    Returns dict {url: status} where status is one of:
+        'sold' | 'under_offer' | 'active' | 'gone'
+
+    'gone' = the page returned no usable data (404 or persistent timeout) →
+    safe to mark withdrawn.
+    """
+    out = {}
+    if not urls:
+        return out
+    with sync_playwright() as p:
+        launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
+        if CHROMIUM_PATH:
+            launch_opts['executable_path'] = CHROMIUM_PATH
+        browser = p.chromium.launch(**launch_opts)
+        context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800}, locale='en-AU')
+        page = context.new_page()
+        page.route("**/*", lambda route: route.abort()
+                   if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                   else route.continue_())
+        for url in urls:
+            try:
+                detail = _fetch_detail(page, url)
+                status = detail.get('status')
+                if status in ('sold', 'under_offer'):
+                    out[url] = status
+                else:
+                    # If we got SOME content (address/beds/etc.) treat as still active.
+                    # If everything is blank, treat as gone.
+                    has_content = bool(detail.get('address') or detail.get('agent')
+                                       or detail.get('agency') or detail.get('bedrooms'))
+                    out[url] = 'active' if has_content else 'gone'
+            except Exception as e:
+                logger.warning(f"verify {url}: {e}")
+                out[url] = 'gone'
+        browser.close()
+    return out
 
 
 def debug_detail(url):
