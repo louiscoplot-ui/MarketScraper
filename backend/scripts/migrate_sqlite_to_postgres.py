@@ -10,14 +10,22 @@ Usage (PowerShell):
     $env:DATABASE_URL = "postgresql://..."
     python scripts/migrate_sqlite_to_postgres.py
 
-The script is safe to rerun: every INSERT uses ON CONFLICT DO NOTHING,
-so existing rows are skipped. After the data import, Postgres sequences
-are advanced past the migrated IDs so future inserts don't collide.
+Implementation notes:
+- Uses psycopg2.extras.execute_values for batched INSERTs (much faster
+  over a high-latency link like Perth -> Sydney).
+- ON CONFLICT DO NOTHING — safe to rerun. Existing rows skip, missing
+  rows insert. Catches both id collisions and unique-index conflicts
+  (e.g. listings.reiwa_url).
+- Rollback after batch errors (commit on aborted txn would still roll
+  back implicitly, but rollback is the correct API).
+- After the data import, Postgres sequences are advanced past the
+  imported max(id).
 """
 
 import os
 import sys
 import sqlite3
+import time
 from pathlib import Path
 
 
@@ -50,26 +58,27 @@ TABLES = [
 
 
 def main():
+    import psycopg2
+    from psycopg2.extras import execute_values
+
     print(f"Source:      {SQLITE_PATH}")
     print(f"Destination: {DATABASE_URL.split('@')[-1].split('/')[0]} (Postgres)")
     print()
 
-    # 1. Build Postgres schema (idempotent)
     print("==> Creating Postgres schema (init_db)…")
     database.init_db()
 
-    # 2. Open SQLite directly — we bypass the wrapper for the source so we
-    # never accidentally read from Postgres.
     sqlite_conn = sqlite3.connect(SQLITE_PATH)
     sqlite_conn.row_factory = sqlite3.Row
 
-    # 3. Open Postgres via the wrapper (DATABASE_URL is set)
-    pg = database.get_db()
+    # Direct psycopg2 connection — bypass the wrapper so we can use the
+    # batched execute_values helper for speed.
+    raw = psycopg2.connect(DATABASE_URL, connect_timeout=15)
+    raw.autocommit = False
 
     total_in = 0
     total_out = 0
-    all_errors = {}  # table -> {error_type: count}
-    error_samples = {}  # table -> [first 3 errors verbatim]
+    error_summary = {}
 
     for table in TABLES:
         try:
@@ -82,67 +91,88 @@ def main():
             continue
         total_in += len(rows)
         cols = list(rows[0].keys())
-        placeholders = ','.join(['?'] * len(cols))
         col_sql = ','.join(cols)
-        # ON CONFLICT DO NOTHING (no target column) catches ANY unique
-        # constraint violation — id collisions AND reiwa_url duplicates etc.
-        sql = (f"INSERT INTO {table} ({col_sql}) VALUES ({placeholders}) "
+        sql = (f"INSERT INTO {table} ({col_sql}) VALUES %s "
                f"ON CONFLICT DO NOTHING")
-        inserted = 0
-        table_errors = {}
-        for r in rows:
-            try:
-                pg.execute(sql, tuple(r[c] for c in cols))
-                inserted += 1
-            except Exception as e:
-                # Reset the aborted Postgres transaction and keep going.
-                pg.commit()
-                msg = str(e).strip().splitlines()[0][:200]
-                # Group by error class for the summary
-                cls = msg.split(':', 1)[0]
-                table_errors[cls] = table_errors.get(cls, 0) + 1
-                error_samples.setdefault(table, []).append(
-                    f"  id={r['id']}: {msg}"
-                )
-        pg.commit()
-        total_out += inserted
-        if table_errors:
-            all_errors[table] = table_errors
-        bar = '✓' if inserted == len(rows) else '✗'
-        print(f"  {bar} {table}: {inserted}/{len(rows)} rows imported"
-              + (f" — {len(rows) - inserted} failed" if inserted < len(rows) else ""))
 
-    # 4. Advance Postgres sequences past the migrated IDs.
+        # Process in batches so progress is visible and one bad row doesn't
+        # tank the whole table.
+        BATCH = 200
+        inserted = 0
+        skipped = 0
+        failed_rows = 0
+        t0 = time.time()
+        cur = raw.cursor()
+        for start in range(0, len(rows), BATCH):
+            chunk = rows[start:start + BATCH]
+            tuples = [tuple(r[c] for c in cols) for r in chunk]
+            try:
+                execute_values(cur, sql, tuples, page_size=BATCH)
+                # cur.rowcount = rows actually inserted (post-ON-CONFLICT)
+                ins = cur.rowcount
+                skipped += (len(chunk) - ins)
+                inserted += ins
+                raw.commit()
+            except Exception as e:
+                raw.rollback()
+                # Fall back to per-row insert for this chunk to find which row
+                # is bad.
+                for r in chunk:
+                    try:
+                        cur.execute(
+                            f"INSERT INTO {table} ({col_sql}) VALUES "
+                            f"({','.join(['%s'] * len(cols))}) "
+                            f"ON CONFLICT DO NOTHING",
+                            tuple(r[c] for c in cols),
+                        )
+                        if cur.rowcount:
+                            inserted += 1
+                        else:
+                            skipped += 1
+                        raw.commit()
+                    except Exception as e2:
+                        raw.rollback()
+                        failed_rows += 1
+                        msg = str(e2).strip().splitlines()[0][:200]
+                        cls = msg.split(':', 1)[0]
+                        error_summary.setdefault(table, {})[cls] = \
+                            error_summary[table].get(cls, 0) + 1
+            done = start + len(chunk)
+            print(f"    …{table}: {done}/{len(rows)} processed", flush=True)
+
+        elapsed = time.time() - t0
+        bar = '✓' if failed_rows == 0 else '✗'
+        print(f"  {bar} {table}: {inserted} new, {skipped} already-present, "
+              f"{failed_rows} failed  ({elapsed:.1f}s)")
+        total_out += inserted
+
     print()
     print("==> Syncing sequences…")
+    cur = raw.cursor()
     for table in TABLES:
         seq = f"{table}_id_seq"
         try:
-            pg.execute(
-                f"SELECT setval(?, COALESCE((SELECT MAX(id) FROM {table}), 1), true)",
-                (seq,)
+            cur.execute(
+                f"SELECT setval(%s, COALESCE((SELECT MAX(id) FROM {table}), 1), true)",
+                (seq,),
             )
-            pg.commit()
+            raw.commit()
         except Exception as e:
-            pg.commit()
-            print(f"  {seq}: {e!s} (table likely empty — sequence stays at 1)")
-    print()
+            raw.rollback()
+            print(f"  {seq}: {e!s}")
 
-    # 5. Diagnostic dump if anything went wrong.
-    if all_errors:
+    print()
+    if error_summary:
         print("==> Failures by table / error class:")
-        for table, errs in all_errors.items():
+        for table, errs in error_summary.items():
             for cls, n in sorted(errs.items(), key=lambda x: -x[1]):
                 print(f"  {table:>20} | {n:>4}× {cls}")
         print()
-        print("==> Sample errors (first 3 per table):")
-        for table, samples in error_samples.items():
-            print(f"  --- {table} ---")
-            for s in samples[:3]:
-                print(s)
-        print()
 
-    print(f"Migration complete. {total_out}/{total_in} rows in Postgres.")
+    raw.close()
+    sqlite_conn.close()
+    print(f"Migration complete. {total_out} new rows imported "
+          f"(out of {total_in} in source).")
 
 
 if __name__ == '__main__':
