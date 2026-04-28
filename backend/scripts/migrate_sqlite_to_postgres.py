@@ -155,8 +155,10 @@ def main():
                         failed_rows += 1
                         msg = str(e2).strip().splitlines()[0][:200]
                         cls = msg.split(':', 1)[0]
-                        error_summary.setdefault(table, {})[cls] = \
-                            error_summary[table].get(cls, 0) + 1
+                        # setdefault first so the read-modify-write doesn't
+                        # KeyError on the freshly-introduced table key
+                        bucket = error_summary.setdefault(table, {})
+                        bucket[cls] = bucket.get(cls, 0) + 1
             done = start + len(chunk)
             print(f"    …{table}: {done}/{len(rows)} processed", flush=True)
 
