@@ -30,6 +30,30 @@ HERE = Path(__file__).resolve().parent
 BACKEND_DIR = HERE.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
+
+# Monkey-patch Playwright Page.goto BEFORE importing scraper, so every
+# page.goto() call inside scraper.py uses domcontentloaded instead of
+# networkidle. The networkidle wait fails repeatedly on GHA→AU links
+# because REIWA loads analytics/ad pixels that keep the network active
+# for >40s, killing every list-page load with a Timeout. The downstream
+# wait_for_selector('p-card', timeout=8000) inside _load_listing_page
+# already gives us a real "page is ready" signal, so we don't need
+# networkidle at all. Local dev (UI scrape) is unaffected — this only
+# applies when run_daily_scrape.py is the entry point.
+from playwright.sync_api import Page as _PWPage  # noqa: E402
+
+_orig_goto = _PWPage.goto
+
+def _patched_goto(self, url, **kwargs):
+    if kwargs.get('wait_until') == 'networkidle':
+        kwargs['wait_until'] = 'domcontentloaded'
+        if kwargs.get('timeout', 0) > 20000:
+            kwargs['timeout'] = 20000
+    return _orig_goto(self, url, **kwargs)
+
+_PWPage.goto = _patched_goto
+
+
 import database  # noqa: E402
 from database import (  # noqa: E402
     get_db,
@@ -52,6 +76,12 @@ log = logging.getLogger('daily_scrape')
 # Politeness — random sleep between suburbs to look human and dodge
 # rate-limit fingerprinting. Adjust if REIWA tightens anti-scrape.
 INTER_SUBURB_DELAY = (5, 15)  # seconds
+
+# How many sold listings to retain per suburb in the DB. Scraper already
+# walks up to 10 sold pages (~200 listings) per run, but the DB was being
+# trimmed to 40 — wasted history. 200 keeps the full window the scraper
+# actually pulls, with no extra scrape time.
+SOLD_KEEP = 200
 
 
 def scrape_one(suburb):
@@ -134,7 +164,7 @@ def scrape_one(suburb):
         confident = True
 
     withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
-    trim_sold_listings(suburb_id, keep=40)
+    trim_sold_listings(suburb_id, keep=SOLD_KEEP)
 
     update_scrape_log(
         log_id,
