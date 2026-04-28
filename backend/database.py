@@ -1,3 +1,15 @@
+"""SQLite + Postgres dual-driver database layer.
+
+If `DATABASE_URL` is set to a postgres:// or postgresql:// URL the module
+talks to that server (used in production / GitHub Actions / Vercel).
+Otherwise it falls back to a local SQLite file (handy for offline dev
+without depending on a network DB).
+
+The rest of the codebase keeps the simple `conn.execute(sql, params)`
+sqlite-style API — _Conn translates placeholders and a couple of
+SQLite-specific schema bits transparently for Postgres.
+"""
+
 import re
 import sqlite3
 import shutil
@@ -6,6 +18,100 @@ from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'reiwa.db')
 BACKUP_DIR = os.path.join(os.path.dirname(__file__), 'backups')
+
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+USE_POSTGRES = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
+
+
+# ---------------------------------------------------------------------------
+# Connection wrapper — keeps the sqlite-style API while letting psycopg2
+# back the connection in production.
+# ---------------------------------------------------------------------------
+
+def _translate_sql(sql, driver):
+    """SQLite → Postgres syntax fixups. Trivially fast (string ops)."""
+    if driver != 'pg':
+        return sql
+    out = sql
+    # Parameter placeholder
+    out = out.replace('?', '%s')
+    # Auto-increment integer PK
+    out = re.sub(r'INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT', 'SERIAL PRIMARY KEY', out, flags=re.I)
+    out = re.sub(r'\bAUTOINCREMENT\b', '', out, flags=re.I)
+    # Default timestamps
+    out = out.replace("datetime('now')", "CURRENT_TIMESTAMP")
+    return out
+
+
+class _Cur:
+    """Thin cursor wrapper exposing sqlite-style fetchone/fetchall + lastrowid."""
+
+    def __init__(self, real, driver, last_inserted_id=None):
+        self._cur = real
+        self._driver = driver
+        self._last_inserted_id = last_inserted_id
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def lastrowid(self):
+        if self._last_inserted_id is not None:
+            return self._last_inserted_id
+        if self._driver == 'pg':
+            # caller didn't request RETURNING — caller must use create_*
+            # helpers that explicitly request it.
+            return None
+        return getattr(self._cur, 'lastrowid', None)
+
+
+class _Conn:
+    """Sqlite-shaped connection facade over either sqlite3 or psycopg2.
+
+    Supports `conn.execute(sql, params).fetchone()` style + commit/close +
+    `with conn:` context manager.
+    """
+
+    def __init__(self, real, driver):
+        self._conn = real
+        self._driver = driver
+
+    def execute(self, sql, params=()):
+        sql = _translate_sql(sql, self._driver)
+        cur = self._conn.cursor()
+        cur.execute(sql, params)
+        # Capture lastrowid for INSERT statements on Postgres (SERIAL PK
+        # auto-increment) — we do a follow-up `RETURNING id` for the few
+        # call sites that need it (scrape_logs.create_scrape_log).
+        return _Cur(cur, self._driver)
+
+    def executescript(self, sql):
+        """Run multi-statement schema SQL — used for table creation only."""
+        sql = _translate_sql(sql, self._driver)
+        cur = self._conn.cursor()
+        if self._driver == 'pg':
+            cur.execute(sql)
+        else:
+            cur.executescript(sql)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
 
 _STREET_ABBREVS = {
@@ -94,11 +200,17 @@ def backup_db():
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """Return a connection wrapper backed by Postgres (DATABASE_URL set) or SQLite (local file)."""
+    if USE_POSTGRES:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        raw = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor, connect_timeout=10)
+        return _Conn(raw, 'pg')
+    raw = sqlite3.connect(DB_PATH)
+    raw.row_factory = sqlite3.Row
+    raw.execute("PRAGMA journal_mode=WAL")
+    raw.execute("PRAGMA foreign_keys=ON")
+    return _Conn(raw, 'sqlite')
 
 
 def init_db():
@@ -159,20 +271,30 @@ def init_db():
         );
     """)
     # Migrate: add listing_date column if missing
+    # IF NOT EXISTS is supported on Postgres 9.6+ and SQLite 3.35+ — both
+    # current. Wrap try/except anyway for older SQLite that ships with some
+    # older Python distributions.
     try:
-        conn.execute("ALTER TABLE listings ADD COLUMN listing_date TEXT")
+        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS listing_date TEXT")
     except Exception:
-        pass  # column already exists
-    # Migrate: add source column
+        try:
+            conn.execute("ALTER TABLE listings ADD COLUMN listing_date TEXT")
+        except Exception:
+            conn.commit()  # reset txn on duplicate-column error
     try:
-        conn.execute("ALTER TABLE listings ADD COLUMN source TEXT DEFAULT 'reiwa'")
+        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'")
     except Exception:
-        pass  # column already exists
-    # Migrate: timestamp of when a listing was marked withdrawn
+        try:
+            conn.execute("ALTER TABLE listings ADD COLUMN source TEXT DEFAULT 'reiwa'")
+        except Exception:
+            conn.commit()
     try:
-        conn.execute("ALTER TABLE listings ADD COLUMN withdrawn_date TEXT")
+        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT")
     except Exception:
-        pass
+        try:
+            conn.execute("ALTER TABLE listings ADD COLUMN withdrawn_date TEXT")
+        except Exception:
+            conn.commit()
     # Backfill withdrawn_date for existing withdrawn rows using last_seen as a
     # best-effort approximation (mark_withdrawn updates last_seen at the same
     # time it flips the status, so the two timestamps match for any future
@@ -183,9 +305,12 @@ def init_db():
     )
     # Migrate: normalized address for cross-agency re-list detection
     try:
-        conn.execute("ALTER TABLE listings ADD COLUMN normalized_address TEXT")
+        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT")
     except Exception:
-        pass
+        try:
+            conn.execute("ALTER TABLE listings ADD COLUMN normalized_address TEXT")
+        except Exception:
+            conn.commit()
     conn.execute("CREATE INDEX IF NOT EXISTS idx_listings_normaddr "
                  "ON listings(suburb_id, normalized_address)")
     # Backfill normalized_address for any rows that have an address but no
@@ -531,10 +656,17 @@ def trim_sold_listings(suburb_id, keep=40):
 
 def create_scrape_log(suburb_id):
     conn = get_db()
-    cursor = conn.execute(
-        "INSERT INTO scrape_logs (suburb_id) VALUES (?)", (suburb_id,)
-    )
-    log_id = cursor.lastrowid
+    if USE_POSTGRES:
+        cur = conn.execute(
+            "INSERT INTO scrape_logs (suburb_id) VALUES (?) RETURNING id", (suburb_id,)
+        )
+        row = cur.fetchone()
+        log_id = row['id'] if row else None
+    else:
+        cursor = conn.execute(
+            "INSERT INTO scrape_logs (suburb_id) VALUES (?)", (suburb_id,)
+        )
+        log_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return log_id
