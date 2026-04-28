@@ -1,8 +1,16 @@
 # Python
 backend/venv/
 backend/__pycache__/
+backend/**/__pycache__/
 backend/*.pyc
+backend/**/*.pyc
 backend/reiwa.db
+backend/reiwa.db-journal
+backend/reiwa.db-wal
+backend/reiwa.db-shm
+
+# Local env file (never commit secrets)
+.env
 
 # Node
 frontend/node_modules/
