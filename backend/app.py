@@ -19,6 +19,7 @@ from database import get_existing_urls, trim_sold_listings, cleanup_agent_entrie
 from database import backup_db, get_price_changes, take_market_snapshot, get_market_snapshots
 from scraper import scrape_suburb, debug_page, compare_suburb, debug_detail, verify_disappeared_listings
 from pipeline_api import register_pipeline_routes
+from import_api import register_import_routes
 
 app = Flask(__name__)
 CORS(app)
@@ -30,6 +31,7 @@ except Exception as e:
     logger.error(f"init_db at module load failed: {e}")
 
 register_pipeline_routes(app)
+register_import_routes(app)
 
 # Track active scraping jobs
 scrape_jobs = {}  # suburb_id -> {status, progress, started_at}
