@@ -18,9 +18,18 @@ from database import upsert_listing, mark_withdrawn, create_scrape_log, update_s
 from database import get_existing_urls, trim_sold_listings, cleanup_agent_entries, restore_false_withdrawn
 from database import backup_db, get_price_changes, take_market_snapshot, get_market_snapshots
 from scraper import scrape_suburb, debug_page, compare_suburb, debug_detail, verify_disappeared_listings
+from pipeline_api import register_pipeline_routes
 
 app = Flask(__name__)
 CORS(app)
+# Ensure DB schema is up to date on every gunicorn worker start.
+# Idempotent (CREATE TABLE IF NOT EXISTS), safe to call here.
+try:
+    init_db()
+except Exception as e:
+    logger.error(f"init_db at module load failed: {e}")
+
+register_pipeline_routes(app)
 
 # Track active scraping jobs
 scrape_jobs = {}  # suburb_id -> {status, progress, started_at}
