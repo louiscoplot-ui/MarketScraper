@@ -40,6 +40,7 @@ def _translate_sql(sql, driver):
     out = re.sub(r'\bAUTOINCREMENT\b', '', out, flags=re.I)
     # Default timestamps
     out = out.replace("datetime('now')", "CURRENT_TIMESTAMP")
+    out = out.replace("date('now')", "CURRENT_DATE")
     return out
 
 
@@ -271,16 +272,13 @@ def init_db():
         );
     """)
     # Migrate: add listing_date column if missing
-    # IF NOT EXISTS is supported on Postgres 9.6+ and SQLite 3.35+ — both
-    # current. Wrap try/except anyway for older SQLite that ships with some
-    # older Python distributions.
     try:
         conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS listing_date TEXT")
     except Exception:
         try:
             conn.execute("ALTER TABLE listings ADD COLUMN listing_date TEXT")
         except Exception:
-            conn.commit()  # reset txn on duplicate-column error
+            conn.commit()
     try:
         conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'")
     except Exception:
@@ -295,15 +293,10 @@ def init_db():
             conn.execute("ALTER TABLE listings ADD COLUMN withdrawn_date TEXT")
         except Exception:
             conn.commit()
-    # Backfill withdrawn_date for existing withdrawn rows using last_seen as a
-    # best-effort approximation (mark_withdrawn updates last_seen at the same
-    # time it flips the status, so the two timestamps match for any future
-    # withdrawal; for pre-migration rows last_seen is the closest proxy we have).
     conn.execute(
         "UPDATE listings SET withdrawn_date = last_seen "
         "WHERE status = 'withdrawn' AND withdrawn_date IS NULL"
     )
-    # Migrate: normalized address for cross-agency re-list detection
     try:
         conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT")
     except Exception:
@@ -313,8 +306,6 @@ def init_db():
             conn.commit()
     conn.execute("CREATE INDEX IF NOT EXISTS idx_listings_normaddr "
                  "ON listings(suburb_id, normalized_address)")
-    # Backfill normalized_address for any rows that have an address but no
-    # normalized_address yet — needed for re-list detection on existing data.
     rows_to_backfill = conn.execute(
         "SELECT id, address FROM listings "
         "WHERE address IS NOT NULL AND address != '' "
@@ -358,6 +349,35 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_snapshots_suburb_date
             ON market_snapshots(suburb_id, snapshot_date);
+    """)
+
+    # Appraisal Pipeline tracking — one row per prospecting letter sent to a
+    # neighbour of a recently-sold property. The (target_address, sent_date)
+    # uniqueness stops accidental duplicate sends if Generate is clicked twice
+    # on the same day for the same suburb.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS pipeline_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_address TEXT NOT NULL,
+            source_suburb TEXT NOT NULL,
+            source_sold_date TEXT,
+            source_price INTEGER,
+            target_address TEXT NOT NULL,
+            target_owner_name TEXT,
+            hot_vendor_score INTEGER,
+            status TEXT NOT NULL DEFAULT 'sent',
+            sent_date TEXT NOT NULL DEFAULT CURRENT_DATE,
+            response_date TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(target_address, sent_date)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pipeline_status
+            ON pipeline_tracking(status);
+        CREATE INDEX IF NOT EXISTS idx_pipeline_suburb
+            ON pipeline_tracking(source_suburb);
+        CREATE INDEX IF NOT EXISTS idx_pipeline_sent_date
+            ON pipeline_tracking(sent_date);
     """)
 
     conn.commit()
@@ -434,26 +454,21 @@ def upsert_listing(suburb_id, reiwa_url, data):
     But if a previously-withdrawn row exists for the same address (any agency)
     and we're now seeing a fresh active/under_offer/sold listing, the old
     withdrawn row is deleted — the property is effectively back on the market."""
-    reiwa_url = reiwa_url.rstrip('/')  # always store without trailing slash
+    reiwa_url = reiwa_url.rstrip('/')
     conn = get_db()
     now = datetime.utcnow().isoformat()
     norm_addr = normalize_address(data.get('address') or '')
     new_status = data.get('status', 'active')
 
-    # Match both normalized URL and legacy format (with trailing slash)
     existing = conn.execute(
         "SELECT * FROM listings WHERE reiwa_url = ? OR reiwa_url = ?",
         (reiwa_url, reiwa_url + '/')
     ).fetchone()
 
-    # Silently migrate legacy slash URL to normalized form
     if existing and existing['reiwa_url'] != reiwa_url:
         conn.execute("UPDATE listings SET reiwa_url = ? WHERE id = ?", (reiwa_url, existing['id']))
         conn.commit()
 
-    # If this listing is back on the market, drop any stale withdrawn rows for
-    # the same property at the same address (different URL, possibly different
-    # agency — REIWA assigns a fresh ID on re-list, so the old row is dead).
     if norm_addr and new_status in ('active', 'under_offer', 'sold'):
         excluded_id = existing['id'] if existing else -1
         conn.execute(
@@ -463,7 +478,6 @@ def upsert_listing(suburb_id, reiwa_url, data):
         )
 
     if existing:
-        # Detect price change
         new_price = data.get('price_text')
         old_price = existing['price_text']
         if new_price and old_price and new_price != old_price:
@@ -472,9 +486,6 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 (existing['id'], old_price, new_price)
             )
 
-        # If transitioning OUT of withdrawn, clear the withdrawn_date.
-        # If transitioning INTO withdrawn, stamp it (mark_withdrawn handles bulk
-        # but a single-row UPDATE here covers any caller setting status directly).
         clear_withdrawn = existing['status'] == 'withdrawn' and new_status != 'withdrawn'
         stamp_withdrawn = existing['status'] != 'withdrawn' and new_status == 'withdrawn'
         new_withdrawn_date = (
@@ -482,8 +493,6 @@ def upsert_listing(suburb_id, reiwa_url, data):
             else (now if stamp_withdrawn else existing['withdrawn_date'])
         )
 
-        # NULLIF(?, '') coerces empty strings to NULL so COALESCE preserves the
-        # existing populated value rather than overwriting it with blank data.
         conn.execute("""
             UPDATE listings SET
                 address = COALESCE(NULLIF(?, ''), address),
@@ -549,13 +558,6 @@ def upsert_listing(suburb_id, reiwa_url, data):
 
 
 def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
-    """Mark listings as withdrawn if their URL disappeared from for-sale and isn't in sold.
-
-    Only marks withdrawn when confident=True (our scrape count >= REIWA's stated total),
-    meaning we're sure we captured every active listing on the site.
-    If not confident, we skip entirely — better to keep a stale listing than to falsely
-    mark an active one as withdrawn.
-    """
     if not confident:
         import logging
         logging.getLogger(__name__).info(
@@ -576,7 +578,6 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
         conn.close()
         return 0
 
-    # Normalize both sides — strip trailing slashes for consistent comparison
     all_seen = {u.rstrip('/') for u in set(seen_urls) | set(sold_urls)}
 
     withdrawn_count = 0
@@ -595,14 +596,6 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
 
 
 def get_existing_urls(suburb_id):
-    """URLs whose detail pages can safely be skipped on re-scrape.
-
-    A row is considered complete (detail skippable) only when sizes AND
-    listing_date are populated. Missing date triggers a refetch because the
-    detail page is the only reliable source for "Added X days ago" on REIWA.
-    Any row where BOTH sizes are empty is also refetched unconditionally.
-    Typed rows get a stricter check (house needs land, strata needs internal).
-    """
     conn = get_db()
     rows = conn.execute(
         """
@@ -623,9 +616,9 @@ def get_existing_urls(suburb_id):
         listing_date = (r['listing_date'] or '').strip()
 
         if not listing_date:
-            continue  # dates drive DOM/withdrawn tracking — always refetch if missing
+            continue
         if not land and not internal:
-            continue  # nothing populated — always refetch
+            continue
         if t == 'house' and not land:
             continue
         if t in STRATA_TYPES and not internal:
@@ -635,9 +628,7 @@ def get_existing_urls(suburb_id):
 
 
 def trim_sold_listings(suburb_id, keep=40):
-    """Keep only the most recent N sold listings per suburb, delete older ones."""
     conn = get_db()
-    # Get sold listings ordered by last_seen desc
     rows = conn.execute(
         "SELECT id FROM listings WHERE suburb_id = ? AND status = 'sold' ORDER BY last_seen DESC",
         (suburb_id,)
@@ -702,7 +693,6 @@ def get_scrape_logs(suburb_id=None, limit=20):
 
 
 def get_price_changes(suburb_ids=None, limit=50):
-    """Get recent price changes with listing details."""
     conn = get_db()
     query = """
         SELECT ph.*, l.address, l.reiwa_url, l.agent, l.agency, l.status, l.listing_date,
@@ -724,10 +714,8 @@ def get_price_changes(suburb_ids=None, limit=50):
 
 
 def take_market_snapshot(suburb_id, stats):
-    """Record a market snapshot after scraping a suburb."""
     conn = get_db()
     today = datetime.utcnow().strftime('%Y-%m-%d')
-    # Replace any existing snapshot for same suburb+date
     conn.execute(
         "DELETE FROM market_snapshots WHERE suburb_id = ? AND snapshot_date = ?",
         (suburb_id, today)
@@ -749,7 +737,6 @@ def take_market_snapshot(suburb_id, stats):
 
 
 def get_market_snapshots(suburb_ids=None, limit=90):
-    """Get historical market snapshots, last N days."""
     conn = get_db()
     query = """
         SELECT ms.*, s.name as suburb_name
