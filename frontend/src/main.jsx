@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
-import PipelineLetters from './PipelineLetters'
+import PipelinePrint from './pages/PipelinePrint'
 import './index.css'
 
 // Lightweight URL-based routing — no React Router. The print view is a
@@ -11,6 +11,6 @@ const isPrintView = window.location.pathname === '/pipeline/print'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isPrintView ? <PipelineLetters /> : <App />}
+    {isPrintView ? <PipelinePrint /> : <App />}
   </React.StrictMode>
 )
