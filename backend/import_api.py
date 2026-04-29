@@ -1,17 +1,17 @@
 """CSV / Excel import for RP Data / CoreLogic property exports.
 
-Updates the listings table with accurate sold_date / sold_price from
-agency property-data tools. Solves the REIWA scraping date-precision
-gap — RP Data publishes the actual settlement date, REIWA shows
-'Sold X days ago' badges that decay over time and only land in our
-DB if the scraper happens to catch them on the right day.
+UPDATE-ONLY mode: every row in the upload is matched against an
+existing listings row (suburb + normalized_address). On match we
+overwrite sold_date and sold_price with the RP Data values. On no
+match we simply skip — the user's intent is to fix dates that the
+REIWA scraper got wrong, NOT to grow the table.
 
 Workflow:
-    Agent exports CSV (or .xlsx) of recent suburb sales from RP Data
-    → POSTs the file here as multipart/form-data 'file'
-    → Each row is matched against listings(normalized_address, suburb)
-    → Match : UPDATE sold_date, sold_price, status='sold'
-    → No match : INSERT a new listings row as status='sold'
+    Agent exports CSV/xlsx of recent sales from RP Data ->
+    POST file as multipart/form-data 'file' ->
+    Each row matched against listings(normalized_address, suburb_id) ->
+    Match: UPDATE sold_date, sold_price, status='sold'
+    No match: skip (counted)
 
 Wire into app.py with two lines:
     from import_api import register_import_routes
@@ -30,37 +30,41 @@ from database import get_db, normalize_address
 logger = logging.getLogger(__name__)
 
 
-# RP Data and CoreLogic export with slightly different header names —
-# fuzzy match by lowercasing both sides and looking for any alias match.
+# RP Data, CoreLogic, Pricefinder — they all ship slightly different
+# column names. Lower-cased fuzzy match against any alias.
 COLUMN_ALIASES = {
-    'address':      ['property address', 'address', 'street address', 'full address'],
-    'suburb':       ['suburb', 'locality', 'area'],
+    'address':      ['property address', 'address', 'street address',
+                     'full address', 'street'],
+    'suburb':       ['suburb', 'locality', 'area', 'town/suburb'],
     'postcode':     ['postcode', 'post code', 'zip'],
-    'sold_date':    ['sale date', 'last sold date', 'date sold', 'settlement date',
-                     'sold date', 'transaction date'],
-    'sold_price':   ['sale price', 'last sold price', 'sold price', 'price',
-                     'transaction price'],
+    'sold_date':    ['sale date', 'last sold date', 'date sold',
+                     'settlement date', 'sold date', 'transaction date',
+                     'contract date'],
+    'sold_price':   ['sale price', 'last sold price', 'sold price',
+                     'price', 'transaction price'],
     'bedrooms':     ['bedrooms', 'beds', 'bed', 'bedrooms count'],
     'bathrooms':    ['bathrooms', 'baths', 'bath', 'bathrooms count'],
-    'parking':      ['car spaces', 'parking', 'cars', 'car', 'garage'],
-    'land_size':    ['land size', 'land area', 'lot size', 'site area'],
-    'internal_size': ['floor area', 'internal area', 'internal size', 'building area'],
+    'parking':      ['car spaces', 'parking', 'cars', 'car', 'garage',
+                     'car spaces count'],
+    'land_size':    ['land size', 'land area', 'lot size', 'site area',
+                     'land (m²)', 'land m²'],
+    'internal_size': ['floor area', 'internal area', 'internal size',
+                      'building area', 'internal (m²)'],
     'listing_type': ['property type', 'type', 'dwelling type'],
     'agent':        ['agent', 'selling agent', 'sales agent'],
-    'agency':       ['agency', 'agency name', 'sales agency'],
-    'owner':        ['owner name', 'current owner', 'owner', 'registered owner'],
+    'agency':       ['agency', 'agency name', 'sales agency',
+                     'selling agency'],
+    'owner':        ['owner name', 'current owner', 'owner',
+                     'registered owner', 'purchaser', 'purchaser name'],
 }
 
 
 def _parse_price(text):
-    """Coerce '$2,700,000', '2.7M', 2700000, ... to int. Returns None on
-    junk or values < 10k (likely cents or accidentally truncated)."""
     if text is None or text == '':
         return None
     s = str(text).strip()
     if not s:
         return None
-    # Handle "$1.2M" / "2.7m" suffix shorthand
     m_short = re.match(r'^\$?(\d+(?:\.\d+)?)\s*([MmKk])\b', s)
     if m_short:
         try:
@@ -81,37 +85,56 @@ def _parse_price(text):
 
 
 def _parse_date(text):
-    """Parse various date formats. Returns ISO 'YYYY-MM-DD' or None."""
+    """Parse various date formats, return ISO 'YYYY-MM-DD' or None.
+
+    Australian convention: DD before MM. RP Data also uses '8-Aug-25'
+    abbreviated month with 2-digit year — that's why DD-Mon-YY is in
+    the format list. %y handles 2-digit year per Python rules
+    (00-68 = 20xx, 69-99 = 19xx, fine for Australian sale dates).
+    """
     if not text:
         return None
     s = str(text).strip()
     if not s:
         return None
 
-    # Strip time component if present ("2024-01-15 12:34:56" → "2024-01-15")
-    s = s.split(' ')[0]
-    s = s.split('T')[0]
+    # Strip time component and timezone if any
+    s = s.split(' ')[0] if 'T' not in s else s.split('T')[0]
+    s = s.split(' ')[0]  # belt-and-braces
 
-    # ISO already
+    # ISO YYYY-MM-DD
     m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
     if m:
         try:
-            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-            return d.isoformat()
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
         except ValueError:
             pass
 
-    # DD/MM/YYYY or DD-MM-YYYY (Australian convention — day first)
+    # DD/MM/YYYY or DD-MM-YYYY (Australian)
     m = re.match(r'^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$', s)
     if m:
         try:
-            d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-            return d.isoformat()
+            return date(int(m.group(3)), int(m.group(2)), int(m.group(1))).isoformat()
         except ValueError:
             pass
 
-    # "15 Jan 2024" / "15 January 2024" / "Jan 15 2024"
-    for fmt in ('%d %b %Y', '%d %B %Y', '%b %d %Y', '%B %d %Y'):
+    # DD/MM/YY or DD-MM-YY (2-digit year)
+    m = re.match(r'^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2})$', s)
+    if m:
+        try:
+            yr = int(m.group(3))
+            yr = 2000 + yr if yr < 70 else 1900 + yr
+            return date(yr, int(m.group(2)), int(m.group(1))).isoformat()
+        except ValueError:
+            pass
+
+    # Named-month formats including '8-Aug-25' (RP Data default)
+    for fmt in (
+        '%d-%b-%y', '%d-%b-%Y',
+        '%d-%B-%y', '%d-%B-%Y',
+        '%d %b %Y', '%d %B %Y',
+        '%b %d %Y', '%B %d %Y',
+    ):
         try:
             return datetime.strptime(s, fmt).date().isoformat()
         except ValueError:
@@ -120,8 +143,19 @@ def _parse_date(text):
     return None
 
 
+def _is_header_row(cells):
+    """True if a CSV row looks like a header (≥3 known column aliases)."""
+    norm = [(c or '').strip().lower() for c in cells]
+    hits = 0
+    for aliases in COLUMN_ALIASES.values():
+        for alias in aliases:
+            if alias in norm:
+                hits += 1
+                break
+    return hits >= 3
+
+
 def _detect_columns(header):
-    """Map canonical column names → actual column indices in the header."""
     norm = [(h or '').strip().lower() for h in header]
     out = {}
     for canonical, aliases in COLUMN_ALIASES.items():
@@ -133,10 +167,6 @@ def _detect_columns(header):
 
 
 def _strip_suburb_from_address(addr, suburb):
-    """RP Data addresses tend to be 'XX Street SUBURB STATE POSTCODE'.
-    Strip the suburb/state/postcode tail to keep only the street part —
-    so 'normalize_address' compares against listings.address consistently.
-    """
     if not addr:
         return addr
     addr = addr.strip().rstrip(',').strip()
@@ -146,13 +176,11 @@ def _strip_suburb_from_address(addr, suburb):
     addr_lower = addr.lower()
     pos = addr_lower.find(suburb_lower)
     if pos > 0:
-        # Keep everything before the suburb, strip trailing comma/space
         return addr[:pos].strip().rstrip(',').strip()
     return addr
 
 
 def _read_rows(file_storage):
-    """Return a list of rows from CSV or XLSX. Returns (rows, error_msg)."""
     name = (file_storage.filename or '').lower()
     if name.endswith('.csv'):
         try:
@@ -179,19 +207,28 @@ def _read_rows(file_storage):
     return None, 'Unsupported file extension. Use .csv or .xlsx.'
 
 
+def _find_header_index(rows, scan_limit=20):
+    """RP Data sometimes prepends a few intro/title rows before the real
+    header. Scan the first `scan_limit` rows for one that smells like a
+    header (≥3 known aliases). Fall back to row 0 if none found.
+    """
+    for i in range(min(scan_limit, len(rows))):
+        if _is_header_row(rows[i]):
+            return i
+    return 0
+
+
 def import_rpdata():
     """POST /api/listings/import-rpdata.
 
     multipart/form-data:
-        file (required): .csv or .xlsx export from RP Data / CoreLogic
-        suburb (optional): override / fallback suburb if the CSV doesn't
-                           include a suburb column
+        file (required) — .csv or .xlsx export from RP Data / CoreLogic
+        suburb (optional) — fallback if the CSV has no Suburb column
 
-    Returns:
-        matched   — listings updated with new sold_date / sold_price
-        inserted  — new sold listings created (for sales we hadn't scraped)
-        skipped   — rows we couldn't process (no address, unknown suburb, ...)
-        errors    — first 20 error messages for debugging
+    UPDATE-ONLY mode: rows that don't match an existing listing are
+    skipped, NOT inserted. The intent is to fix sold_date precision
+    on what the scraper already has, not to grow the table from
+    third-party data.
     """
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded. Use multipart field "file".'}), 400
@@ -206,14 +243,17 @@ def import_rpdata():
     if not rows or len(rows) < 2:
         return jsonify({'error': 'File needs a header row + at least one data row'}), 400
 
-    header = rows[0]
+    header_idx = _find_header_index(rows)
+    header = rows[header_idx]
     cols = _detect_columns(header)
+    data_rows = rows[header_idx + 1:]
 
     if 'address' not in cols:
         return jsonify({
-            'error': 'Could not find an Address column. Expected header like one of: '
+            'error': 'Could not find an Address column. Expected one of: '
                      + ', '.join(COLUMN_ALIASES['address']),
             'header_seen': [str(h) for h in header],
+            'header_row_index': header_idx,
         }), 400
 
     fallback_suburb = (request.form.get('suburb') or '').strip()
@@ -223,13 +263,15 @@ def import_rpdata():
     suburb_rows = conn.execute("SELECT id, name, slug FROM suburbs").fetchall()
     suburb_by_name = {r['name'].lower(): r for r in suburb_rows}
 
-    matched = 0
-    inserted = 0
-    skipped = 0
+    matched = 0       # listings updated with new dates
+    no_match = 0      # rows skipped because address/suburb not in our DB
+    skipped = 0       # rows skipped for other reasons (empty, parse fail, etc.)
+    date_updates = 0
+    price_updates = 0
     errors = []
     now_iso = datetime.utcnow().isoformat()
 
-    for row_idx, row in enumerate(rows[1:], start=2):
+    for row_idx, row in enumerate(data_rows, start=header_idx + 2):
         if not row or all((c is None or str(c).strip() == '') for c in row):
             continue
 
@@ -249,14 +291,13 @@ def import_rpdata():
             if not suburb_name:
                 skipped += 1
                 if len(errors) < 20:
-                    errors.append(f"Row {row_idx}: no suburb column and no fallback suburb provided")
+                    errors.append(f"Row {row_idx}: no suburb column / fallback")
                 continue
 
             suburb_row = suburb_by_name.get(suburb_name.lower())
             if not suburb_row:
-                skipped += 1
-                if len(errors) < 20:
-                    errors.append(f"Row {row_idx}: suburb '{suburb_name}' not in our DB (add it first)")
+                # Unknown suburb — RP Data has it but we don't track it. Skip silently.
+                no_match += 1
                 continue
 
             suburb_id = suburb_row['id']
@@ -275,24 +316,33 @@ def import_rpdata():
                 (suburb_id, norm_addr)
             ).fetchone()
 
-            if existing:
-                # Update only fields RP Data clearly improved on — sold_date
-                # is the high-value one. Don't overwrite a non-empty sold_price
-                # with a missing CSV value.
-                updates = []
-                params = []
-                if sold_date:
-                    updates.append("sold_date = ?")
-                    params.append(sold_date)
-                if sold_price:
+            if not existing:
+                no_match += 1
+                continue
+
+            updates = []
+            params = []
+            if sold_date and sold_date != existing['sold_date']:
+                updates.append("sold_date = ?")
+                params.append(sold_date)
+                date_updates += 1
+            if sold_price:
+                price_str = str(sold_price)
+                if price_str != (existing['sold_price'] or ''):
                     updates.append("sold_price = ?")
-                    params.append(str(sold_price))
-                # Mark as sold even if previously active — RP Data only lists
-                # actual transactions, so a row in the export = a real sale.
+                    params.append(price_str)
+                    price_updates += 1
+
+            # If the listing wasn't already marked sold, RP Data's word
+            # is final — they only export actual transactions. Keeps us
+            # from leaving a stale 'active' row when a sale slipped past
+            # the scraper.
+            if existing['status'] != 'sold':
                 updates.append("status = 'sold'")
+
+            if updates:
                 updates.append("last_seen = ?")
                 params.append(now_iso)
-
                 params.append(existing['id'])
                 conn.execute(
                     f"UPDATE listings SET {', '.join(updates)} WHERE id = ?",
@@ -300,45 +350,15 @@ def import_rpdata():
                 )
                 matched += 1
             else:
-                # Insert a fresh sold listing for sales the scraper didn't catch.
-                # reiwa_url is required NOT NULL — we synthesise a stable
-                # placeholder so the unique index is happy and we can
-                # distinguish RP-imported rows later if needed.
-                synthetic_url = f"rpdata:{suburb_row['slug']}/{norm_addr.replace(' ', '-')}"
-                conn.execute(
-                    """
-                    INSERT INTO listings (
-                        suburb_id, address, normalized_address, reiwa_url,
-                        status, first_seen, last_seen,
-                        sold_price, sold_date,
-                        bedrooms, bathrooms, parking,
-                        land_size, internal_size,
-                        agent, agency, listing_type, source
-                    ) VALUES (?, ?, ?, ?, 'sold', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rpdata')
-                    ON CONFLICT (reiwa_url) DO NOTHING
-                    """,
-                    (
-                        suburb_id, address, norm_addr, synthetic_url,
-                        now_iso, now_iso,
-                        str(sold_price) if sold_price else None,
-                        sold_date,
-                        _safe_int(cell('bedrooms')),
-                        _safe_int(cell('bathrooms')),
-                        _safe_int(cell('parking')),
-                        cell('land_size') or None,
-                        cell('internal_size') or None,
-                        cell('agent') or None,
-                        cell('agency') or None,
-                        cell('listing_type') or None,
-                    )
-                )
-                inserted += 1
+                # Row matched but had no new info to apply — count as match
+                # since the existing row is consistent with RP Data.
+                matched += 1
         except Exception as e:
             skipped += 1
             if len(errors) < 20:
                 errors.append(f"Row {row_idx}: {type(e).__name__}: {e}")
             try:
-                conn.commit()  # reset txn on Postgres after any per-row failure
+                conn.commit()
             except Exception:
                 pass
 
@@ -347,21 +367,15 @@ def import_rpdata():
 
     return jsonify({
         'matched': matched,
-        'inserted': inserted,
+        'no_match': no_match,
         'skipped': skipped,
-        'total_rows': len(rows) - 1,
+        'date_updates': date_updates,
+        'price_updates': price_updates,
+        'total_rows': len(data_rows),
+        'header_row_index': header_idx,
         'detected_columns': cols,
         'errors': errors,
     })
-
-
-def _safe_int(text):
-    if text is None or text == '':
-        return None
-    try:
-        return int(re.sub(r'[^\d]', '', str(text)) or 0) or None
-    except (ValueError, TypeError):
-        return None
 
 
 def register_import_routes(app):
