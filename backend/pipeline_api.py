@@ -5,16 +5,6 @@ app.py with two extra lines:
 
     from pipeline_api import register_pipeline_routes
     register_pipeline_routes(app)
-
-Routes:
-- GET  /api/pipeline/generate?suburb=X&days=N
-    Reads recent sold listings, generates ±1/±2 neighbour addresses,
-    inserts new pipeline_tracking rows. Returns counts + entries.
-- GET  /api/pipeline/tracking?suburb=X&status=Y&limit=N
-    Lists tracking rows newest first. All filters optional.
-- PATCH /api/pipeline/tracking/<id>
-    Updates status / response_date / notes / target_owner_name on
-    one tracking row. Only provided fields are updated.
 """
 
 import re
@@ -34,19 +24,16 @@ logger = logging.getLogger(__name__)
 # Matches "12 Marine Parade", "12A The Avenue", but not strata "1/24 ..."
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
 
-# Multi-VALUES INSERT batch size. Cuts roundtrips by 50x for big runs.
 INSERT_CHUNK = 50
 
-# Hard cap on how many sold properties we generate from in one call.
-# Even if a suburb has 200 sold listings tracked, generating 800 letters
-# in one click is more noise than signal. Caps the request to the most
-# recent sales (ordered by first_seen, the proxy for "appeared in our
-# DB recently"). Lead-gen quality > volume.
-MAX_SOURCE_SOLDS = 50
+# Cap on source sales per request, scaled to the days window. Premium
+# Perth suburbs typically see ~2 sales/day. days × 3 leaves head-room
+# for hot weeks, then a 60-row hard ceiling protects response time.
+def _source_limit(days):
+    return min(max(days * 3, 5), 60)
 
 
 def _parse_address(addr):
-    """Return (street_number_int, suffix_letter, street_name) or None."""
     if not addr:
         return None
     addr = addr.strip()
@@ -63,7 +50,6 @@ def _parse_address(addr):
 
 
 def _generate_neighbours(addr):
-    """Yield neighbour addresses at offsets -2, -1, +1, +2 on same street."""
     parsed = _parse_address(addr)
     if not parsed:
         return []
@@ -78,7 +64,6 @@ def _generate_neighbours(addr):
 
 
 def _hot_vendors_table_exists(conn):
-    """Cheap, transaction-safe presence check via system catalog."""
     try:
         if USE_POSTGRES:
             row = conn.execute(
@@ -96,7 +81,6 @@ def _hot_vendors_table_exists(conn):
 
 
 def _match_hot_vendor(conn, target_address):
-    """Return (owner_name, score) for a target address, or (None, None)."""
     try:
         row = conn.execute(
             "SELECT * FROM hot_vendors WHERE LOWER(address) LIKE LOWER(?) LIMIT 1",
@@ -138,7 +122,6 @@ def _price_to_int(*candidates):
 
 
 def _bulk_insert_pipeline(conn, rows):
-    """Insert pipeline_tracking rows in chunks via multi-VALUES INSERT."""
     if not rows:
         return 0
 
@@ -170,19 +153,23 @@ def _bulk_insert_pipeline(conn, rows):
 # ---------------------------------------------------------------------
 
 def pipeline_generate():
-    """GET — generates letters from recent sold properties.
+    """Generate prospecting letters from recently-sold properties.
 
-    "Recent" is measured against l.first_seen, NOT l.last_seen. Reason:
-    the daily scrape revisits ALL 200 sold listings per suburb every
-    morning, so they all share roughly the same last_seen timestamp.
-    Filtering by last_seen >= 7days_ago lets through everything in the
-    DB — useless. first_seen is the timestamp when each row was first
-    INSERTed, which for sold-only properties (REIWA shows them sold from
-    day one) approximates "when REIWA published this sale". Far closer
-    to a real "sold this week" filter for lead-gen purposes.
+    Recency rule (the right one for daily lead-gen, not the one I shipped
+    yesterday):
 
-    Plus a hard cap (MAX_SOURCE_SOLDS) keeps each click focused on the
-    freshest leads instead of spitting out 800 letters at once.
+      effective_sold_date = COALESCE(sold_date, first_seen[:10])
+
+    sold_date is REIWA's published sale date — the truth when populated.
+    For sold listings where REIWA didn't expose a date (rare but happens
+    on older listings), we fall back to first_seen, which is when our
+    scraper first observed the property as sold (typically same day or
+    next day after REIWA published).
+
+    Filter: effective_sold_date >= cutoff_date (no time part to avoid
+    same-day boundary edge cases). Order: most recent first. Hard cap
+    via _source_limit(days) so a 7-day window can't dump 200 letters
+    on the user.
     """
     suburb = (request.args.get('suburb') or '').strip()
     if not suburb:
@@ -194,25 +181,34 @@ def pipeline_generate():
         days = 7
     days = max(1, min(days, 90))
 
-    cutoff_iso = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    # Date-only cutoff — comparing 'YYYY-MM-DD' against sold_date works
+    # cleanly. first_seen is full ISO datetime but its date prefix
+    # compares lexicographically the same way.
+    cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+    src_limit = _source_limit(days)
 
     conn = get_db()
 
     has_hv = _hot_vendors_table_exists(conn)
 
+    # COALESCE picks REIWA's sold_date when present, otherwise the date
+    # part of first_seen. SUBSTR(.., 1, 10) trims first_seen's
+    # 'YYYY-MM-DDTHH:MM:SS' to 'YYYY-MM-DD' for clean date compare.
     sold_rows = conn.execute(
         """
         SELECT l.address, l.sold_price, l.price_text, l.sold_date,
-               l.first_seen, l.last_seen, s.name AS suburb_name
+               l.first_seen, l.last_seen, s.name AS suburb_name,
+               COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) AS effective_date
         FROM listings l
         JOIN suburbs s ON l.suburb_id = s.id
         WHERE l.status = 'sold'
           AND LOWER(s.name) = LOWER(?)
-          AND l.first_seen >= ?
-        ORDER BY l.first_seen DESC
+          AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?
+        ORDER BY COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) DESC,
+                 l.first_seen DESC
         LIMIT ?
         """,
-        (suburb, cutoff_iso, MAX_SOURCE_SOLDS)
+        (suburb, cutoff_date, src_limit)
     ).fetchall()
 
     sold_count = len(sold_rows)
@@ -222,13 +218,7 @@ def pipeline_generate():
         source_address = r['address']
         source_suburb = r['suburb_name']
         source_price = _price_to_int(r['sold_price'], r['price_text'])
-        # Prefer REIWA's published sold_date if it's there; otherwise use
-        # first_seen (when we first saw the listing as sold) as the
-        # closest available "sale date" proxy. last_seen would always
-        # equal "today" so it's useless as a date stamp on the letter.
-        source_sold_date = r['sold_date'] or (
-            r['first_seen'][:10] if r['first_seen'] else None
-        )
+        source_sold_date = r['effective_date']
 
         for target in _generate_neighbours(source_address):
             if has_hv:
@@ -259,12 +249,12 @@ def pipeline_generate():
         'generated': generated,
         'sold_count': sold_count,
         'suburb': suburb,
+        'cap_applied': sold_count >= src_limit,
         'entries': entries,
     })
 
 
 def pipeline_tracking_list():
-    """GET /api/pipeline/tracking?suburb=&status=&limit="""
     suburb = (request.args.get('suburb') or '').strip()
     status = (request.args.get('status') or '').strip()
     try:
@@ -291,7 +281,6 @@ def pipeline_tracking_list():
 
 
 def pipeline_tracking_update(id):
-    """PATCH /api/pipeline/tracking/<id>"""
     data = request.get_json(silent=True) or {}
     allowed = ('status', 'response_date', 'notes', 'target_owner_name')
 
@@ -325,12 +314,7 @@ def pipeline_tracking_update(id):
     return jsonify(_serialize_entries([row])[0])
 
 
-# ---------------------------------------------------------------------
-# Wiring
-# ---------------------------------------------------------------------
-
 def register_pipeline_routes(app):
-    """Attach the 3 pipeline endpoints to a Flask app instance."""
     app.add_url_rule(
         '/api/pipeline/generate',
         endpoint='pipeline_generate',
