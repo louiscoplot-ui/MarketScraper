@@ -1065,6 +1065,7 @@ function App() {
                         ['listing_date', 'Listed'],
                         ['dom', 'DOM'],
                         ['withdrawn_date', 'Withdrawn'],
+                        ['sold_date', 'Sold']
                         ['status', 'Status'],
                         ['listing_type', 'Type'],
                       ].map(([field, label]) => (
@@ -1100,6 +1101,7 @@ function App() {
                           {(calcDOM(l) ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
                         </td>
                         <td className="date-cell">{formatIsoDate(l.withdrawn_date) || '-'}</td>
+                        <td className="date-cell">{formatIsoDate(l.sold_date) || '-'}</td>
                         <td>
                           <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
                             {l.status?.replace('_', ' ')}
