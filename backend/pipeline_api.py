@@ -9,8 +9,7 @@ app.py with two extra lines:
 Routes:
 - GET  /api/pipeline/generate?suburb=X&days=N
     Reads recent sold listings, generates ±1/±2 neighbour addresses,
-    inserts new pipeline_tracking rows in chunks of 50 (single
-    multi-VALUES query per chunk). Returns counts + entries.
+    inserts new pipeline_tracking rows. Returns counts + entries.
 - GET  /api/pipeline/tracking?suburb=X&status=Y&limit=N
     Lists tracking rows newest first. All filters optional.
 - PATCH /api/pipeline/tracking/<id>
@@ -35,11 +34,15 @@ logger = logging.getLogger(__name__)
 # Matches "12 Marine Parade", "12A The Avenue", but not strata "1/24 ..."
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
 
-# How many rows per multi-VALUES INSERT. Tuned to keep query size sane
-# (≈ 50 × 8 columns × ~50 bytes = ~20KB query) while cutting the worst
-# case on Cottesloe (200 sold × 4 neighbours = 800 inserts) from 800
-# transcontinental roundtrips down to 16. Sub-second on Render→Neon.
+# Multi-VALUES INSERT batch size. Cuts roundtrips by 50x for big runs.
 INSERT_CHUNK = 50
+
+# Hard cap on how many sold properties we generate from in one call.
+# Even if a suburb has 200 sold listings tracked, generating 800 letters
+# in one click is more noise than signal. Caps the request to the most
+# recent sales (ordered by first_seen, the proxy for "appeared in our
+# DB recently"). Lead-gen quality > volume.
+MAX_SOURCE_SOLDS = 50
 
 
 def _parse_address(addr):
@@ -93,10 +96,7 @@ def _hot_vendors_table_exists(conn):
 
 
 def _match_hot_vendor(conn, target_address):
-    """Return (owner_name, score) for a target address, or (None, None).
-
-    Caller must have verified the table exists via _hot_vendors_table_exists.
-    """
+    """Return (owner_name, score) for a target address, or (None, None)."""
     try:
         row = conn.execute(
             "SELECT * FROM hot_vendors WHERE LOWER(address) LIKE LOWER(?) LIMIT 1",
@@ -138,13 +138,7 @@ def _price_to_int(*candidates):
 
 
 def _bulk_insert_pipeline(conn, rows):
-    """Insert pipeline_tracking rows in chunks via multi-VALUES INSERT.
-
-    Each chunk = one roundtrip, regardless of row count inside the chunk.
-    Returns the number of rows actually inserted (excluding ON CONFLICT
-    skips — counted by diffing pipeline_tracking before/after isn't
-    feasible cross-db, so we count via cur.rowcount when available).
-    """
+    """Insert pipeline_tracking rows in chunks via multi-VALUES INSERT."""
     if not rows:
         return 0
 
@@ -156,7 +150,6 @@ def _bulk_insert_pipeline(conn, rows):
 
     for i in range(0, len(rows), INSERT_CHUNK):
         chunk = rows[i:i + INSERT_CHUNK]
-        # Build "(?, ?, ?, ?, ?, ?, ?, 'sent'), (...), ..." VALUES list.
         single = '(' + ', '.join(['?'] * n_cols) + ", 'sent')"
         values_clause = ', '.join([single] * len(chunk))
         sql = (
@@ -166,9 +159,6 @@ def _bulk_insert_pipeline(conn, rows):
         )
         flat_params = [v for row in chunk for v in row]
         cur = conn.execute(sql, flat_params)
-        # cur.rowcount is reliable on both psycopg2 (returns # affected) and
-        # sqlite3 (returns # changed). For ON CONFLICT skips it correctly
-        # excludes the no-op rows.
         if cur.rowcount and cur.rowcount > 0:
             inserted += cur.rowcount
 
@@ -180,7 +170,20 @@ def _bulk_insert_pipeline(conn, rows):
 # ---------------------------------------------------------------------
 
 def pipeline_generate():
-    """GET — generates letters from recent sold properties."""
+    """GET — generates letters from recent sold properties.
+
+    "Recent" is measured against l.first_seen, NOT l.last_seen. Reason:
+    the daily scrape revisits ALL 200 sold listings per suburb every
+    morning, so they all share roughly the same last_seen timestamp.
+    Filtering by last_seen >= 7days_ago lets through everything in the
+    DB — useless. first_seen is the timestamp when each row was first
+    INSERTed, which for sold-only properties (REIWA shows them sold from
+    day one) approximates "when REIWA published this sale". Far closer
+    to a real "sold this week" filter for lead-gen purposes.
+
+    Plus a hard cap (MAX_SOURCE_SOLDS) keeps each click focused on the
+    freshest leads instead of spitting out 800 letters at once.
+    """
     suburb = (request.args.get('suburb') or '').strip()
     if not suburb:
         return jsonify({'error': 'suburb is required'}), 400
@@ -195,33 +198,36 @@ def pipeline_generate():
 
     conn = get_db()
 
-    # Single existence check up-front.
     has_hv = _hot_vendors_table_exists(conn)
 
     sold_rows = conn.execute(
         """
         SELECT l.address, l.sold_price, l.price_text, l.sold_date,
-               l.last_seen, s.name AS suburb_name
+               l.first_seen, l.last_seen, s.name AS suburb_name
         FROM listings l
         JOIN suburbs s ON l.suburb_id = s.id
         WHERE l.status = 'sold'
           AND LOWER(s.name) = LOWER(?)
-          AND l.last_seen >= ?
-        ORDER BY l.last_seen DESC
+          AND l.first_seen >= ?
+        ORDER BY l.first_seen DESC
+        LIMIT ?
         """,
-        (suburb, cutoff_iso)
+        (suburb, cutoff_iso, MAX_SOURCE_SOLDS)
     ).fetchall()
 
     sold_count = len(sold_rows)
 
-    # Build all insert rows first — no DB writes during this phase.
     insert_rows = []
     for r in sold_rows:
         source_address = r['address']
         source_suburb = r['suburb_name']
         source_price = _price_to_int(r['sold_price'], r['price_text'])
+        # Prefer REIWA's published sold_date if it's there; otherwise use
+        # first_seen (when we first saw the listing as sold) as the
+        # closest available "sale date" proxy. last_seen would always
+        # equal "today" so it's useless as a date stamp on the letter.
         source_sold_date = r['sold_date'] or (
-            r['last_seen'][:10] if r['last_seen'] else None
+            r['first_seen'][:10] if r['first_seen'] else None
         )
 
         for target in _generate_neighbours(source_address):
