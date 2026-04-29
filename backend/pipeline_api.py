@@ -1,11 +1,4 @@
-"""Appraisal Pipeline routes — 3 endpoints + helper functions.
-
-Lives in its own module so app.py doesn't bloat further. Wire it into
-app.py with two extra lines:
-
-    from pipeline_api import register_pipeline_routes
-    register_pipeline_routes(app)
-"""
+"""Appraisal Pipeline routes — endpoints + helper functions."""
 
 import re
 import logging
@@ -17,18 +10,10 @@ from database import get_db, USE_POSTGRES
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------
-
-# Matches "12 Marine Parade", "12A The Avenue", but not strata "1/24 ..."
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
-
 INSERT_CHUNK = 50
 
-# Cap on source sales per request, scaled to the days window. Premium
-# Perth suburbs typically see ~2 sales/day. days × 3 leaves head-room
-# for hot weeks, then a 60-row hard ceiling protects response time.
+
 def _source_limit(days):
     return min(max(days * 3, 5), 60)
 
@@ -37,7 +22,7 @@ def _parse_address(addr):
     if not addr:
         return None
     addr = addr.strip()
-    if '/' in addr.split()[0]:  # strata "1/24 Main Rd" — skip
+    if '/' in addr.split()[0]:
         return None
     m = _ADDR_RE.match(addr)
     if not m:
@@ -153,24 +138,6 @@ def _bulk_insert_pipeline(conn, rows):
 # ---------------------------------------------------------------------
 
 def pipeline_generate():
-    """Generate prospecting letters from recently-sold properties.
-
-    Recency rule (the right one for daily lead-gen, not the one I shipped
-    yesterday):
-
-      effective_sold_date = COALESCE(sold_date, first_seen[:10])
-
-    sold_date is REIWA's published sale date — the truth when populated.
-    For sold listings where REIWA didn't expose a date (rare but happens
-    on older listings), we fall back to first_seen, which is when our
-    scraper first observed the property as sold (typically same day or
-    next day after REIWA published).
-
-    Filter: effective_sold_date >= cutoff_date (no time part to avoid
-    same-day boundary edge cases). Order: most recent first. Hard cap
-    via _source_limit(days) so a 7-day window can't dump 200 letters
-    on the user.
-    """
     suburb = (request.args.get('suburb') or '').strip()
     if not suburb:
         return jsonify({'error': 'suburb is required'}), 400
@@ -181,9 +148,6 @@ def pipeline_generate():
         days = 7
     days = max(1, min(days, 90))
 
-    # Date-only cutoff — comparing 'YYYY-MM-DD' against sold_date works
-    # cleanly. first_seen is full ISO datetime but its date prefix
-    # compares lexicographically the same way.
     cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
     src_limit = _source_limit(days)
 
@@ -191,9 +155,6 @@ def pipeline_generate():
 
     has_hv = _hot_vendors_table_exists(conn)
 
-    # COALESCE picks REIWA's sold_date when present, otherwise the date
-    # part of first_seen. SUBSTR(.., 1, 10) trims first_seen's
-    # 'YYYY-MM-DDTHH:MM:SS' to 'YYYY-MM-DD' for clean date compare.
     sold_rows = conn.execute(
         """
         SELECT l.address, l.sold_price, l.price_text, l.sold_date,
@@ -314,6 +275,58 @@ def pipeline_tracking_update(id):
     return jsonify(_serialize_entries([row])[0])
 
 
+def pipeline_tracking_clear():
+    """DELETE rows by suburb (and optional status). Requires confirm=yes
+    query param so an accidental fetch doesn't wipe the table.
+
+    Examples:
+      DELETE /api/pipeline/tracking?suburb=Cottesloe&confirm=yes
+        → wipes ALL pipeline rows for Cottesloe (use to clean up after
+        a botched generate)
+
+      DELETE /api/pipeline/tracking?suburb=Cottesloe&status=sent&confirm=yes
+        → wipes only 'sent' rows (keeps responded/listed/etc. for history)
+    """
+    if (request.args.get('confirm') or '').lower() != 'yes':
+        return jsonify({
+            'error': 'Add ?confirm=yes to actually delete. This is destructive.'
+        }), 400
+
+    suburb = (request.args.get('suburb') or '').strip()
+    status = (request.args.get('status') or '').strip()
+
+    if not suburb and not status:
+        return jsonify({
+            'error': 'At least suburb or status must be provided. '
+                     'Refusing to wipe the entire table.'
+        }), 400
+
+    conn = get_db()
+    sql = "DELETE FROM pipeline_tracking WHERE 1=1"
+    params = []
+    if suburb:
+        sql += " AND LOWER(source_suburb) = LOWER(?)"
+        params.append(suburb)
+    if status:
+        sql += " AND status = ?"
+        params.append(status)
+
+    cur = conn.execute(sql, params)
+    deleted = cur.rowcount or 0
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'deleted': deleted,
+        'suburb': suburb or None,
+        'status': status or None,
+    })
+
+
+# ---------------------------------------------------------------------
+# Wiring
+# ---------------------------------------------------------------------
+
 def register_pipeline_routes(app):
     app.add_url_rule(
         '/api/pipeline/generate',
@@ -333,4 +346,10 @@ def register_pipeline_routes(app):
         view_func=pipeline_tracking_update,
         methods=['PATCH']
     )
-    logger.info("Pipeline routes registered: /api/pipeline/{generate,tracking,tracking/<id>}")
+    app.add_url_rule(
+        '/api/pipeline/tracking',
+        endpoint='pipeline_tracking_clear',
+        view_func=pipeline_tracking_clear,
+        methods=['DELETE']
+    )
+    logger.info("Pipeline routes registered: /api/pipeline/{generate,tracking[,/<id>]}")
