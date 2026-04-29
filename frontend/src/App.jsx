@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import HotVendorScoring from './HotVendorScoring'
+import Pipeline from './pages/Pipeline'
 
 const API = '/api'
 
@@ -469,6 +470,12 @@ function App() {
           >
             {view === 'hot-vendors' ? 'View Listings' : 'Hot Vendors'}
           </button>
+                    <button
+            className={`btn btn-pipeline ${view === 'pipeline' ? 'active' : ''}`}
+            onClick={() => setView(v => v === 'pipeline' ? 'listings' : 'pipeline')}
+          >
+            {view === 'pipeline' ? 'View Listings' : 'Pipeline'}
+          </button>
           <button className="btn btn-secondary" onClick={() => setShowThemeModal(true)}>
             Theme
           </button>
@@ -673,8 +680,10 @@ function App() {
         </aside>
 
         <main className="content">
-          {view === 'hot-vendors' ? (
-            <HotVendorScoring />
+  {view === 'pipeline' ? (
+    <Pipeline />
+  ) : view === 'hot-vendors' ? (
+    <HotVendorScoring />
           ) : view === 'report' && report ? (
             <div className="report-view">
               <h2>Market Report{reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length
