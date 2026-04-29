@@ -3,7 +3,8 @@
 import re
 import logging
 from datetime import datetime, timedelta, date
-from flask import request, jsonify
+from io import BytesIO
+from flask import request, jsonify, send_file
 
 from database import get_db, USE_POSTGRES
 
@@ -276,17 +277,7 @@ def pipeline_tracking_update(id):
 
 
 def pipeline_tracking_clear():
-    """DELETE rows by suburb (and optional status). Requires confirm=yes
-    query param so an accidental fetch doesn't wipe the table.
-
-    Examples:
-      DELETE /api/pipeline/tracking?suburb=Cottesloe&confirm=yes
-        → wipes ALL pipeline rows for Cottesloe (use to clean up after
-        a botched generate)
-
-      DELETE /api/pipeline/tracking?suburb=Cottesloe&status=sent&confirm=yes
-        → wipes only 'sent' rows (keeps responded/listed/etc. for history)
-    """
+    """DELETE rows by suburb (and optional status). Requires confirm=yes."""
     if (request.args.get('confirm') or '').lower() != 'yes':
         return jsonify({
             'error': 'Add ?confirm=yes to actually delete. This is destructive.'
@@ -323,6 +314,122 @@ def pipeline_tracking_clear():
     })
 
 
+def pipeline_letter_download(id):
+    """Generate a .docx prospecting letter for one tracking entry.
+
+    The user opens it in Word, can manually edit owner_name / tone /
+    address details before printing or posting. Branded Belle Property
+    Cottesloe — generic enough to swap in any agency template later.
+    """
+    from docx import Document
+    from docx.shared import Pt, RGBColor, Cm
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'Letter not found'}), 404
+
+    entry = dict(row)
+    owner = (entry.get('target_owner_name') or '').strip() or 'Homeowner'
+    source_addr = entry.get('source_address') or ''
+    target_addr = entry.get('target_address') or ''
+    source_suburb = entry.get('source_suburb') or ''
+    source_price = entry.get('source_price')
+    price_str = f"${int(source_price):,}" if source_price else ''
+
+    doc = Document()
+
+    # Tighter margins so the letter fills a single page.
+    for section in doc.sections:
+        section.top_margin = Cm(2.5)
+        section.bottom_margin = Cm(2.5)
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2.5)
+
+    # Letterhead — bold all-caps brand line + small grey office address.
+    head = doc.add_paragraph()
+    r = head.add_run('BELLE PROPERTY  |  Cottesloe')
+    r.bold = True
+    r.font.size = Pt(20)
+
+    addr = doc.add_paragraph()
+    r = addr.add_run('160 Stirling Highway, Nedlands WA 6009')
+    r.font.size = Pt(10)
+    r.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+    doc.add_paragraph()
+
+    # Date in long form.
+    today = datetime.utcnow().strftime('%d %B %Y')
+    p = doc.add_paragraph(today)
+    p.runs[0].font.size = Pt(11)
+
+    doc.add_paragraph()
+
+    doc.add_paragraph(f'Dear {owner},')
+    doc.add_paragraph()
+
+    doc.add_paragraph('I hope this letter finds you well.')
+
+    p = doc.add_paragraph()
+    p.add_run('I wanted to reach out personally — your neighbour at ')
+    bold = p.add_run(source_addr)
+    bold.bold = True
+    p.add_run(' recently sold for ')
+    bold = p.add_run(price_str)
+    bold.bold = True
+    p.add_run(f", one of {source_suburb}'s strongest results this season.")
+
+    p = doc.add_paragraph()
+    p.add_run(
+        f'With buyer demand remaining high across {source_suburb}, this '
+        f'could be the ideal moment to understand what your property at '
+    )
+    bold = p.add_run(target_addr)
+    bold.bold = True
+    p.add_run(" is truly worth in today's market.")
+
+    doc.add_paragraph(
+        'I would love to offer you a complimentary, no-obligation market '
+        'appraisal at a time that suits you — no pressure, just clarity.'
+    )
+
+    doc.add_paragraph("Please don't hesitate to reach out.")
+
+    doc.add_paragraph()
+    doc.add_paragraph('Warm regards,')
+    doc.add_paragraph()
+
+    sig = doc.add_paragraph()
+    r = sig.add_run('Louis Coplot')
+    r.bold = True
+    r.font.size = Pt(13)
+
+    doc.add_paragraph('Sales Agent | Belle Property Cottesloe')
+    doc.add_paragraph('M: 0400 XXX XXX')
+    doc.add_paragraph('E: louis@belleproperty.com.au')
+    doc.add_paragraph('W: belleproperty.com.au/cottesloe')
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    # Filename like 'letter_4_Torrens_Street.docx' — sanitised for FS safety.
+    safe = re.sub(r'[^\w\s-]', '', target_addr)[:60].strip().replace(' ', '_')
+    filename = f"letter_{safe or 'letter'}.docx"
+
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 # ---------------------------------------------------------------------
 # Wiring
 # ---------------------------------------------------------------------
@@ -352,4 +459,12 @@ def register_pipeline_routes(app):
         view_func=pipeline_tracking_clear,
         methods=['DELETE']
     )
-    logger.info("Pipeline routes registered: /api/pipeline/{generate,tracking[,/<id>]}")
+    app.add_url_rule(
+        '/api/pipeline/letter/<int:id>/download',
+        endpoint='pipeline_letter_download',
+        view_func=pipeline_letter_download,
+        methods=['GET']
+    )
+    logger.info(
+        "Pipeline routes registered: /api/pipeline/{generate,tracking[,/<id>],letter/<id>/download}"
+    )
