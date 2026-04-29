@@ -1065,7 +1065,7 @@ function App() {
                         ['listing_date', 'Listed'],
                         ['dom', 'DOM'],
                         ['withdrawn_date', 'Withdrawn'],
-                        ['sold_date', 'Sold']
+                        ['sold_date', 'Sold'],
                         ['status', 'Status'],
                         ['listing_type', 'Type'],
                       ].map(([field, label]) => (
