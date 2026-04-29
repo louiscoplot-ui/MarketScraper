@@ -1,10 +1,13 @@
 name: Daily REIWA scrape
 
-# Runs once per day at 02:00 Perth time (AWST = UTC+8, no DST).
-# 02:00 AWST = 18:00 UTC the previous day.
+# Runs once per day at 05:00 Perth time (AWST = UTC+8, no DST).
+# 05:00 AWST = 21:00 UTC the previous day.
+# Targeted at 5am so the scrape (~2-3h on GHA US runners) finishes before
+# agents arrive at the office, and fresh data is ready for them when they
+# walk in. Earlier than 5am misses overnight/early-morning REIWA listings.
 on:
   schedule:
-    - cron: '0 18 * * *'
+    - cron: '0 21 * * *'
   # Always allow a manual trigger from the Actions tab — useful for first
   # run, debugging, or kicking off an extra scrape during the day.
   workflow_dispatch:
