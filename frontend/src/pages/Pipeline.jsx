@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 
-const API = import.meta.env.VITE_API_URL || 'https://marketscraper-backend.onrender.com'
+// Empty base URL → all fetches use relative /api/... paths, which get
+// rewritten by frontend/vercel.json to the Render backend in prod and
+// proxied by vite.config.js to localhost:5000 in dev. Same as the rest
+// of the app — avoids the cross-origin/CORS dance an absolute URL forces.
+const API = ''
 
 const SUBURBS = [
   'Cottesloe', 'Nedlands', 'Claremont', 'Dalkeith', 'Swanbourne',
