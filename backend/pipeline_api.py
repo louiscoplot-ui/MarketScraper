@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, date
 from io import BytesIO
 from flask import request, jsonify, send_file
 
-from database import get_db, USE_POSTGRES
+from database import get_db, normalize_address, USE_POSTGRES
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +50,18 @@ def _generate_neighbours(addr):
 
 
 def _hot_vendors_table_exists(conn):
+    """Check whether the hot_vendor_properties table exists. Used to
+    silently skip the join when the schema migration hasn't run yet."""
     try:
         if USE_POSTGRES:
             row = conn.execute(
                 "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema = 'public' AND table_name = 'hot_vendors' LIMIT 1"
+                "WHERE table_schema = 'public' AND table_name = 'hot_vendor_properties' LIMIT 1"
             ).fetchone()
         else:
             row = conn.execute(
                 "SELECT 1 FROM sqlite_master "
-                "WHERE type = 'table' AND name = 'hot_vendors' LIMIT 1"
+                "WHERE type = 'table' AND name = 'hot_vendor_properties' LIMIT 1"
             ).fetchone()
         return bool(row)
     except Exception:
@@ -67,17 +69,23 @@ def _hot_vendors_table_exists(conn):
 
 
 def _match_hot_vendor(conn, target_address):
+    """Look up a target address in hot_vendor_properties (the new persisted
+    table). Match on normalized_address for fast exact lookup. Returns
+    (owner_name, final_score) or (None, None) if no match."""
     try:
+        norm = normalize_address(target_address)
+        if not norm:
+            return None, None
         row = conn.execute(
-            "SELECT * FROM hot_vendors WHERE LOWER(address) LIKE LOWER(?) LIMIT 1",
-            (f"%{target_address}%",)
+            "SELECT current_owner, final_score FROM hot_vendor_properties "
+            "WHERE normalized_address = ? "
+            "ORDER BY final_score DESC LIMIT 1",
+            (norm,)
         ).fetchone()
         if not row:
             return None, None
         d = dict(row)
-        owner = d.get('owner_name') or d.get('owner') or d.get('current_owner')
-        score = d.get('score') or d.get('final_score') or d.get('hot_score')
-        return owner, score
+        return d.get('current_owner'), d.get('final_score')
     except Exception:
         return None, None
 
@@ -381,22 +389,7 @@ def pipeline_generate():
 def pipeline_manual_add():
     """POST /api/pipeline/manual-add — create pipeline entries from a sale
     the agent knows about that the scraper either missed or hasn't dated
-    correctly yet.
-
-    Body JSON:
-      source_address (str, required) — e.g. "28 Lillian Street"
-      source_suburb  (str, required) — e.g. "Cottesloe" (used for grouping
-                                       and routing letter copy)
-      source_price   (int|str, optional) — "$2.7M" / "2700000" / 2700000
-                                           all accepted; coerced to int
-      source_sold_date (str, optional)  — 'YYYY-MM-DD'; defaults to today
-      target_addresses (list[str], optional) — explicit neighbours to mail.
-                                               If omitted, falls back to the
-                                               auto ±1 / ±2 generator.
-
-    Returns the created/skipped counts plus the freshly-inserted rows
-    so the frontend can append them without a separate refetch.
-    """
+    correctly yet."""
     data = request.get_json(silent=True) or {}
 
     source_address = (data.get('source_address') or '').strip()
@@ -448,10 +441,6 @@ def pipeline_manual_add():
     generated = _bulk_insert_pipeline(conn, insert_rows)
     conn.commit()
 
-    # Return the rows we (potentially) inserted, plus all sibling rows
-    # already in the table for the same (source, suburb, sent_date) so
-    # the frontend can show the full picture even when ON CONFLICT
-    # silently skipped some duplicates.
     rows = conn.execute(
         """
         SELECT * FROM pipeline_tracking
