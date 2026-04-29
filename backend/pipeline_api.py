@@ -9,20 +9,13 @@ app.py with two extra lines:
 Routes:
 - GET  /api/pipeline/generate?suburb=X&days=N
     Reads recent sold listings, generates ±1/±2 neighbour addresses,
-    inserts new pipeline_tracking rows. Returns counts + entries.
+    inserts new pipeline_tracking rows in chunks of 50 (single
+    multi-VALUES query per chunk). Returns counts + entries.
 - GET  /api/pipeline/tracking?suburb=X&status=Y&limit=N
     Lists tracking rows newest first. All filters optional.
 - PATCH /api/pipeline/tracking/<id>
     Updates status / response_date / notes / target_owner_name on
     one tracking row. Only provided fields are updated.
-
-Owner-name + hot-vendor-score matching is intentionally a soft fail:
-the codebase doesn't have a hot_vendors table yet (Hot Vendor scoring
-is currently in-browser only via SheetJS). Existence is checked once
-per request via information_schema / sqlite_master so the working
-transaction never gets dirtied by a missing-table error. Skipped
-silently when absent — columns stay NULL and the user fills
-target_owner_name manually inline.
 """
 
 import re
@@ -40,8 +33,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------
 
 # Matches "12 Marine Parade", "12A The Avenue", but not strata "1/24 ..."
-# Strata addresses skip neighbour generation — same building, not relevant.
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
+
+# How many rows per multi-VALUES INSERT. Tuned to keep query size sane
+# (≈ 50 × 8 columns × ~50 bytes = ~20KB query) while cutting the worst
+# case on Cottesloe (200 sold × 4 neighbours = 800 inserts) from 800
+# transcontinental roundtrips down to 16. Sub-second on Render→Neon.
+INSERT_CHUNK = 50
 
 
 def _parse_address(addr):
@@ -77,14 +75,7 @@ def _generate_neighbours(addr):
 
 
 def _hot_vendors_table_exists(conn):
-    """Cheap, transaction-safe presence check.
-
-    A naive `SELECT 1 FROM hot_vendors LIMIT 1` would work on SQLite but
-    on Postgres a missing-table error aborts the active transaction —
-    every subsequent INSERT in the same connection fails until rollback.
-    We instead query the catalog (information_schema / sqlite_master)
-    which is always there and never errors.
-    """
+    """Cheap, transaction-safe presence check via system catalog."""
     try:
         if USE_POSTGRES:
             row = conn.execute(
@@ -104,8 +95,7 @@ def _hot_vendors_table_exists(conn):
 def _match_hot_vendor(conn, target_address):
     """Return (owner_name, score) for a target address, or (None, None).
 
-    Caller must have already verified the table exists via
-    _hot_vendors_table_exists — we don't double-check here.
+    Caller must have verified the table exists via _hot_vendors_table_exists.
     """
     try:
         row = conn.execute(
@@ -147,6 +137,44 @@ def _price_to_int(*candidates):
     return None
 
 
+def _bulk_insert_pipeline(conn, rows):
+    """Insert pipeline_tracking rows in chunks via multi-VALUES INSERT.
+
+    Each chunk = one roundtrip, regardless of row count inside the chunk.
+    Returns the number of rows actually inserted (excluding ON CONFLICT
+    skips — counted by diffing pipeline_tracking before/after isn't
+    feasible cross-db, so we count via cur.rowcount when available).
+    """
+    if not rows:
+        return 0
+
+    inserted = 0
+    cols = ('source_address', 'source_suburb', 'source_sold_date',
+            'source_price', 'target_address', 'target_owner_name',
+            'hot_vendor_score')
+    n_cols = len(cols)
+
+    for i in range(0, len(rows), INSERT_CHUNK):
+        chunk = rows[i:i + INSERT_CHUNK]
+        # Build "(?, ?, ?, ?, ?, ?, ?, 'sent'), (...), ..." VALUES list.
+        single = '(' + ', '.join(['?'] * n_cols) + ", 'sent')"
+        values_clause = ', '.join([single] * len(chunk))
+        sql = (
+            f"INSERT INTO pipeline_tracking ({', '.join(cols)}, status) "
+            f"VALUES {values_clause} "
+            f"ON CONFLICT (target_address, sent_date) DO NOTHING"
+        )
+        flat_params = [v for row in chunk for v in row]
+        cur = conn.execute(sql, flat_params)
+        # cur.rowcount is reliable on both psycopg2 (returns # affected) and
+        # sqlite3 (returns # changed). For ON CONFLICT skips it correctly
+        # excludes the no-op rows.
+        if cur.rowcount and cur.rowcount > 0:
+            inserted += cur.rowcount
+
+    return inserted
+
+
 # ---------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------
@@ -167,14 +195,9 @@ def pipeline_generate():
 
     conn = get_db()
 
-    # Single existence check up-front, not per-neighbour. Keeps the
-    # working transaction clean when the table doesn't exist.
+    # Single existence check up-front.
     has_hv = _hot_vendors_table_exists(conn)
 
-    # last_seen is updated whenever the scraper flips a status, so for
-    # listings that recently transitioned to sold it's a reliable proxy
-    # for "sold within last X days". sold_date column is rarely populated
-    # by REIWA so we don't rely on it.
     sold_rows = conn.execute(
         """
         SELECT l.address, l.sold_price, l.price_text, l.sold_date,
@@ -190,10 +213,8 @@ def pipeline_generate():
     ).fetchall()
 
     sold_count = len(sold_rows)
-    generated = 0
 
-    # Build the full insert list first (no DB writes yet) so the actual
-    # write phase is one tight loop with a single commit.
+    # Build all insert rows first — no DB writes during this phase.
     insert_rows = []
     for r in sold_rows:
         source_address = r['address']
@@ -213,24 +234,7 @@ def pipeline_generate():
                 source_price, target, owner, score,
             ))
 
-    # ON CONFLICT DO NOTHING is identical syntax on SQLite 3.24+ and
-    # Postgres 9.5+ — both current. UNIQUE(target_address, sent_date)
-    # silently dedups same-day re-runs without polluting the txn.
-    for row in insert_rows:
-        cur = conn.execute(
-            """
-            INSERT INTO pipeline_tracking (
-                source_address, source_suburb, source_sold_date,
-                source_price, target_address, target_owner_name,
-                hot_vendor_score, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'sent')
-            ON CONFLICT (target_address, sent_date) DO NOTHING
-            """,
-            row
-        )
-        if cur.rowcount and cur.rowcount > 0:
-            generated += 1
-
+    generated = _bulk_insert_pipeline(conn, insert_rows)
     conn.commit()
 
     rows = conn.execute(
