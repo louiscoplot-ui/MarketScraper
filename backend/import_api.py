@@ -1,21 +1,16 @@
 """CSV / Excel import for RP Data / CoreLogic property exports.
 
-UPDATE-ONLY mode: every row in the upload is matched against an
-existing listings row (suburb + normalized_address). On match we
-overwrite sold_date and sold_price with the RP Data values. On no
-match we simply skip — the user's intent is to fix dates that the
-REIWA scraper got wrong, NOT to grow the table.
+UPDATE-ONLY mode: every row is matched against an existing listings
+row (suburb_id + normalized_address). On match we overwrite sold_date
+and sold_price. On no match we skip — REIWA scrape stays the source
+of truth for what's IN the table; RP Data only enriches dates.
 
-Workflow:
-    Agent exports CSV/xlsx of recent sales from RP Data ->
-    POST file as multipart/form-data 'file' ->
-    Each row matched against listings(normalized_address, suburb_id) ->
-    Match: UPDATE sold_date, sold_price, status='sold'
-    No match: skip (counted)
-
-Wire into app.py with two lines:
-    from import_api import register_import_routes
-    register_import_routes(app)
+Two header strategies:
+1. Named headers — fuzzy match against COLUMN_ALIASES (RP Data web
+   exports occasionally include them).
+2. Positional fallback — RP Data CLI exports drop straight into data
+   with no header row at all. We detect this shape and use the
+   documented fixed-position layout.
 """
 
 import io
@@ -30,8 +25,6 @@ from database import get_db, normalize_address
 logger = logging.getLogger(__name__)
 
 
-# RP Data, CoreLogic, Pricefinder — they all ship slightly different
-# column names. Lower-cased fuzzy match against any alias.
 COLUMN_ALIASES = {
     'address':      ['property address', 'address', 'street address',
                      'full address', 'street'],
@@ -59,11 +52,31 @@ COLUMN_ALIASES = {
 }
 
 
+# RP Data's no-header export uses this fixed positional layout. Verified
+# against actual exports: address, suburb, state, postcode, type, beds,
+# baths, cars, land, internal, ?, price, date, ...
+RPDATA_POSITIONAL = {
+    'address':      0,
+    'suburb':       1,
+    'postcode':     3,
+    'listing_type': 4,
+    'bedrooms':     5,
+    'bathrooms':    6,
+    'parking':      7,
+    'land_size':    8,
+    'internal_size': 9,
+    'sold_price':   11,
+    'sold_date':    12,
+}
+
+AU_STATE_CODES = {'WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'NT', 'ACT'}
+
+
 def _parse_price(text):
     if text is None or text == '':
         return None
     s = str(text).strip()
-    if not s:
+    if not s or s == '-':
         return None
     m_short = re.match(r'^\$?(\d+(?:\.\d+)?)\s*([MmKk])\b', s)
     if m_short:
@@ -85,24 +98,25 @@ def _parse_price(text):
 
 
 def _parse_date(text):
-    """Parse various date formats, return ISO 'YYYY-MM-DD' or None.
-
-    Australian convention: DD before MM. RP Data also uses '8-Aug-25'
-    abbreviated month with 2-digit year — that's why DD-Mon-YY is in
-    the format list. %y handles 2-digit year per Python rules
-    (00-68 = 20xx, 69-99 = 19xx, fine for Australian sale dates).
-    """
     if not text:
         return None
     s = str(text).strip()
-    if not s:
+    if not s or s == '-':
         return None
 
-    # Strip time component and timezone if any
-    s = s.split(' ')[0] if 'T' not in s else s.split('T')[0]
-    s = s.split(' ')[0]  # belt-and-braces
+    s = s.split('T')[0].split(' ', 1)
+    # Keep only the first 1-3 tokens to handle 'YYYY-MM-DD HH:MM:SS' (1)
+    # or '08 Aug 2025' (3 tokens — keep them) or '8-Aug-25' (1 token).
+    if len(s) == 1:
+        rest = s[0]
+    else:
+        # If the second token looks like time (has ':') drop it
+        if ':' in s[1]:
+            rest = s[0]
+        else:
+            rest = ' '.join(s)
+    s = rest.strip()
 
-    # ISO YYYY-MM-DD
     m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
     if m:
         try:
@@ -110,7 +124,6 @@ def _parse_date(text):
         except ValueError:
             pass
 
-    # DD/MM/YYYY or DD-MM-YYYY (Australian)
     m = re.match(r'^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$', s)
     if m:
         try:
@@ -118,7 +131,6 @@ def _parse_date(text):
         except ValueError:
             pass
 
-    # DD/MM/YY or DD-MM-YY (2-digit year)
     m = re.match(r'^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2})$', s)
     if m:
         try:
@@ -128,12 +140,11 @@ def _parse_date(text):
         except ValueError:
             pass
 
-    # Named-month formats including '8-Aug-25' (RP Data default)
     for fmt in (
-        '%d-%b-%y', '%d-%b-%Y',
-        '%d-%B-%y', '%d-%B-%Y',
         '%d %b %Y', '%d %B %Y',
         '%b %d %Y', '%B %d %Y',
+        '%d-%b-%y', '%d-%b-%Y',
+        '%d-%B-%y', '%d-%B-%Y',
     ):
         try:
             return datetime.strptime(s, fmt).date().isoformat()
@@ -144,7 +155,6 @@ def _parse_date(text):
 
 
 def _is_header_row(cells):
-    """True if a CSV row looks like a header (≥3 known column aliases)."""
     norm = [(c or '').strip().lower() for c in cells]
     hits = 0
     for aliases in COLUMN_ALIASES.values():
@@ -164,6 +174,24 @@ def _detect_columns(header):
                 out[canonical] = norm.index(alias)
                 break
     return out
+
+
+def _looks_like_rpdata_positional(row):
+    """RP Data no-header CSV: col 0 is an uppercase street address, col 1
+    is the suburb, col 2 is an Australian state code. Strong signature.
+    """
+    if not row or len(row) < 5:
+        return False
+    addr = (row[0] or '').strip()
+    suburb = (row[1] or '').strip()
+    state = (row[2] or '').strip().upper()
+    if not re.match(r'^\d+\w*\s+[A-Z]', addr):
+        return False
+    if not suburb:
+        return False
+    if state not in AU_STATE_CODES:
+        return False
+    return True
 
 
 def _strip_suburb_from_address(addr, suburb):
@@ -208,14 +236,10 @@ def _read_rows(file_storage):
 
 
 def _find_header_index(rows, scan_limit=20):
-    """RP Data sometimes prepends a few intro/title rows before the real
-    header. Scan the first `scan_limit` rows for one that smells like a
-    header (≥3 known aliases). Fall back to row 0 if none found.
-    """
     for i in range(min(scan_limit, len(rows))):
         if _is_header_row(rows[i]):
             return i
-    return 0
+    return -1  # -1 == no header found, caller decides what to do
 
 
 def import_rpdata():
@@ -223,12 +247,11 @@ def import_rpdata():
 
     multipart/form-data:
         file (required) — .csv or .xlsx export from RP Data / CoreLogic
-        suburb (optional) — fallback if the CSV has no Suburb column
+        suburb (optional) — fallback if neither named header nor
+                            positional layout has a suburb column
 
-    UPDATE-ONLY mode: rows that don't match an existing listing are
-    skipped, NOT inserted. The intent is to fix sold_date precision
-    on what the scraper already has, not to grow the table from
-    third-party data.
+    UPDATE-ONLY: rows that don't match an existing listing are skipped
+    (counted as no_match), NEVER inserted as new rows.
     """
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded. Use multipart field "file".'}), 400
@@ -240,19 +263,35 @@ def import_rpdata():
     rows, err = _read_rows(file)
     if err:
         return jsonify({'error': err}), 400
-    if not rows or len(rows) < 2:
-        return jsonify({'error': 'File needs a header row + at least one data row'}), 400
+    if not rows:
+        return jsonify({'error': 'File is empty'}), 400
 
+    # Two paths to figure out where data lives:
+    # 1. Try to find a named header anywhere in the first 20 rows.
+    # 2. If none, see if row 0 looks like RP Data's positional shape.
     header_idx = _find_header_index(rows)
-    header = rows[header_idx]
-    cols = _detect_columns(header)
-    data_rows = rows[header_idx + 1:]
+    cols = {}
+    data_rows = []
+    layout_used = ''
+
+    if header_idx >= 0:
+        cols = _detect_columns(rows[header_idx])
+        data_rows = rows[header_idx + 1:]
+        layout_used = 'named-header'
+    elif _looks_like_rpdata_positional(rows[0]):
+        cols = dict(RPDATA_POSITIONAL)
+        data_rows = rows
+        layout_used = 'rpdata-positional'
 
     if 'address' not in cols:
         return jsonify({
-            'error': 'Could not find an Address column. Expected one of: '
-                     + ', '.join(COLUMN_ALIASES['address']),
-            'header_seen': [str(h) for h in header],
+            'error': (
+                "Could not parse the file's structure. Expected either a "
+                "named header row (Property Address / Suburb / Sale Date / "
+                "Sale Price), OR an RP Data positional layout where col 0 = "
+                "address, col 1 = suburb, col 2 = state."
+            ),
+            'first_row_seen': [str(c) for c in rows[0][:10]],
             'header_row_index': header_idx,
         }), 400
 
@@ -263,16 +302,16 @@ def import_rpdata():
     suburb_rows = conn.execute("SELECT id, name, slug FROM suburbs").fetchall()
     suburb_by_name = {r['name'].lower(): r for r in suburb_rows}
 
-    matched = 0       # listings updated with new dates
-    no_match = 0      # rows skipped because address/suburb not in our DB
-    skipped = 0       # rows skipped for other reasons (empty, parse fail, etc.)
+    matched = 0
+    no_match = 0
+    skipped = 0
     date_updates = 0
     price_updates = 0
     errors = []
     now_iso = datetime.utcnow().isoformat()
 
-    for row_idx, row in enumerate(data_rows, start=header_idx + 2):
-        if not row or all((c is None or str(c).strip() == '') for c in row):
+    for row_idx, row in enumerate(data_rows, start=(header_idx + 2 if header_idx >= 0 else 1)):
+        if not row or all((c is None or str(c).strip() in ('', '-')) for c in row):
             continue
 
         try:
@@ -280,7 +319,12 @@ def import_rpdata():
                 idx = cols.get(key)
                 if idx is None or idx >= len(row):
                     return ''
-                return ('' if row[idx] is None else str(row[idx])).strip()
+                v = row[idx]
+                if v is None:
+                    return ''
+                s = str(v).strip()
+                # RP Data uses '-' as the empty placeholder
+                return '' if s == '-' else s
 
             addr_raw = cell('address')
             if not addr_raw:
@@ -296,7 +340,6 @@ def import_rpdata():
 
             suburb_row = suburb_by_name.get(suburb_name.lower())
             if not suburb_row:
-                # Unknown suburb — RP Data has it but we don't track it. Skip silently.
                 no_match += 1
                 continue
 
@@ -333,10 +376,6 @@ def import_rpdata():
                     params.append(price_str)
                     price_updates += 1
 
-            # If the listing wasn't already marked sold, RP Data's word
-            # is final — they only export actual transactions. Keeps us
-            # from leaving a stale 'active' row when a sale slipped past
-            # the scraper.
             if existing['status'] != 'sold':
                 updates.append("status = 'sold'")
 
@@ -348,11 +387,7 @@ def import_rpdata():
                     f"UPDATE listings SET {', '.join(updates)} WHERE id = ?",
                     params
                 )
-                matched += 1
-            else:
-                # Row matched but had no new info to apply — count as match
-                # since the existing row is consistent with RP Data.
-                matched += 1
+            matched += 1
         except Exception as e:
             skipped += 1
             if len(errors) < 20:
@@ -372,7 +407,7 @@ def import_rpdata():
         'date_updates': date_updates,
         'price_updates': price_updates,
         'total_rows': len(data_rows),
-        'header_row_index': header_idx,
+        'layout_used': layout_used,
         'detected_columns': cols,
         'errors': errors,
     })
