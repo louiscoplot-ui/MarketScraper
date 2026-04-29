@@ -8,6 +8,9 @@ without depending on a network DB).
 The rest of the codebase keeps the simple `conn.execute(sql, params)`
 sqlite-style API — _Conn translates placeholders and a couple of
 SQLite-specific schema bits transparently for Postgres.
+
+Schema initialisation lives in db_schema.py (re-exported below as
+init_db) to keep this module small enough to push via MCP.
 """
 
 import re
@@ -23,22 +26,14 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 USE_POSTGRES = DATABASE_URL.startswith('postgres://') or DATABASE_URL.startswith('postgresql://')
 
 
-# ---------------------------------------------------------------------------
-# Connection wrapper — keeps the sqlite-style API while letting psycopg2
-# back the connection in production.
-# ---------------------------------------------------------------------------
-
 def _translate_sql(sql, driver):
     """SQLite → Postgres syntax fixups. Trivially fast (string ops)."""
     if driver != 'pg':
         return sql
     out = sql
-    # Parameter placeholder
     out = out.replace('?', '%s')
-    # Auto-increment integer PK
     out = re.sub(r'INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT', 'SERIAL PRIMARY KEY', out, flags=re.I)
     out = re.sub(r'\bAUTOINCREMENT\b', '', out, flags=re.I)
-    # Default timestamps
     out = out.replace("datetime('now')", "CURRENT_TIMESTAMP")
     out = out.replace("date('now')", "CURRENT_DATE")
     return out
@@ -67,18 +62,12 @@ class _Cur:
         if self._last_inserted_id is not None:
             return self._last_inserted_id
         if self._driver == 'pg':
-            # caller didn't request RETURNING — caller must use create_*
-            # helpers that explicitly request it.
             return None
         return getattr(self._cur, 'lastrowid', None)
 
 
 class _Conn:
-    """Sqlite-shaped connection facade over either sqlite3 or psycopg2.
-
-    Supports `conn.execute(sql, params).fetchone()` style + commit/close +
-    `with conn:` context manager.
-    """
+    """Sqlite-shaped connection facade over either sqlite3 or psycopg2."""
 
     def __init__(self, real, driver):
         self._conn = real
@@ -88,13 +77,9 @@ class _Conn:
         sql = _translate_sql(sql, self._driver)
         cur = self._conn.cursor()
         cur.execute(sql, params)
-        # Capture lastrowid for INSERT statements on Postgres (SERIAL PK
-        # auto-increment) — we do a follow-up `RETURNING id` for the few
-        # call sites that need it (scrape_logs.create_scrape_log).
         return _Cur(cur, self._driver)
 
     def executescript(self, sql):
-        """Run multi-statement schema SQL — used for table creation only."""
         sql = _translate_sql(sql, self._driver)
         cur = self._conn.cursor()
         if self._driver == 'pg':
@@ -134,8 +119,7 @@ _STREET_ABBREVS = {
 
 
 def normalize_address(addr):
-    """Cheap address normaliser used to match the same property listed by
-    different agencies (different REIWA URLs but same building/door)."""
+    """Cheap address normaliser — matches same property listed by different agencies."""
     if not addr:
         return ''
     s = addr.lower().strip()
@@ -148,12 +132,9 @@ def normalize_address(addr):
 
 
 def restore_false_withdrawn(suburb_id=None):
-    """Restore listings that were falsely marked as withdrawn recently (within last 24h).
-    Called when we suspect a bad scrape caused mass withdrawals."""
+    """Restore listings falsely marked as withdrawn within last 24h."""
     conn = get_db()
-    now = datetime.utcnow().isoformat()
     yesterday = (datetime.utcnow() - __import__('datetime').timedelta(hours=24)).isoformat()
-
     if suburb_id:
         result = conn.execute(
             "UPDATE listings SET status = 'active', withdrawn_date = NULL "
@@ -173,7 +154,7 @@ def restore_false_withdrawn(suburb_id=None):
 
 
 def cleanup_agent_entries():
-    """Remove agent profile entries that were incorrectly scraped as listings."""
+    """Remove agent profile entries incorrectly scraped as listings."""
     conn = get_db()
     result = conn.execute(
         "DELETE FROM listings WHERE reiwa_url LIKE '%/real-estate-agent/%' OR reiwa_url LIKE '%/agency/%'"
@@ -185,23 +166,21 @@ def cleanup_agent_entries():
 
 
 def backup_db():
-    """Create a timestamped backup of the database."""
     if not os.path.exists(DB_PATH):
         return
-    if os.path.getsize(DB_PATH) < 1024:  # Skip if DB is nearly empty
+    if os.path.getsize(DB_PATH) < 1024:
         return
     os.makedirs(BACKUP_DIR, exist_ok=True)
     stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     backup_path = os.path.join(BACKUP_DIR, f'reiwa_{stamp}.db')
     shutil.copy2(DB_PATH, backup_path)
-    # Keep only last 5 backups
     backups = sorted([f for f in os.listdir(BACKUP_DIR) if f.endswith('.db')])
     for old in backups[:-5]:
         os.remove(os.path.join(BACKUP_DIR, old))
 
 
 def get_db():
-    """Return a connection wrapper backed by Postgres (DATABASE_URL set) or SQLite (local file)."""
+    """Return a connection wrapper backed by Postgres or SQLite."""
     if USE_POSTGRES:
         import psycopg2
         from psycopg2.extras import RealDictCursor
@@ -214,174 +193,9 @@ def get_db():
     return _Conn(raw, 'sqlite')
 
 
-def init_db():
-    conn = get_db()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS suburbs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            slug TEXT NOT NULL UNIQUE,
-            active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS listings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            suburb_id INTEGER NOT NULL,
-            address TEXT NOT NULL,
-            reiwa_url TEXT NOT NULL,
-            price_text TEXT,
-            bedrooms INTEGER,
-            bathrooms INTEGER,
-            parking INTEGER,
-            land_size TEXT,
-            internal_size TEXT,
-            agency TEXT,
-            agent TEXT,
-            status TEXT NOT NULL DEFAULT 'active',
-            first_seen TEXT NOT NULL DEFAULT (datetime('now')),
-            last_seen TEXT NOT NULL DEFAULT (datetime('now')),
-            sold_price TEXT,
-            sold_date TEXT,
-            listing_type TEXT,
-            listing_date TEXT,
-            FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
-        );
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_url
-            ON listings(reiwa_url);
-
-        CREATE INDEX IF NOT EXISTS idx_listings_status
-            ON listings(status);
-
-        CREATE INDEX IF NOT EXISTS idx_listings_suburb
-            ON listings(suburb_id);
-
-        CREATE TABLE IF NOT EXISTS scrape_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            suburb_id INTEGER NOT NULL,
-            started_at TEXT NOT NULL DEFAULT (datetime('now')),
-            completed_at TEXT,
-            forsale_count INTEGER DEFAULT 0,
-            sold_count INTEGER DEFAULT 0,
-            new_count INTEGER DEFAULT 0,
-            updated_count INTEGER DEFAULT 0,
-            withdrawn_count INTEGER DEFAULT 0,
-            errors TEXT,
-            FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
-        );
-    """)
-    # Migrate: add listing_date column if missing
-    try:
-        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS listing_date TEXT")
-    except Exception:
-        try:
-            conn.execute("ALTER TABLE listings ADD COLUMN listing_date TEXT")
-        except Exception:
-            conn.commit()
-    try:
-        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'")
-    except Exception:
-        try:
-            conn.execute("ALTER TABLE listings ADD COLUMN source TEXT DEFAULT 'reiwa'")
-        except Exception:
-            conn.commit()
-    try:
-        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT")
-    except Exception:
-        try:
-            conn.execute("ALTER TABLE listings ADD COLUMN withdrawn_date TEXT")
-        except Exception:
-            conn.commit()
-    conn.execute(
-        "UPDATE listings SET withdrawn_date = last_seen "
-        "WHERE status = 'withdrawn' AND withdrawn_date IS NULL"
-    )
-    try:
-        conn.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT")
-    except Exception:
-        try:
-            conn.execute("ALTER TABLE listings ADD COLUMN normalized_address TEXT")
-        except Exception:
-            conn.commit()
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_listings_normaddr "
-                 "ON listings(suburb_id, normalized_address)")
-    rows_to_backfill = conn.execute(
-        "SELECT id, address FROM listings "
-        "WHERE address IS NOT NULL AND address != '' "
-        "AND (normalized_address IS NULL OR normalized_address = '')"
-    ).fetchall()
-    for r in rows_to_backfill:
-        conn.execute(
-            "UPDATE listings SET normalized_address = ? WHERE id = ?",
-            (normalize_address(r['address']), r['id'])
-        )
-    if rows_to_backfill:
-        conn.commit()
-
-    # Price history tracking
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS price_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            listing_id INTEGER NOT NULL,
-            old_price TEXT,
-            new_price TEXT,
-            changed_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_price_history_listing
-            ON price_history(listing_id);
-        CREATE INDEX IF NOT EXISTS idx_price_history_date
-            ON price_history(changed_at);
-
-        CREATE TABLE IF NOT EXISTS market_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            suburb_id INTEGER NOT NULL,
-            snapshot_date TEXT NOT NULL,
-            active_count INTEGER DEFAULT 0,
-            under_offer_count INTEGER DEFAULT 0,
-            sold_count INTEGER DEFAULT 0,
-            withdrawn_count INTEGER DEFAULT 0,
-            new_count INTEGER DEFAULT 0,
-            median_price INTEGER,
-            avg_dom INTEGER,
-            FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS idx_snapshots_suburb_date
-            ON market_snapshots(suburb_id, snapshot_date);
-    """)
-
-    # Appraisal Pipeline tracking — one row per prospecting letter sent to a
-    # neighbour of a recently-sold property. The (target_address, sent_date)
-    # uniqueness stops accidental duplicate sends if Generate is clicked twice
-    # on the same day for the same suburb.
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS pipeline_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source_address TEXT NOT NULL,
-            source_suburb TEXT NOT NULL,
-            source_sold_date TEXT,
-            source_price INTEGER,
-            target_address TEXT NOT NULL,
-            target_owner_name TEXT,
-            hot_vendor_score INTEGER,
-            status TEXT NOT NULL DEFAULT 'sent',
-            sent_date TEXT NOT NULL DEFAULT CURRENT_DATE,
-            response_date TEXT,
-            notes TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE(target_address, sent_date)
-        );
-        CREATE INDEX IF NOT EXISTS idx_pipeline_status
-            ON pipeline_tracking(status);
-        CREATE INDEX IF NOT EXISTS idx_pipeline_suburb
-            ON pipeline_tracking(source_suburb);
-        CREATE INDEX IF NOT EXISTS idx_pipeline_sent_date
-            ON pipeline_tracking(sent_date);
-    """)
-
-    conn.commit()
-    conn.close()
+# init_db lives in db_schema.py — re-export so existing callers
+# (e.g. `from database import init_db` in app.py) keep working.
+from db_schema import init_db  # noqa: E402,F401
 
 
 def add_suburb(name):
@@ -449,11 +263,7 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
 
 
 def upsert_listing(suburb_id, reiwa_url, data):
-    """Insert or update a listing. Keyed by reiwa_url (each REIWA listing is unique).
-    Same property listed by 2 agencies SIMULTANEOUSLY = 2 different URLs = 2 rows.
-    But if a previously-withdrawn row exists for the same address (any agency)
-    and we're now seeing a fresh active/under_offer/sold listing, the old
-    withdrawn row is deleted — the property is effectively back on the market."""
+    """Insert or update a listing keyed by reiwa_url."""
     reiwa_url = reiwa_url.rstrip('/')
     conn = get_db()
     now = datetime.utcnow().isoformat()
@@ -519,12 +329,9 @@ def upsert_listing(suburb_id, reiwa_url, data):
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            new_status,
-            new_withdrawn_date,
-            now,
+            new_status, new_withdrawn_date, now,
             data.get('sold_price'), data.get('sold_date'),
-            data.get('listing_type'),
-            data.get('listing_date'),
+            data.get('listing_type'), data.get('listing_date'),
             data.get('source'),
             existing['id']
         ))
@@ -548,8 +355,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
             now if new_status == 'withdrawn' else None,
             now, now,
             data.get('sold_price'), data.get('sold_date'),
-            data.get('listing_type'),
-            data.get('listing_date'),
+            data.get('listing_type'), data.get('listing_date'),
             data.get('source', 'reiwa')
         ))
         conn.commit()
@@ -561,14 +367,12 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
     if not confident:
         import logging
         logging.getLogger(__name__).info(
-            f"Suburb {suburb_id}: scrape count < REIWA total, skipping withdrawn detection "
-            f"(need a complete scrape to safely mark withdrawals)"
+            f"Suburb {suburb_id}: scrape count < REIWA total, skipping withdrawn detection"
         )
         return 0
 
     conn = get_db()
     now = datetime.utcnow().isoformat()
-
     current_active = conn.execute(
         "SELECT id, reiwa_url FROM listings WHERE suburb_id = ? AND status IN ('active', 'under_offer')",
         (suburb_id,)
@@ -579,7 +383,6 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
         return 0
 
     all_seen = {u.rstrip('/') for u in set(seen_urls) | set(sold_urls)}
-
     withdrawn_count = 0
     for listing in current_active:
         if listing['reiwa_url'].rstrip('/') not in all_seen:
@@ -598,11 +401,8 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
 def get_existing_urls(suburb_id):
     conn = get_db()
     rows = conn.execute(
-        """
-        SELECT reiwa_url, listing_type, land_size, internal_size, listing_date
-        FROM listings
-        WHERE suburb_id = ? AND reiwa_url IS NOT NULL
-        """,
+        "SELECT reiwa_url, listing_type, land_size, internal_size, listing_date "
+        "FROM listings WHERE suburb_id = ? AND reiwa_url IS NOT NULL",
         (suburb_id,)
     ).fetchall()
     conn.close()
@@ -614,7 +414,6 @@ def get_existing_urls(suburb_id):
         land = (r['land_size'] or '').strip()
         internal = (r['internal_size'] or '').strip()
         listing_date = (r['listing_date'] or '').strip()
-
         if not listing_date:
             continue
         if not land and not internal:
@@ -671,9 +470,7 @@ def update_scrape_log(log_id, **kwargs):
         sets.append(f"{k} = ?")
         params.append(v)
     params.append(log_id)
-    conn.execute(
-        f"UPDATE scrape_logs SET {', '.join(sets)} WHERE id = ?", params
-    )
+    conn.execute(f"UPDATE scrape_logs SET {', '.join(sets)} WHERE id = ?", params)
     conn.commit()
     conn.close()
 
