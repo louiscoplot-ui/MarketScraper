@@ -1,16 +1,16 @@
 """CSV / Excel import for RP Data / CoreLogic property exports.
 
-UPDATE-ONLY mode: every row is matched against an existing listings
-row (suburb_id + normalized_address). On match we overwrite sold_date
-and sold_price. On no match we skip — REIWA scrape stays the source
-of truth for what's IN the table; RP Data only enriches dates.
+UPDATE-ONLY mode: rows are matched against existing listings by
+(suburb_id, normalized_address). On match, sold_date and sold_price
+are overwritten with the RP Data values. On no match, the row is
+skipped — REIWA scrape stays the source of truth for what's IN the
+table; RP Data only enriches dates.
 
-Two header strategies:
-1. Named headers — fuzzy match against COLUMN_ALIASES (RP Data web
-   exports occasionally include them).
-2. Positional fallback — RP Data CLI exports drop straight into data
-   with no header row at all. We detect this shape and use the
-   documented fixed-position layout.
+Performance: pre-fetches every listing in matched suburbs ONCE, then
+matches CSV rows in-memory. Bulk-applies updates via executemany.
+Avoids the 30s gunicorn worker timeout that killed the previous
+per-row SELECT + UPDATE approach (~3000 transcontinental roundtrips
+for a 2000-row export).
 """
 
 import io
@@ -20,7 +20,7 @@ import logging
 from datetime import datetime, date
 from flask import request, jsonify
 
-from database import get_db, normalize_address
+from database import get_db, normalize_address, USE_POSTGRES
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +52,7 @@ COLUMN_ALIASES = {
 }
 
 
-# RP Data's no-header export uses this fixed positional layout. Verified
-# against actual exports: address, suburb, state, postcode, type, beds,
-# baths, cars, land, internal, ?, price, date, ...
+# RP Data no-header export uses fixed column positions.
 RPDATA_POSITIONAL = {
     'address':      0,
     'suburb':       1,
@@ -70,6 +68,11 @@ RPDATA_POSITIONAL = {
 }
 
 AU_STATE_CODES = {'WA', 'NSW', 'VIC', 'QLD', 'SA', 'TAS', 'NT', 'ACT'}
+
+# Bulk update batch size — keeps each executemany call small enough
+# to never approach Postgres' max query length while still
+# eliminating the per-row roundtrip cost.
+UPDATE_BATCH = 200
 
 
 def _parse_price(text):
@@ -104,18 +107,12 @@ def _parse_date(text):
     if not s or s == '-':
         return None
 
-    s = s.split('T')[0].split(' ', 1)
-    # Keep only the first 1-3 tokens to handle 'YYYY-MM-DD HH:MM:SS' (1)
-    # or '08 Aug 2025' (3 tokens — keep them) or '8-Aug-25' (1 token).
-    if len(s) == 1:
-        rest = s[0]
-    else:
-        # If the second token looks like time (has ':') drop it
-        if ':' in s[1]:
-            rest = s[0]
-        else:
-            rest = ' '.join(s)
-    s = rest.strip()
+    # Strip 'T...' (ISO datetime) and ' HH:MM:SS' time component
+    if 'T' in s:
+        s = s.split('T', 1)[0]
+    parts = s.split(' ', 1)
+    if len(parts) > 1 and ':' in parts[1]:
+        s = parts[0]
 
     m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
     if m:
@@ -177,9 +174,6 @@ def _detect_columns(header):
 
 
 def _looks_like_rpdata_positional(row):
-    """RP Data no-header CSV: col 0 is an uppercase street address, col 1
-    is the suburb, col 2 is an Australian state code. Strong signature.
-    """
     if not row or len(row) < 5:
         return False
     addr = (row[0] or '').strip()
@@ -239,19 +233,14 @@ def _find_header_index(rows, scan_limit=20):
     for i in range(min(scan_limit, len(rows))):
         if _is_header_row(rows[i]):
             return i
-    return -1  # -1 == no header found, caller decides what to do
+    return -1
 
 
 def import_rpdata():
     """POST /api/listings/import-rpdata.
 
-    multipart/form-data:
-        file (required) — .csv or .xlsx export from RP Data / CoreLogic
-        suburb (optional) — fallback if neither named header nor
-                            positional layout has a suburb column
-
-    UPDATE-ONLY: rows that don't match an existing listing are skipped
-    (counted as no_match), NEVER inserted as new rows.
+    Bulk-batched UPDATE-only import. Tuned to handle 2000+ row CSVs
+    in well under the gunicorn worker timeout.
     """
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded. Use multipart field "file".'}), 400
@@ -266,9 +255,6 @@ def import_rpdata():
     if not rows:
         return jsonify({'error': 'File is empty'}), 400
 
-    # Two paths to figure out where data lives:
-    # 1. Try to find a named header anywhere in the first 20 rows.
-    # 2. If none, see if row 0 looks like RP Data's positional shape.
     header_idx = _find_header_index(rows)
     cols = {}
     data_rows = []
@@ -299,18 +285,36 @@ def import_rpdata():
 
     conn = get_db()
 
+    # Pre-fetch all suburbs (15-100 rows) once.
     suburb_rows = conn.execute("SELECT id, name, slug FROM suburbs").fetchall()
-    suburb_by_name = {r['name'].lower(): r for r in suburb_rows}
+    suburb_by_name = {r['name'].lower(): dict(r) for r in suburb_rows}
+
+    # Pre-fetch ALL listings keyed by (suburb_id, normalized_address) into
+    # a Python dict — 1 query, ~3000 rows max for our current 15 suburbs.
+    # Eliminates the per-row SELECT that was the timeout culprit.
+    listing_rows = conn.execute(
+        "SELECT id, suburb_id, normalized_address, sold_date, sold_price, status "
+        "FROM listings WHERE normalized_address IS NOT NULL"
+    ).fetchall()
+    listings_by_key = {}
+    for r in listing_rows:
+        key = (r['suburb_id'], (r['normalized_address'] or '').strip().lower())
+        listings_by_key[key] = dict(r)
 
     matched = 0
     no_match = 0
     skipped = 0
     date_updates = 0
     price_updates = 0
+    status_updates = 0
     errors = []
     now_iso = datetime.utcnow().isoformat()
 
-    for row_idx, row in enumerate(data_rows, start=(header_idx + 2 if header_idx >= 0 else 1)):
+    # Build the list of UPDATEs in memory, no DB writes yet.
+    update_payloads = []  # tuples: (sold_date, sold_price, status, last_seen, id)
+    start_offset = (header_idx + 2) if header_idx >= 0 else 1
+
+    for row_idx, row in enumerate(data_rows, start=start_offset):
         if not row or all((c is None or str(c).strip() in ('', '-')) for c in row):
             continue
 
@@ -323,7 +327,6 @@ def import_rpdata():
                 if v is None:
                     return ''
                 s = str(v).strip()
-                # RP Data uses '-' as the empty placeholder
                 return '' if s == '-' else s
 
             addr_raw = cell('address')
@@ -334,8 +337,6 @@ def import_rpdata():
             suburb_name = cell('suburb') or fallback_suburb
             if not suburb_name:
                 skipped += 1
-                if len(errors) < 20:
-                    errors.append(f"Row {row_idx}: no suburb column / fallback")
                 continue
 
             suburb_row = suburb_by_name.get(suburb_name.lower())
@@ -350,54 +351,75 @@ def import_rpdata():
                 skipped += 1
                 continue
 
-            sold_date = _parse_date(cell('sold_date'))
-            sold_price = _parse_price(cell('sold_price'))
-
-            existing = conn.execute(
-                "SELECT id, sold_date, sold_price, status FROM listings "
-                "WHERE suburb_id = ? AND normalized_address = ? LIMIT 1",
-                (suburb_id, norm_addr)
-            ).fetchone()
-
+            existing = listings_by_key.get((suburb_id, norm_addr.lower()))
             if not existing:
                 no_match += 1
                 continue
 
-            updates = []
-            params = []
+            sold_date = _parse_date(cell('sold_date'))
+            sold_price = _parse_price(cell('sold_price'))
+
+            # Decide which columns to update — only write when RP Data has
+            # actual content, and only if it differs from what's there.
+            new_sold_date = existing['sold_date']
+            new_sold_price = existing['sold_price']
+            new_status = existing['status']
+            changed = False
+
             if sold_date and sold_date != existing['sold_date']:
-                updates.append("sold_date = ?")
-                params.append(sold_date)
+                new_sold_date = sold_date
+                changed = True
                 date_updates += 1
             if sold_price:
                 price_str = str(sold_price)
                 if price_str != (existing['sold_price'] or ''):
-                    updates.append("sold_price = ?")
-                    params.append(price_str)
+                    new_sold_price = price_str
+                    changed = True
                     price_updates += 1
-
             if existing['status'] != 'sold':
-                updates.append("status = 'sold'")
+                new_status = 'sold'
+                changed = True
+                status_updates += 1
 
-            if updates:
-                updates.append("last_seen = ?")
-                params.append(now_iso)
-                params.append(existing['id'])
-                conn.execute(
-                    f"UPDATE listings SET {', '.join(updates)} WHERE id = ?",
-                    params
-                )
             matched += 1
+            if changed:
+                update_payloads.append((
+                    new_sold_date, new_sold_price, new_status,
+                    now_iso, existing['id']
+                ))
         except Exception as e:
             skipped += 1
             if len(errors) < 20:
                 errors.append(f"Row {row_idx}: {type(e).__name__}: {e}")
+
+    # Bulk-apply updates via executemany — single network roundtrip
+    # per UPDATE_BATCH chunk regardless of row count.
+    raw_conn = conn._conn  # underlying psycopg2 / sqlite3 connection
+    cur = raw_conn.cursor()
+
+    if USE_POSTGRES:
+        update_sql = (
+            "UPDATE listings SET sold_date = %s, sold_price = %s, "
+            "status = %s, last_seen = %s WHERE id = %s"
+        )
+    else:
+        update_sql = (
+            "UPDATE listings SET sold_date = ?, sold_price = ?, "
+            "status = ?, last_seen = ? WHERE id = ?"
+        )
+
+    for i in range(0, len(update_payloads), UPDATE_BATCH):
+        chunk = update_payloads[i:i + UPDATE_BATCH]
+        try:
+            cur.executemany(update_sql, chunk)
+        except Exception as e:
+            errors.append(f"Bulk update chunk {i}: {type(e).__name__}: {e}")
             try:
-                conn.commit()
+                raw_conn.rollback()
             except Exception:
                 pass
 
-    conn.commit()
+    raw_conn.commit()
     conn.close()
 
     return jsonify({
@@ -406,9 +428,10 @@ def import_rpdata():
         'skipped': skipped,
         'date_updates': date_updates,
         'price_updates': price_updates,
+        'status_updates': status_updates,
+        'rows_actually_written': len(update_payloads),
         'total_rows': len(data_rows),
         'layout_used': layout_used,
-        'detected_columns': cols,
         'errors': errors,
     })
 
