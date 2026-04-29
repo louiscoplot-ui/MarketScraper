@@ -18,11 +18,11 @@ Routes:
 
 Owner-name + hot-vendor-score matching is intentionally a soft fail:
 the codebase doesn't have a hot_vendors table yet (Hot Vendor scoring
-is currently in-browser only via SheetJS). When matching, we look for
-a `hot_vendors` table at runtime and skip silently if absent — the
-columns stay NULL and the user fills target_owner_name manually
-inline. As soon as Hot Vendor data lands in DB, this picks it up
-without code changes.
+is currently in-browser only via SheetJS). Existence is checked once
+per request via information_schema / sqlite_master so the working
+transaction never gets dirtied by a missing-table error. Skipped
+silently when absent — columns stay NULL and the user fills
+target_owner_name manually inline.
 """
 
 import re
@@ -30,7 +30,7 @@ import logging
 from datetime import datetime, timedelta, date
 from flask import request, jsonify
 
-from database import get_db
+from database import get_db, USE_POSTGRES
 
 logger = logging.getLogger(__name__)
 
@@ -77,28 +77,36 @@ def _generate_neighbours(addr):
 
 
 def _hot_vendors_table_exists(conn):
-    """Best-effort presence check that works on both SQLite + Postgres."""
+    """Cheap, transaction-safe presence check.
+
+    A naive `SELECT 1 FROM hot_vendors LIMIT 1` would work on SQLite but
+    on Postgres a missing-table error aborts the active transaction —
+    every subsequent INSERT in the same connection fails until rollback.
+    We instead query the catalog (information_schema / sqlite_master)
+    which is always there and never errors.
+    """
     try:
-        # Cross-driver way: try a no-op SELECT and treat any error as 'not there'
-        conn.execute("SELECT 1 FROM hot_vendors LIMIT 1").fetchone()
-        return True
+        if USE_POSTGRES:
+            row = conn.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name = 'hot_vendors' LIMIT 1"
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'hot_vendors' LIMIT 1"
+            ).fetchone()
+        return bool(row)
     except Exception:
-        try:
-            conn.commit()  # reset aborted txn on Postgres
-        except Exception:
-            pass
         return False
 
 
 def _match_hot_vendor(conn, target_address):
     """Return (owner_name, score) for a target address, or (None, None).
 
-    Tries case-insensitive LIKE on a future `hot_vendors` table if it
-    exists. Silently returns (None, None) if the table or columns are
-    missing — the user fills in owner_name manually in the UI.
+    Caller must have already verified the table exists via
+    _hot_vendors_table_exists — we don't double-check here.
     """
-    if not _hot_vendors_table_exists(conn):
-        return None, None
     try:
         row = conn.execute(
             "SELECT * FROM hot_vendors WHERE LOWER(address) LIKE LOWER(?) LIMIT 1",
@@ -107,27 +115,17 @@ def _match_hot_vendor(conn, target_address):
         if not row:
             return None, None
         d = dict(row)
-        # Try a few likely column names so we don't have to guess at schema time.
         owner = d.get('owner_name') or d.get('owner') or d.get('current_owner')
         score = d.get('score') or d.get('final_score') or d.get('hot_score')
         return owner, score
     except Exception:
-        try:
-            conn.commit()
-        except Exception:
-            pass
         return None, None
-
-
-def _row_to_dict(row):
-    return dict(row) if row else None
 
 
 def _serialize_entries(rows):
     out = []
     for r in rows:
         d = dict(r)
-        # Coerce date / datetime objects to ISO strings for JSON safety.
         for k, v in list(d.items()):
             if isinstance(v, (date, datetime)):
                 d[k] = v.isoformat()
@@ -135,12 +133,26 @@ def _serialize_entries(rows):
     return out
 
 
+def _price_to_int(*candidates):
+    for c in candidates:
+        if c is None or c == '':
+            continue
+        s = str(c)
+        digits = re.sub(r'[^\d]', '', s)
+        if digits:
+            try:
+                return int(digits)
+            except ValueError:
+                pass
+    return None
+
+
 # ---------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------
 
 def pipeline_generate():
-    """POST-equivalent GET — generates letters from recent sold properties."""
+    """GET — generates letters from recent sold properties."""
     suburb = (request.args.get('suburb') or '').strip()
     if not suburb:
         return jsonify({'error': 'suburb is required'}), 400
@@ -152,9 +164,12 @@ def pipeline_generate():
     days = max(1, min(days, 90))
 
     cutoff_iso = (datetime.utcnow() - timedelta(days=days)).isoformat()
-    today_iso = date.today().isoformat()
 
     conn = get_db()
+
+    # Single existence check up-front, not per-neighbour. Keeps the
+    # working transaction clean when the table doesn't exist.
+    has_hv = _hot_vendors_table_exists(conn)
 
     # last_seen is updated whenever the scraper flips a status, so for
     # listings that recently transitioned to sold it's a reliable proxy
@@ -177,19 +192,9 @@ def pipeline_generate():
     sold_count = len(sold_rows)
     generated = 0
 
-    def _price_to_int(*candidates):
-        for c in candidates:
-            if c is None or c == '':
-                continue
-            s = str(c)
-            digits = re.sub(r'[^\d]', '', s)
-            if digits:
-                try:
-                    return int(digits)
-                except ValueError:
-                    pass
-        return None
-
+    # Build the full insert list first (no DB writes yet) so the actual
+    # write phase is one tight loop with a single commit.
+    insert_rows = []
     for r in sold_rows:
         source_address = r['address']
         source_suburb = r['suburb_name']
@@ -199,27 +204,32 @@ def pipeline_generate():
         )
 
         for target in _generate_neighbours(source_address):
-            owner, score = _match_hot_vendor(conn, target)
-            try:
-                conn.execute(
-                    """
-                    INSERT INTO pipeline_tracking (
-                        source_address, source_suburb, source_sold_date,
-                        source_price, target_address, target_owner_name,
-                        hot_vendor_score, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'sent')
-                    """,
-                    (source_address, source_suburb, source_sold_date,
-                     source_price, target, owner, score)
-                )
-                generated += 1
-            except Exception:
-                # UNIQUE(target_address, sent_date) hit — already generated
-                # today, skip silently. Reset txn on Postgres.
-                try:
-                    conn.commit()
-                except Exception:
-                    pass
+            if has_hv:
+                owner, score = _match_hot_vendor(conn, target)
+            else:
+                owner, score = None, None
+            insert_rows.append((
+                source_address, source_suburb, source_sold_date,
+                source_price, target, owner, score,
+            ))
+
+    # ON CONFLICT DO NOTHING is identical syntax on SQLite 3.24+ and
+    # Postgres 9.5+ — both current. UNIQUE(target_address, sent_date)
+    # silently dedups same-day re-runs without polluting the txn.
+    for row in insert_rows:
+        cur = conn.execute(
+            """
+            INSERT INTO pipeline_tracking (
+                source_address, source_suburb, source_sold_date,
+                source_price, target_address, target_owner_name,
+                hot_vendor_score, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'sent')
+            ON CONFLICT (target_address, sent_date) DO NOTHING
+            """,
+            row
+        )
+        if cur.rowcount and cur.rowcount > 0:
+            generated += 1
 
     conn.commit()
 
