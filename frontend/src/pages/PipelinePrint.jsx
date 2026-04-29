@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 
-const API = import.meta.env.VITE_API_URL || 'https://marketscraper-backend.onrender.com'
+// Empty base URL — relative /api/... fetches go through the Vercel
+// rewrite to the Render backend with no CORS preflight. Same pattern
+// as the rest of the app.
+const API = ''
 
 function formatDate() {
   return new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
