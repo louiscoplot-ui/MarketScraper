@@ -1,0 +1,175 @@
+"""Listings update API — inline date editing.
+
+Lets the agent override listing_date / sold_date / withdrawn_date on
+any listings row from the UI. Useful when:
+- The scraper guessed a date wrong (REIWA's "Sold X days ago" badge
+  decays over time, can be off by ±2 days)
+- A sold listing has no sold_date because it was never seen as
+  active first (REIWA published it directly to /sold/, scraper
+  never had a 'recently active' period to extract a date from)
+- A withdrawn listing's withdrawn_date isn't quite right
+
+Wire into app.py with two lines:
+    from listings_api import register_listings_routes
+    register_listings_routes(app)
+
+PATCH /api/listings/<id>
+    JSON body — all fields optional, only provided ones updated:
+        listing_date     (str)  e.g. "15/04/2026" (DD/MM/YYYY) or null
+        sold_date        (str)  e.g. "2025-08-08" (ISO) or null
+        withdrawn_date   (str)  ISO datetime or null
+        sold_price       (str|int)  free-form OK; coerced to int when possible
+
+    Setting a field to null clears it (lets the scraper re-populate
+    on next run if it discovers a value).
+
+    Returns the updated row.
+"""
+
+import re
+import logging
+from datetime import datetime, date
+from flask import request, jsonify
+
+from database import get_db
+
+logger = logging.getLogger(__name__)
+
+
+# Allow only these columns to be patched. `status` deliberately not in
+# this list — a manual status flip would confuse the withdraw / re-list
+# detector. If we ever need it, add a separate /listings/<id>/status
+# endpoint with its own validation.
+ALLOWED_FIELDS = {
+    'listing_date', 'sold_date', 'withdrawn_date', 'sold_price',
+    'price_text', 'agent', 'agency',
+}
+
+
+def _coerce_value(field, value):
+    """Light validation — keep dates / prices in a consistent shape."""
+    if value is None or value == '':
+        return None  # explicit clear
+
+    s = str(value).strip()
+    if not s:
+        return None
+
+    if field == 'sold_date':
+        # Accept ISO 'YYYY-MM-DD' or DD/MM/YYYY → store as ISO
+        m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
+        if m:
+            try:
+                return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+            except ValueError:
+                pass
+        m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', s)
+        if m:
+            try:
+                return date(int(m.group(3)), int(m.group(2)), int(m.group(1))).isoformat()
+            except ValueError:
+                pass
+        # Last resort: pass through; user might be entering something we
+        # don't recognise but it's their data.
+        return s
+
+    if field == 'listing_date':
+        # listing_date is stored as DD/MM/YYYY in the DB (REIWA's format).
+        # Accept either format on input, normalise to DD/MM/YYYY.
+        m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
+        if m:
+            try:
+                d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                return d.strftime('%d/%m/%Y')
+            except ValueError:
+                pass
+        m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', s)
+        if m:
+            return s  # already correct
+        return s
+
+    if field == 'withdrawn_date':
+        # Stored as ISO datetime ('2026-04-24T05:30:00'). User probably
+        # provides just a date — extend to noon UTC so the column type
+        # stays consistent.
+        m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
+        if m:
+            return f"{s}T12:00:00"
+        m = re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', s)
+        if m:
+            try:
+                d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                return f"{d.isoformat()}T12:00:00"
+            except ValueError:
+                pass
+        return s
+
+    if field == 'sold_price':
+        digits = re.sub(r'[^\d]', '', s)
+        if digits:
+            try:
+                return str(int(digits))
+            except ValueError:
+                pass
+        return s
+
+    return s
+
+
+def patch_listing(id):
+    data = request.get_json(silent=True) or {}
+
+    sets = []
+    params = []
+    for key in ALLOWED_FIELDS:
+        if key in data:
+            value = _coerce_value(key, data[key])
+            sets.append(f"{key} = ?")
+            params.append(value)
+
+    if not sets:
+        return jsonify({
+            'error': 'No updatable fields provided. Allowed: '
+                     + ', '.join(sorted(ALLOWED_FIELDS))
+        }), 400
+
+    params.append(id)
+
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id FROM listings WHERE id = ?", (id,)
+    ).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Listing not found'}), 404
+
+    # last_seen always bumped so the listings UI sorts manually-edited
+    # rows to the top of the recent-activity views.
+    sets.append("last_seen = ?")
+    params.insert(-1, datetime.utcnow().isoformat())
+
+    sql = f"UPDATE listings SET {', '.join(sets)} WHERE id = ?"
+    conn.execute(sql, params)
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT l.*, s.name as suburb_name FROM listings l "
+        "JOIN suburbs s ON l.suburb_id = s.id WHERE l.id = ?",
+        (id,)
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'Not found after update'}), 404
+
+    return jsonify(dict(row))
+
+
+def register_listings_routes(app):
+    app.add_url_rule(
+        '/api/listings/<int:id>',
+        endpoint='patch_listing',
+        view_func=patch_listing,
+        methods=['PATCH']
+    )
+    logger.info("Listings routes registered: PATCH /api/listings/<id>")
