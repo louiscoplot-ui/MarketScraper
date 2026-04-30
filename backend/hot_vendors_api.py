@@ -1,6 +1,7 @@
 """Hot Vendor uploads + scoring API.
 
-  POST   /api/hot-vendors/score-csv         upload CSV → v4 pipeline → persist
+  POST   /api/hot-vendors/score-csv         upload CSV → v4 pipeline → persist (UPSERT)
+  PATCH  /api/hot-vendors/status            set user-flag for an address (green/yellow/red)
   GET    /api/hot-vendors/uploads/<id>/excel rebuild .xlsx report from DB
   POST   /api/hot-vendors/uploads           legacy: insert pre-scored rows
   GET    /api/hot-vendors/uploads           list all uploads
@@ -18,6 +19,8 @@ from database import get_db, normalize_address, USE_POSTGRES
 logger = logging.getLogger(__name__)
 
 
+# Columns in hot_vendor_properties that we actually score / persist.
+# Order matters: this drives the INSERT VALUES tuple.
 _PROP_COLUMNS = [
     'address', 'suburb', 'type', 'bedrooms', 'bathrooms',
     'last_sale_price', 'owner_purchase_price', 'owner_purchase_date',
@@ -27,6 +30,9 @@ _PROP_COLUMNS = [
     'estimated_value', 'potential_profit', 'potential_profit_pct', 'rank',
     'current_owner', 'agency', 'agent',
 ]
+
+# Status values shown in the UI dropdown.
+_VALID_STATUSES = {'listed', 'pending', 'declined', '', None}
 
 
 def _safe_int(v):
@@ -98,22 +104,26 @@ def _create_upload_row(conn, meta):
     return cur.lastrowid
 
 
-# Bulk-insert the scored properties.
+# Bulk UPSERT the scored properties.
 #
-# The previous version did 3,012 individual INSERTs on a CSV with 8k
-# transactions — each round-trip to Neon Postgres takes ~40-60ms, so the
-# whole loop ran for ~2-3 minutes and gunicorn killed the worker at its
-# 120s timeout (exactly what the Render logs showed: scoring finished at
-# 07:10:30, [CRITICAL] WORKER TIMEOUT at 07:11:36, +66s later).
-#
-# Now: one round-trip per ~500 rows via psycopg2.extras.execute_values
-# (Postgres) or sqlite3 .executemany (local dev). 3,012 rows now take
-# under 2 seconds.
+# Two changes vs. the previous plain-INSERT version:
+#   1. Speed — execute_values batches 500 rows per round-trip (vs.
+#      3,012 individual INSERTs that took >2 min and tripped the
+#      gunicorn 120s timeout).
+#   2. Re-upload safety — ON CONFLICT (normalized_address) DO UPDATE
+#      so re-uploading the same suburb 6/12 months later REFRESHES
+#      the existing rows (sale_date, owner, agency, agent, scores)
+#      rather than creating duplicates. The user-status table
+#      (hot_vendor_property_status) is keyed on the same address and
+#      is untouched by this UPSERT, so colour flags survive.
 def _insert_property_rows(conn, upload_id, rows):
     if not rows:
         return
 
     cols = ['upload_id', 'address', 'normalized_address'] + _PROP_COLUMNS[1:]
+    # Mutable columns refreshed on conflict — everything except the address
+    # identity columns (address text + normalized_address key).
+    update_cols = ['upload_id'] + _PROP_COLUMNS[1:]
 
     def row_values(r):
         return tuple(
@@ -123,18 +133,52 @@ def _insert_property_rows(conn, upload_id, rows):
 
     if USE_POSTGRES:
         from psycopg2.extras import execute_values
-        sql = f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) VALUES %s"
+        set_clause = ', '.join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+        sql = (
+            f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) "
+            f"VALUES %s "
+            f"ON CONFLICT (normalized_address) DO UPDATE SET "
+            f"{set_clause}, last_updated_at = CURRENT_TIMESTAMP"
+        )
         cur = conn._conn.cursor()
         try:
             execute_values(cur, sql, [row_values(r) for r in rows], page_size=500)
         finally:
             cur.close()
     else:
+        # SQLite 3.24+ supports the same ON CONFLICT … DO UPDATE syntax.
+        set_clause = ', '.join(f"{c} = excluded.{c}" for c in update_cols)
         sql = (
             f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) "
-            f"VALUES ({', '.join(['?'] * len(cols))})"
+            f"VALUES ({', '.join(['?'] * len(cols))}) "
+            f"ON CONFLICT(normalized_address) DO UPDATE SET "
+            f"{set_clause}, last_updated_at = datetime('now')"
         )
         conn._conn.executemany(sql, [list(row_values(r)) for r in rows])
+
+
+def _fetch_status_map(conn, normalized_addresses):
+    """Return {normalized_address: status} for the given addresses."""
+    if not normalized_addresses:
+        return {}
+    addrs = [a for a in normalized_addresses if a]
+    if not addrs:
+        return {}
+    placeholders = ','.join(['?'] * len(addrs))
+    rows = conn.execute(
+        f"SELECT normalized_address, status FROM hot_vendor_property_status "
+        f"WHERE normalized_address IN ({placeholders})",
+        addrs
+    ).fetchall()
+    return {r['normalized_address']: r['status'] for r in rows if r['status']}
+
+
+def _attach_user_status(conn, properties):
+    """Mutate `properties` to include a `user_status` field per row."""
+    addrs = [normalize_address(p.get('address') or '') for p in properties]
+    status_map = _fetch_status_map(conn, addrs)
+    for p, na in zip(properties, addrs):
+        p['user_status'] = status_map.get(na) or ''
 
 
 def register_hot_vendors_routes(app):
@@ -154,24 +198,17 @@ def register_hot_vendors_routes(app):
         agency = (request.form.get('agency') or '').strip() or None
         uploaded_by = (request.form.get('uploaded_by') or '').strip() or None
 
-        # Wrap import + pipeline in a single try so ANY failure (missing dep,
-        # syntax error, runtime exception) returns JSON instead of an HTML
-        # 500 page that the frontend can't parse.
         try:
             from hot_vendor_scoring import score_csv as run_pipeline
             file_bytes = file.read()
             result = run_pipeline(file_bytes, suburb=suburb_override)
         except ImportError as e:
             logger.exception("Hot vendor scoring module failed to import")
-            return jsonify({
-                'error': f'Backend dependency missing: {e}. '
-                         f'Add to requirements.txt and redeploy.'
-            }), 500
+            return jsonify({'error': f'Backend dep missing: {e}'}), 500
         except Exception as e:
             logger.exception("Hot vendor scoring failed")
             return jsonify({'error': f'Scoring failed: {e}'}), 500
 
-        # Persist
         rows = [_coerce_property_row(p) for p in result['properties']]
         metadata = {
             'profile': result['profile'],
@@ -204,13 +241,13 @@ def register_hot_vendors_routes(app):
             upload_id = _create_upload_row(conn, meta)
             _insert_property_rows(conn, upload_id, rows)
             conn.commit()
+            _attach_user_status(conn, result['properties'])
         except Exception as e:
             logger.exception("Persist failed after scoring")
             try:
                 conn.close()
             except Exception:
                 pass
-            # Scoring succeeded — still return the result, just flag the persist failure.
             return jsonify({
                 'upload_id': None,
                 'persist_error': f'DB persist failed: {e}',
@@ -226,7 +263,82 @@ def register_hot_vendors_routes(app):
 
 
     # ------------------------------------------------------------------
-    # NEW: download Excel report for an upload
+    # NEW: PATCH user-status for an address (UI dropdown writes here)
+    # ------------------------------------------------------------------
+    @app.route('/api/hot-vendors/status', methods=['PATCH'])
+    def patch_status():
+        body = request.get_json(silent=True) or {}
+        addr = (body.get('address') or '').strip()
+        status = (body.get('status') or '').strip().lower() or None
+        note = (body.get('note') or '').strip() or None
+
+        if not addr:
+            return jsonify({'error': 'address required'}), 400
+        if status not in _VALID_STATUSES:
+            return jsonify({
+                'error': f'invalid status — use one of: listed, pending, declined, or empty',
+            }), 400
+
+        norm = normalize_address(addr)
+        if not norm:
+            return jsonify({'error': 'address normalises to empty'}), 400
+
+        conn = get_db()
+        try:
+            if status is None:
+                conn.execute(
+                    "DELETE FROM hot_vendor_property_status WHERE normalized_address = ?",
+                    (norm,)
+                )
+            else:
+                if USE_POSTGRES:
+                    conn.execute(
+                        "INSERT INTO hot_vendor_property_status "
+                        "(normalized_address, status, note, updated_at) "
+                        "VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+                        "ON CONFLICT (normalized_address) DO UPDATE SET "
+                        "status = EXCLUDED.status, note = EXCLUDED.note, "
+                        "updated_at = CURRENT_TIMESTAMP",
+                        (norm, status, note)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO hot_vendor_property_status "
+                        "(normalized_address, status, note, updated_at) "
+                        "VALUES (?, ?, ?, datetime('now')) "
+                        "ON CONFLICT(normalized_address) DO UPDATE SET "
+                        "status = excluded.status, note = excluded.note, "
+                        "updated_at = datetime('now')",
+                        (norm, status, note)
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+
+        return jsonify({
+            'address': addr,
+            'normalized_address': norm,
+            'status': status or '',
+            'note': note or '',
+        })
+
+
+    # ------------------------------------------------------------------
+    # GET all per-address statuses (for hydrating the UI on a fresh load)
+    # ------------------------------------------------------------------
+    @app.route('/api/hot-vendors/statuses', methods=['GET'])
+    def list_statuses():
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT normalized_address, status, note, updated_at "
+            "FROM hot_vendor_property_status WHERE status IS NOT NULL"
+        ).fetchall()
+        conn.close()
+        return jsonify({'statuses': [dict(r) for r in rows]})
+
+
+    # ------------------------------------------------------------------
+    # Excel report rebuild
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
     def download_excel(upload_id):
@@ -234,9 +346,7 @@ def register_hot_vendors_routes(app):
             from hot_vendor_excel import build_workbook, workbook_filename
         except ImportError as e:
             logger.exception("hot_vendor_excel failed to import")
-            return jsonify({
-                'error': f'Excel generator unavailable: {e}'
-            }), 500
+            return jsonify({'error': f'Excel generator unavailable: {e}'}), 500
 
         conn = get_db()
         upload = conn.execute(
@@ -261,7 +371,6 @@ def register_hot_vendors_routes(app):
         except (TypeError, ValueError):
             meta = {}
 
-        # Reconstruct the result dict shape that build_workbook expects
         properties = []
         for i, p in enumerate(props_rows, 1):
             d = dict(p)
