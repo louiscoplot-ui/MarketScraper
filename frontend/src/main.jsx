@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import PipelinePrint from './pages/PipelinePrint'
 import './index.css'
+import './components/header.css'
+import './components/listings.css'
 
 // Lightweight URL-based routing — no React Router. The print view is a
 // truly separate render tree (no header, sidebar, or theme controls)
