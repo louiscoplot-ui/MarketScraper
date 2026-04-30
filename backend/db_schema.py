@@ -282,5 +282,17 @@ def init_db():
         except Exception:
             conn.commit()
 
+    # Cache for OSM Overpass street lookups — pipeline neighbour generation
+    # falls back to OSM when we have no Hot Vendor / listings data on a
+    # street, so we never propose fake house numbers. One Overpass query
+    # per street; cache for 30 days.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS street_address_cache (
+            street_key TEXT PRIMARY KEY,
+            numbers TEXT NOT NULL,
+            fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
     conn.commit()
     conn.close()

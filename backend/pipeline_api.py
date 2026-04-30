@@ -1,7 +1,10 @@
 """Appraisal Pipeline routes — endpoints + helper functions."""
 
 import re
+import json
 import logging
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, date
 from io import BytesIO
 from flask import request, jsonify, send_file
@@ -16,6 +19,9 @@ _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
 INSERT_CHUNK = 50
 NEIGHBOUR_MAX_DISTANCE = 30
 NEIGHBOUR_COUNT = 4
+OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+OVERPASS_TIMEOUT_SECONDS = 18
+OSM_CACHE_TTL_DAYS = 30
 
 
 def _source_limit(days):
@@ -40,6 +46,113 @@ def _parse_address(addr):
     except ValueError:
         return None
     return num, m.group(2), m.group(3).strip()
+
+
+def _street_cache_key(street, suburb):
+    return f"{(street or '').strip().lower()}|{(suburb or '').strip().lower()}"
+
+
+def _osm_street_numbers_cached(conn, street, suburb):
+    """Cached lookup; returns list[int] of every house number we've seen
+    on this street (across HV, listings, and OSM). Empty list = miss
+    fresh enough to not retry — TTL handled by caller."""
+    key = _street_cache_key(street, suburb)
+    try:
+        row = conn.execute(
+            "SELECT numbers, fetched_at FROM street_address_cache WHERE street_key = ?",
+            (key,)
+        ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    try:
+        d = dict(row)
+        nums = json.loads(d.get('numbers') or '[]')
+        return [int(n) for n in nums]
+    except Exception:
+        return None
+
+
+def _osm_street_numbers_store(conn, street, suburb, numbers):
+    key = _street_cache_key(street, suburb)
+    payload = json.dumps(sorted(set(int(n) for n in numbers)))
+    try:
+        if USE_POSTGRES:
+            conn.execute(
+                "INSERT INTO street_address_cache (street_key, numbers) "
+                "VALUES (?, ?) "
+                "ON CONFLICT (street_key) DO UPDATE SET "
+                "numbers = EXCLUDED.numbers, fetched_at = CURRENT_TIMESTAMP",
+                (key, payload)
+            )
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO street_address_cache "
+                "(street_key, numbers, fetched_at) VALUES (?, ?, datetime('now'))",
+                (key, payload)
+            )
+        conn.commit()
+    except Exception as e:
+        logger.debug(f"street cache write failed: {e}")
+
+
+def _osm_fetch_street_numbers(street, suburb):
+    """One Overpass query → all house numbers on the street within the
+    suburb's admin area. Returns list of ints, empty on any failure.
+    OSM data is open + free; usage is light (cached 30 days per street).
+    """
+    if not street or not suburb:
+        return []
+    street_clean = street.split(',')[0].strip()
+    suburb_clean = suburb.strip()
+    if not street_clean or not suburb_clean:
+        return []
+
+    # admin_level 7-9 covers Australian suburbs / localities reliably.
+    query = (
+        '[out:json][timeout:15];'
+        f'area["name"~"^{suburb_clean}$",i]["admin_level"~"^[789]$"]->.s;'
+        '('
+        f'node(area.s)["addr:housenumber"]["addr:street"~"^{street_clean}$",i];'
+        f'way(area.s)["addr:housenumber"]["addr:street"~"^{street_clean}$",i];'
+        ');'
+        'out tags;'
+    )
+    try:
+        body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+        req = urllib.request.Request(
+            OVERPASS_URL, data=body,
+            headers={
+                'User-Agent': 'MarketScraper/1.0 (real-estate prospecting; '
+                              'contact: louiscoplot@bellepropertycottesloe.com.au)',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            }
+        )
+        with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT_SECONDS) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        logger.info(f"Overpass lookup failed for {street_clean}/{suburb_clean}: {e}")
+        return []
+
+    nums = []
+    for el in payload.get('elements', []):
+        tags = (el.get('tags') or {})
+        raw = (tags.get('addr:housenumber') or '').strip()
+        if not raw:
+            continue
+        # OSM may store '123A', '123-125', '123/4'. Take the leading
+        # integer if it's clean — units & strata not useful for letter mailing.
+        m = re.match(r'^(\d+)\s*$', raw)
+        if not m:
+            continue
+        try:
+            nums.append(int(m.group(1)))
+        except ValueError:
+            continue
+    if nums:
+        logger.info(f"Overpass: {len(set(nums))} numbers on {street_clean}, {suburb_clean}")
+    return sorted(set(nums))
 
 
 def _real_neighbours(conn, source_addr, source_suburb, has_hv,
@@ -113,10 +226,42 @@ def _real_neighbours(conn, source_addr, source_suburb, has_hv,
     except Exception as e:
         logger.debug(f"listings neighbour lookup failed: {e}")
 
-    if not candidates:
+    if candidates:
+        ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
+        return [c[2] for c in ranked[:count]]
+
+    # Fallback: ask OSM for the real house numbers on this street. We
+    # only get here when neither Hot Vendor nor listings have any data
+    # on the source's street — typical when no HV CSV has been uploaded
+    # for the suburb yet. Cached per (street, suburb) to keep load
+    # under Overpass's polite-use limits.
+    cached = _osm_street_numbers_cached(conn, street, source_suburb)
+    if cached is None:
+        nums = _osm_fetch_street_numbers(street, source_suburb)
+        # Persist the result either way (empty included) so we don't
+        # hammer Overpass for unknown streets every request. Caller
+        # logic still handles refresh via the fetched_at TTL if added.
+        _osm_street_numbers_store(conn, street, source_suburb, nums)
+    else:
+        nums = cached
+
+    if not nums:
         return []
-    ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
-    return [c[2] for c in ranked[:count]]
+
+    osm_candidates = []
+    for n in nums:
+        if n == src_num:
+            continue
+        if n % 2 != src_parity:
+            continue
+        d = abs(n - src_num)
+        if d == 0 or d > max_distance:
+            continue
+        osm_candidates.append((d, n, f"{n} {street}"))
+    if not osm_candidates:
+        return []
+    osm_candidates.sort(key=lambda c: (c[0], c[1]))
+    return [c[2] for c in osm_candidates[:count]]
 
 
 def _hot_vendors_table_exists(conn):
