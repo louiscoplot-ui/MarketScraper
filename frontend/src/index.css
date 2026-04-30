@@ -489,10 +489,16 @@ tr:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
-tr.status-active { border-left: 3px solid var(--active); }
-tr.status-under_offer { border-left: 3px solid var(--under-offer); }
-tr.status-sold { border-left: 3px solid var(--sold); }
-tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
+/* Light row tint per status — matches the filter pill colours above. */
+tr.status-active { background: rgba(34, 197, 94, 0.08); border-left: 3px solid var(--active); }
+tr.status-under_offer { background: rgba(245, 158, 11, 0.09); border-left: 3px solid var(--under-offer); }
+tr.status-sold { background: rgba(59, 130, 246, 0.08); border-left: 3px solid var(--sold); }
+tr.status-withdrawn { background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--withdrawn); }
+
+tr.status-active:hover { background: rgba(34, 197, 94, 0.14); }
+tr.status-under_offer:hover { background: rgba(245, 158, 11, 0.15); }
+tr.status-sold:hover { background: rgba(59, 130, 246, 0.14); }
+tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
 
 .address-cell {
   max-width: 250px;
