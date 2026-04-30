@@ -11,37 +11,50 @@ import numpy as np
 import pandas as pd
 
 
-_MISSING_OWNER = ('-', 'nan', 'None', '')
+_MISSING_OWNER = ('-', 'nan', 'None', '', 'NaN')
+
+
+def _clean_name(val):
+    if val is None or pd.isna(val):
+        return None
+    s = str(val).strip()
+    return None if s in _MISSING_OWNER else s
 
 
 def _clean_str(v):
-    if v is None or pd.isna(v):
-        return None
-    s = str(v).strip()
-    if s in _MISSING_OWNER:
-        return None
-    return s
+    return _clean_name(v)
 
 
 def detect_current_owner(last, columns):
-    """Pick the buyer (current owner), not the seller, from a row.
+    """Pick the buyer (current owner). NEVER fall back to the seller.
 
-    RP Data CSV formats put the owner info in different positions:
-    - 22-col (Cottesloe-style): col16/col17 = buyer (current owner),
-      owner1/owner2 = seller of that transaction
+    RP Data CSV formats put the buyer in different positions:
+    - 22-col (Cottesloe-style): col16/col17 = buyer
+        owner1/owner2 = seller of that transaction — never use
     - 21-col (Ellenbrook-style): owner1/owner2 = buyer directly
 
-    Returns (current_owner1, current_owner2). Falls back to owner1/owner2
-    when the buyer columns are empty (happens for very recent sales
-    where the buyer isn't yet recorded by Landgate).
+    When the buyer columns are empty in 22-col format (very recent sales
+    where Landgate hasn't recorded the buyer yet), we explicitly return
+    a placeholder rather than fall back to the seller — falling back would
+    silently put the wrong name on every prospecting letter.
+
+    Returns (current_owner1, current_owner2). current_owner1 is always a
+    string; current_owner2 may be None.
     """
     if 'col16' in columns:
-        o1 = _clean_str(last.get('col16'))
-        o2 = _clean_str(last.get('col17'))
-        if o1:
-            return o1, o2
-        # Fallback: the buyer wasn't recorded; owner1 is the best signal we have
-    return _clean_str(last.get('owner1')), _clean_str(last.get('owner2'))
+        # 22-col format: ONLY col16/col17 are the buyer; never owner1
+        o1 = _clean_name(last.get('col16'))
+        o2 = _clean_name(last.get('col17'))
+    else:
+        # 21-col format: owner1/owner2 are the buyer
+        o1 = _clean_name(last.get('owner1'))
+        o2 = _clean_name(last.get('owner2'))
+
+    if o1:
+        return o1, o2
+    # Buyer not recorded — surface this explicitly so the user verifies
+    # on Landgate instead of getting a silently-wrong name on a letter.
+    return 'N/A — verify on Landgate', None
 
 
 def reconstruct_properties(clean_df, today):
