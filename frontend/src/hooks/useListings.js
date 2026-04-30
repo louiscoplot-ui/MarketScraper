@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 const API = '/api'
 
 
-// Parse REIWA's dd/mm/yyyy listing_date to YYYY-MM-DD (sortable as string)
 function parseDateToSortable(dateStr) {
   if (!dateStr) return ''
   const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
@@ -12,16 +11,6 @@ function parseDateToSortable(dateStr) {
 }
 
 
-// The "real" date for a row — the one a human looking at the table
-// would treat as authoritative for "when did this listing happen".
-//
-//   sold      → sold_date
-//   withdrawn → withdrawn_date
-//   else      → listing_date (REIWA-published)
-//
-// Returns "" when no real date is known. We deliberately do NOT fall
-// back to first_seen here — mixing "REIWA listed 28/04" with "we first
-// saw today" is apples-to-oranges and gave a wrong sort.
 function realDate(l) {
   if (l.status === 'sold' && l.sold_date) return l.sold_date.slice(0, 10)
   if (l.status === 'withdrawn' && l.withdrawn_date) return l.withdrawn_date.slice(0, 10)
@@ -31,7 +20,6 @@ function realDate(l) {
 
 
 export function calcDOM(listing) {
-  // DOM only when REIWA published a listing date — never fabricate from first_seen.
   const dateStr = listing.listing_date
   if (!dateStr) return null
   let start
@@ -53,9 +41,6 @@ export function formatIsoDate(iso) {
 }
 
 
-// Hook: holds full listings list, exposes filter+sort outputs, fetch helper.
-// All filtering happens client-side so suburb/status toggles are instant
-// (no network roundtrip per click).
 export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view }) {
   const [listings, setListings] = useState([])
   const [sortField, setSortField] = useState('')
@@ -68,8 +53,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   useEffect(() => { fetchListings() }, [fetchListings])
 
-  // ALWAYS revert to "newest first" default whenever the user
-  // navigates, filters, or otherwise interacts with the table layout.
   useEffect(() => {
     setSortField('')
     setSortDir('desc')
@@ -99,23 +82,16 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     })
 
     return filtered.sort((a, b) => {
-      // ---- Default: rows with a real date come first (desc by date),
-      // rows with no real date sink to the bottom (sorted among themselves
-      // by first_seen desc so freshly-discovered listings stay near the top
-      // of the no-date block). ----
       if (!sortField) {
         const va = realDate(a)
         const vb = realDate(b)
-        if (va && vb) return vb.localeCompare(va)        // both dated → desc
-        if (va && !vb) return -1                          // a wins
-        if (!va && vb) return 1                           // b wins
-        // neither dated → fall back to first_seen desc
+        if (va && vb) return vb.localeCompare(va)
+        if (va && !vb) return -1
+        if (!va && vb) return 1
         const fa = (a.first_seen || '').slice(0, 10)
         const fb = (b.first_seen || '').slice(0, 10)
         return fb.localeCompare(fa)
       }
-
-      // ---- Explicit column sort ----
       let va, vb
       if (sortField === 'dom') {
         va = calcDOM(a) ?? -1
@@ -141,7 +117,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
           : String(vb).localeCompare(String(va))
       }
       if (primary !== 0) return primary
-      // Tie-break with realDate desc, then first_seen desc.
       const ra = realDate(a)
       const rb = realDate(b)
       if (ra !== rb) return String(rb).localeCompare(String(ra))
@@ -170,6 +145,25 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     else alert('Delete failed')
   }, [fetchListings])
 
+  // PATCH a single field on a listing. `fields` is an object like
+  // { listing_date: "30/04/2026" } or { sold_date: "2026-04-28" } or
+  // { listing_date: null } to clear. Refreshes the full list on success
+  // so the new value + sort take effect immediately.
+  const updateListing = useCallback(async (id, fields) => {
+    const res = await fetch(`${API}/listings/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    })
+    if (res.ok) {
+      fetchListings()
+      return true
+    }
+    const err = await res.json().catch(() => ({}))
+    alert(err.error || `Update failed (${res.status})`)
+    return false
+  }, [fetchListings])
+
   return {
     listings,
     fetchListings,
@@ -180,5 +174,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     uniqueAgents,
     uniqueAgencies,
     deleteListing,
+    updateListing,
   }
 }
