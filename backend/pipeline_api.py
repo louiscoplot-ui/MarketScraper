@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
 INSERT_CHUNK = 50
+NEIGHBOUR_MAX_DISTANCE = 30
+NEIGHBOUR_COUNT = 4
 
 
 def _source_limit(days):
@@ -26,6 +28,10 @@ def _parse_address(addr):
     addr = addr.strip()
     if '/' in addr.split()[0]:
         return None
+    # "259 259 Curtin Avenue" → "259 Curtin Avenue" (scrape artefact).
+    parts = addr.split()
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit() and parts[0] == parts[1]:
+        addr = ' '.join([parts[0]] + parts[2:])
     m = _ADDR_RE.match(addr)
     if not m:
         return None
@@ -36,18 +42,81 @@ def _parse_address(addr):
     return num, m.group(2), m.group(3).strip()
 
 
-def _generate_neighbours(addr):
-    parsed = _parse_address(addr)
+def _real_neighbours(conn, source_addr, source_suburb, has_hv,
+                     count=NEIGHBOUR_COUNT, max_distance=NEIGHBOUR_MAX_DISTANCE):
+    """Return real addresses on the same street near the source.
+
+    Pulls candidates from hot_vendor_properties (RP Data — exhaustive
+    ownership records) first, falling back to listings. Filters by:
+      - same street name (case-insensitive)
+      - same parity (odd source → odd targets only, never both sides)
+      - within ±max_distance house numbers
+      - excludes the source itself
+    Returns up to `count` closest matches, sorted by distance then number.
+    Empty list when no real neighbour can be found — the pipeline
+    skips that source rather than mailing a fake address.
+    """
+    parsed = _parse_address(source_addr)
     if not parsed:
         return []
-    num, _suffix, street = parsed
-    out = []
-    for offset in (-2, -1, 1, 2):
-        target = num + offset
-        if target <= 0:
-            continue
-        out.append(f"{target} {street}")
-    return out
+    src_num, _suffix, street = parsed
+    src_parity = src_num % 2
+    street_lower = street.lower()
+    src_norm = normalize_address(source_addr) or ''
+
+    candidates = {}
+
+    def consider(addr_str):
+        if not addr_str:
+            return
+        a = addr_str.strip()
+        if not a:
+            return
+        n = (normalize_address(a) or '').lower()
+        if not n or n == src_norm or n in candidates:
+            return
+        p = _parse_address(a)
+        if not p:
+            return
+        num_c, _suf, str_c = p
+        if str_c.lower() != street_lower:
+            return
+        if num_c % 2 != src_parity:
+            return
+        d = abs(num_c - src_num)
+        if d == 0 or d > max_distance:
+            return
+        candidates[n] = (d, num_c, a)
+
+    if has_hv:
+        try:
+            rows = conn.execute(
+                "SELECT address FROM hot_vendor_properties "
+                "WHERE LOWER(address) LIKE ? LIMIT 1000",
+                (f"% {street_lower}",)
+            ).fetchall()
+            for r in rows:
+                consider(dict(r).get('address'))
+        except Exception as e:
+            logger.debug(f"hot_vendor neighbour lookup failed: {e}")
+
+    try:
+        rows = conn.execute(
+            "SELECT l.address FROM listings l "
+            "JOIN suburbs s ON l.suburb_id = s.id "
+            "WHERE LOWER(l.address) LIKE ? AND LOWER(s.name) = LOWER(?) "
+            "LIMIT 1000",
+            (f"% {street_lower}", source_suburb or '')
+        ).fetchall()
+        for r in rows:
+            consider(dict(r).get('address'))
+    except Exception as e:
+        logger.debug(f"listings neighbour lookup failed: {e}")
+
+    if not candidates:
+        return []
+    ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
+    return [c[2] for c in ranked[:count]]
 
 
 def _hot_vendors_table_exists(conn):
@@ -266,12 +335,17 @@ def pipeline_generate():
     sold_count = len(sold_rows)
 
     insert_rows = []
+    skipped_no_neighbour = 0
     for r in sold_rows:
         source_address = r['address']
         source_suburb = r['suburb_name']
         source_price = _price_to_int(r['sold_price'], r['price_text'])
         source_sold_date = r['effective_date']
-        for target in _generate_neighbours(source_address):
+        targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
+        if not targets:
+            skipped_no_neighbour += 1
+            continue
+        for target in targets:
             if has_hv:
                 owner, score = _match_hot_vendor(conn, target)
             else:
@@ -301,6 +375,7 @@ def pipeline_generate():
         'sold_count': sold_count,
         'suburb': suburb,
         'cap_applied': sold_count >= src_limit,
+        'skipped_no_neighbour': skipped_no_neighbour,
         'entries': entries,
     })
 
@@ -324,21 +399,22 @@ def pipeline_manual_add():
     explicit_targets = [t.strip() for t in explicit_targets
                         if isinstance(t, str) and t.strip()]
 
+    conn = get_db()
+    has_hv = _hot_vendors_table_exists(conn)
+
     if explicit_targets:
         targets = explicit_targets
     else:
-        targets = _generate_neighbours(source_address)
+        targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
         if not targets:
+            conn.close()
             return jsonify({
                 'error': (
-                    f"Couldn't auto-generate neighbours from '{source_address}' "
-                    "(strata or non-numeric address). Provide target_addresses "
-                    "explicitly."
+                    f"No real neighbours found near '{source_address}' in our "
+                    "data (RP Data + listings). Provide target_addresses "
+                    "explicitly to override."
                 )
             }), 400
-
-    conn = get_db()
-    has_hv = _hot_vendors_table_exists(conn)
 
     insert_rows = []
     for target in targets:
