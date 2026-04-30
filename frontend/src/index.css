@@ -500,8 +500,13 @@ tr.status-under_offer:hover { background: rgba(245, 158, 11, 0.15); }
 tr.status-sold:hover { background: rgba(59, 130, 246, 0.14); }
 tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
 
+/* Tighter density for the main listings table only. */
+.listings-table { font-size: 12.5px; }
+.listings-table th { padding: 7px 9px; font-size: 11px; }
+.listings-table td { padding: 5px 9px; }
+
 .address-cell {
-  max-width: 250px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -525,7 +530,13 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
 }
 
 .agency-cell {
-  max-width: 150px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-cell {
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
 }

@@ -60,7 +60,7 @@ export default function ListingsView({
       cell: (l) => l.internal_size || '-' },
     { field: 'agency', label: 'Agency', sortable: true, className: 'agency-cell',
       cell: (l) => l.agency || '-' },
-    { field: 'agent', label: 'Agent', sortable: true,
+    { field: 'agent', label: 'Agent', sortable: true, className: 'agent-cell',
       cell: (l) => l.agent || '-' },
     showListed && { field: 'listing_date', label: 'Listed', sortable: true, className: 'date-cell',
       cell: (l) => (
