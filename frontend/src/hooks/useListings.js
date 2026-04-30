@@ -52,7 +52,7 @@ export function formatIsoDate(iso) {
 // Hook: holds full listings list, exposes filter+sort outputs, fetch helper.
 // All filtering happens client-side so suburb/status toggles are instant
 // (no network roundtrip per click).
-export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency }) {
+export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view }) {
   const [listings, setListings] = useState([])
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
@@ -64,12 +64,14 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   useEffect(() => { fetchListings() }, [fetchListings])
 
-  // Auto-reset sort to default whenever the filters change. Otherwise an
-  // earlier click on (say) "Bedrooms" would persist when switching suburbs,
-  // and the user would get rows in an unexpected order on the new view.
+  // ALWAYS revert to "newest first" default whenever the user
+  // navigates, filters, or otherwise interacts with the table layout.
+  // Explicit column clicks (toggleSort) are the only way to override —
+  // and they get cleared as soon as the next filter/tab change happens.
   useEffect(() => {
     setSortField('')
-  }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency])
+    setSortDir('desc')
+  }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view])
 
   // Date-like fields default to descending on first click — clicking
   // "Listed" once should show the freshest listings at the top.
