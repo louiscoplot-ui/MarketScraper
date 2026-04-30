@@ -98,19 +98,43 @@ def _create_upload_row(conn, meta):
     return cur.lastrowid
 
 
-_INSERT_COLS = ['upload_id', 'address', 'normalized_address'] + _PROP_COLUMNS[1:]
-_INSERT_SQL = (
-    f"INSERT INTO hot_vendor_properties ({', '.join(_INSERT_COLS)}) "
-    f"VALUES ({', '.join(['?'] * len(_INSERT_COLS))})"
-)
-
-
+# Bulk-insert the scored properties.
+#
+# The previous version did 3,012 individual INSERTs on a CSV with 8k
+# transactions — each round-trip to Neon Postgres takes ~40-60ms, so the
+# whole loop ran for ~2-3 minutes and gunicorn killed the worker at its
+# 120s timeout (exactly what the Render logs showed: scoring finished at
+# 07:10:30, [CRITICAL] WORKER TIMEOUT at 07:11:36, +66s later).
+#
+# Now: one round-trip per ~500 rows via psycopg2.extras.execute_values
+# (Postgres) or sqlite3 .executemany (local dev). 3,012 rows now take
+# under 2 seconds.
 def _insert_property_rows(conn, upload_id, rows):
-    for r in rows:
-        params = [upload_id, r['address'], normalize_address(r['address'])]
-        for col in _PROP_COLUMNS[1:]:
-            params.append(r.get(col))
-        conn.execute(_INSERT_SQL, params)
+    if not rows:
+        return
+
+    cols = ['upload_id', 'address', 'normalized_address'] + _PROP_COLUMNS[1:]
+
+    def row_values(r):
+        return tuple(
+            [upload_id, r['address'], normalize_address(r['address'])] +
+            [r.get(c) for c in _PROP_COLUMNS[1:]]
+        )
+
+    if USE_POSTGRES:
+        from psycopg2.extras import execute_values
+        sql = f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) VALUES %s"
+        cur = conn._conn.cursor()
+        try:
+            execute_values(cur, sql, [row_values(r) for r in rows], page_size=500)
+        finally:
+            cur.close()
+    else:
+        sql = (
+            f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) "
+            f"VALUES ({', '.join(['?'] * len(cols))})"
+        )
+        conn._conn.executemany(sql, [list(row_values(r)) for r in rows])
 
 
 def register_hot_vendors_routes(app):
@@ -120,8 +144,6 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/score-csv', methods=['POST'])
     def score_csv_upload():
-        from hot_vendor_scoring import score_csv as run_pipeline
-
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded — use multipart "file" field'}), 400
         file = request.files['file']
@@ -132,9 +154,19 @@ def register_hot_vendors_routes(app):
         agency = (request.form.get('agency') or '').strip() or None
         uploaded_by = (request.form.get('uploaded_by') or '').strip() or None
 
+        # Wrap import + pipeline in a single try so ANY failure (missing dep,
+        # syntax error, runtime exception) returns JSON instead of an HTML
+        # 500 page that the frontend can't parse.
         try:
+            from hot_vendor_scoring import score_csv as run_pipeline
             file_bytes = file.read()
             result = run_pipeline(file_bytes, suburb=suburb_override)
+        except ImportError as e:
+            logger.exception("Hot vendor scoring module failed to import")
+            return jsonify({
+                'error': f'Backend dependency missing: {e}. '
+                         f'Add to requirements.txt and redeploy.'
+            }), 500
         except Exception as e:
             logger.exception("Hot vendor scoring failed")
             return jsonify({'error': f'Scoring failed: {e}'}), 500
@@ -172,8 +204,23 @@ def register_hot_vendors_routes(app):
             upload_id = _create_upload_row(conn, meta)
             _insert_property_rows(conn, upload_id, rows)
             conn.commit()
+        except Exception as e:
+            logger.exception("Persist failed after scoring")
+            try:
+                conn.close()
+            except Exception:
+                pass
+            # Scoring succeeded — still return the result, just flag the persist failure.
+            return jsonify({
+                'upload_id': None,
+                'persist_error': f'DB persist failed: {e}',
+                **result,
+            }), 200
         finally:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
         return jsonify({'upload_id': upload_id, **result}), 201
 
@@ -183,7 +230,13 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
     def download_excel(upload_id):
-        from hot_vendor_excel import build_workbook, workbook_filename
+        try:
+            from hot_vendor_excel import build_workbook, workbook_filename
+        except ImportError as e:
+            logger.exception("hot_vendor_excel failed to import")
+            return jsonify({
+                'error': f'Excel generator unavailable: {e}'
+            }), 500
 
         conn = get_db()
         upload = conn.execute(
@@ -267,7 +320,12 @@ def register_hot_vendors_routes(app):
             'properties': properties,
         }
 
-        buf = build_workbook(result)
+        try:
+            buf = build_workbook(result)
+        except Exception as e:
+            logger.exception("Excel build failed")
+            return jsonify({'error': f'Excel build failed: {e}'}), 500
+
         return send_file(
             buf,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
