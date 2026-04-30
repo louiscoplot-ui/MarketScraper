@@ -1,0 +1,39 @@
+name: Force Render redeploy
+
+# Render auto-deploys on push, but the webhook sometimes lags or fails
+# silently. This action calls the explicit Deploy Hook on every push to
+# the prod branch as a belt-and-braces guarantee that a fresh build
+# starts within seconds.
+
+on:
+  push:
+    branches:
+      - claude/fix-scraper-missing-listings-PlwVM
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}" \
+            && echo "Render deploy triggered" \
+            || (echo "Hook call failed" && exit 1)
+
+      - name: Wait & verify backend health
+        run: |
+          echo "Waiting 90s for build to start producing..."
+          sleep 90
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              https://marketscraper-backend.onrender.com/api/ping)
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend is live"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Backend did not return 200 within 6 minutes"
+          exit 1
