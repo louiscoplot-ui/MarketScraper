@@ -7,6 +7,7 @@ from io import BytesIO
 from flask import request, jsonify, send_file
 
 from database import get_db, normalize_address, USE_POSTGRES
+from pipeline_letter import render_letter_docx
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,66 @@ def _match_hot_vendor(conn, target_address):
         return None, None
 
 
+def _enrich_owner_names(conn, suburb=None):
+    """Back-fill pipeline_tracking.target_owner_name from
+    hot_vendor_properties.current_owner whenever the pipeline row
+    has no owner yet. Matches on normalized_address. Idempotent —
+    cheap to call before every read of the pipeline."""
+    if not _hot_vendors_table_exists(conn):
+        return 0
+    try:
+        if suburb:
+            rows = conn.execute(
+                "SELECT id, target_address FROM pipeline_tracking "
+                "WHERE (target_owner_name IS NULL OR target_owner_name = '') "
+                "AND LOWER(source_suburb) = LOWER(?)",
+                (suburb,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, target_address FROM pipeline_tracking "
+                "WHERE target_owner_name IS NULL OR target_owner_name = ''"
+            ).fetchall()
+    except Exception as e:
+        logger.warning(f"enrich_owner_names lookup failed: {e}")
+        return 0
+
+    updated = 0
+    for r in rows:
+        target_addr = r['target_address']
+        if not target_addr:
+            continue
+        norm = normalize_address(target_addr)
+        if not norm:
+            continue
+        try:
+            match = conn.execute(
+                "SELECT current_owner FROM hot_vendor_properties "
+                "WHERE normalized_address = ? AND current_owner IS NOT NULL "
+                "AND current_owner != '' "
+                "ORDER BY final_score DESC LIMIT 1",
+                (norm,)
+            ).fetchone()
+        except Exception:
+            continue
+        if match and match['current_owner']:
+            try:
+                conn.execute(
+                    "UPDATE pipeline_tracking SET target_owner_name = ? WHERE id = ?",
+                    (match['current_owner'], r['id'])
+                )
+                updated += 1
+            except Exception:
+                pass
+    if updated:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+        logger.info(f"Enriched {updated} pipeline owner names from hot_vendor_properties")
+    return updated
+
+
 def _serialize_entries(rows):
     out = []
     for r in rows:
@@ -137,158 +198,10 @@ def _bulk_insert_pipeline(conn, rows):
     return inserted
 
 
-# ---------------------------------------------------------------------
-# Letter rendering helpers
-# ---------------------------------------------------------------------
-
-def _format_price(p):
-    if p is None or p == '':
-        return ''
-    try:
-        return f"${int(p):,}"
-    except (TypeError, ValueError):
-        return ''
-
-
-def _format_sources_inline(sources):
-    """Build the human prose listing N source sales."""
-    if not sources:
-        return '', ''
-
-    n = len(sources)
-    addrs = [s['source_address'] for s in sources]
-    prices = [_format_price(s.get('source_price')) for s in sources]
-    has_prices = [bool(p) for p in prices]
-
-    def join_oxford(items):
-        if len(items) == 0:
-            return ''
-        if len(items) == 1:
-            return items[0]
-        if len(items) == 2:
-            return f"{items[0]} and {items[1]}"
-        return ', '.join(items[:-1]) + f", and {items[-1]}"
-
-    if n == 1:
-        addr_phrase = f"your neighbour at {addrs[0]}"
-        if has_prices[0]:
-            sale_phrase = f"recently sold for {prices[0]}"
-        else:
-            sale_phrase = "recently sold"
-    else:
-        addr_phrase = f"your neighbours at {join_oxford(addrs)}"
-        if all(has_prices):
-            sale_phrase = (
-                f"recently sold — for {join_oxford(prices)} respectively"
-            )
-        elif any(has_prices):
-            paired = [
-                f"{a} ({p})" if p else a
-                for a, p in zip(addrs, prices)
-            ]
-            addr_phrase = f"your neighbours at {join_oxford(paired)}"
-            sale_phrase = "recently sold"
-        else:
-            sale_phrase = "recently sold"
-
-    return addr_phrase, sale_phrase
-
-
-def _render_letter_docx(target_address, owner_name, source_suburb, sources):
-    """Build a Belle Property letter as a python-docx Document."""
-    from docx import Document
-    from docx.shared import Pt, RGBColor, Cm
-
-    owner = (owner_name or '').strip() or 'Homeowner'
-    addr_phrase, sale_phrase = _format_sources_inline(sources)
-    multi = len(sources) > 1
-
-    doc = Document()
-    for section in doc.sections:
-        section.top_margin = Cm(2.5)
-        section.bottom_margin = Cm(2.5)
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(2.5)
-
-    head = doc.add_paragraph()
-    r = head.add_run('BELLE PROPERTY  |  Cottesloe')
-    r.bold = True
-    r.font.size = Pt(20)
-
-    addr = doc.add_paragraph()
-    r = addr.add_run('160 Stirling Highway, Nedlands WA 6009')
-    r.font.size = Pt(10)
-    r.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
-
-    doc.add_paragraph()
-
-    today = datetime.utcnow().strftime('%d %B %Y')
-    p = doc.add_paragraph(today)
-    p.runs[0].font.size = Pt(11)
-
-    doc.add_paragraph()
-
-    doc.add_paragraph(f'Dear {owner},')
-    doc.add_paragraph()
-
-    doc.add_paragraph('I hope this letter finds you well.')
-
-    p = doc.add_paragraph()
-    p.add_run(f'I wanted to reach out personally — {addr_phrase} {sale_phrase}')
-    if source_suburb:
-        if multi:
-            p.add_run(f", reflecting strong recent results across {source_suburb}.")
-        else:
-            p.add_run(
-                f", one of {source_suburb}'s strongest results this season."
-            )
-    else:
-        p.add_run('.')
-
-    p = doc.add_paragraph()
-    if multi:
-        p.add_run(
-            'With this level of activity on your doorstep and buyer demand '
-            'remaining high, this could be the ideal moment to understand '
-            'what your property at '
-        )
-    else:
-        p.add_run(
-            f'With buyer demand remaining high across {source_suburb}, this '
-            f'could be the ideal moment to understand what your property at '
-        )
-    bold = p.add_run(target_address)
-    bold.bold = True
-    p.add_run(" is truly worth in today's market.")
-
-    doc.add_paragraph(
-        'I would love to offer you a complimentary, no-obligation market '
-        'appraisal at a time that suits you — no pressure, just clarity.'
-    )
-
-    doc.add_paragraph("Please don't hesitate to reach out.")
-
-    doc.add_paragraph()
-    doc.add_paragraph('Warm regards,')
-    doc.add_paragraph()
-
-    sig = doc.add_paragraph()
-    r = sig.add_run('Louis Coplot')
-    r.bold = True
-    r.font.size = Pt(13)
-
-    doc.add_paragraph('Sales Agent | Belle Property Cottesloe')
-    doc.add_paragraph('M: 0400 XXX XXX')
-    doc.add_paragraph('E: louis@belleproperty.com.au')
-    doc.add_paragraph('W: belleproperty.com.au/cottesloe')
-
-    return doc
-
-
 def _gather_sources_for_target(conn, target_address, source_suburb):
     """Distinct nearby sales for a target. Dedupes by source_address so
-    duplicate pipeline_tracking rows (different sent_dates, same source)
-    don't make the letter say 'sold for X — for X respectively'."""
+    duplicate pipeline_tracking rows don't make the letter say
+    'sold for X — for X respectively'."""
     rows = conn.execute(
         """
         SELECT source_address, source_price, source_sold_date, target_owner_name
@@ -299,7 +212,6 @@ def _gather_sources_for_target(conn, target_address, source_suburb):
         """,
         (target_address, source_suburb)
     ).fetchall()
-
     seen = set()
     deduped = []
     for r in rows:
@@ -332,7 +244,6 @@ def pipeline_generate():
     src_limit = _source_limit(days)
 
     conn = get_db()
-
     has_hv = _hot_vendors_table_exists(conn)
 
     sold_rows = conn.execute(
@@ -360,7 +271,6 @@ def pipeline_generate():
         source_suburb = r['suburb_name']
         source_price = _price_to_int(r['sold_price'], r['price_text'])
         source_sold_date = r['effective_date']
-
         for target in _generate_neighbours(source_address):
             if has_hv:
                 owner, score = _match_hot_vendor(conn, target)
@@ -396,11 +306,7 @@ def pipeline_generate():
 
 
 def pipeline_manual_add():
-    """POST /api/pipeline/manual-add — create pipeline entries from a sale
-    the agent knows about that the scraper either missed or hasn't dated
-    correctly yet."""
     data = request.get_json(silent=True) or {}
-
     source_address = (data.get('source_address') or '').strip()
     source_suburb = (data.get('source_suburb') or '').strip()
     if not source_address:
@@ -415,10 +321,8 @@ def pipeline_manual_add():
     explicit_targets = data.get('target_addresses') or []
     if not isinstance(explicit_targets, list):
         return jsonify({'error': 'target_addresses must be a list'}), 400
-    explicit_targets = [
-        t.strip() for t in explicit_targets
-        if isinstance(t, str) and t.strip()
-    ]
+    explicit_targets = [t.strip() for t in explicit_targets
+                        if isinstance(t, str) and t.strip()]
 
     if explicit_targets:
         targets = explicit_targets
@@ -483,6 +387,7 @@ def pipeline_tracking_list():
     limit = max(1, min(limit, 1000))
 
     conn = get_db()
+    _enrich_owner_names(conn, suburb or None)
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
@@ -493,18 +398,12 @@ def pipeline_tracking_list():
         params.append(status)
     sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
-
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return jsonify({'entries': _serialize_entries(rows)})
 
 
 def pipeline_tracking_grouped():
-    """One envelope per target_address. Sources are deduped (same source
-    appearing across multiple sent_dates collapses to one entry) and
-    sorted alphabetically inside each group. Groups themselves are
-    ordered by their primary source's address — so the user can scan
-    the pipeline by the SALES they're targeting, not by neighbour."""
     suburb = (request.args.get('suburb') or '').strip()
     try:
         limit = int(request.args.get('limit') or 200)
@@ -513,13 +412,15 @@ def pipeline_tracking_grouped():
     limit = max(1, min(limit, 1000))
 
     conn = get_db()
+    # Auto-fill owner names from latest hot_vendor_properties data
+    _enrich_owner_names(conn, suburb or None)
+
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
         sql += " AND LOWER(source_suburb) = LOWER(?)"
         params.append(suburb)
     sql += " ORDER BY target_address ASC, created_at DESC"
-
     rows = conn.execute(sql, params).fetchall()
     conn.close()
 
@@ -529,7 +430,8 @@ def pipeline_tracking_grouped():
         for k, v in list(r.items()):
             if isinstance(v, (date, datetime)):
                 r[k] = v.isoformat()
-        key = (r['target_address'].lower().strip(), (r.get('source_suburb') or '').lower().strip())
+        key = (r['target_address'].lower().strip(),
+               (r.get('source_suburb') or '').lower().strip())
         if key not in groups:
             groups[key] = {
                 'target_address': r['target_address'],
@@ -562,12 +464,9 @@ def pipeline_tracking_grouped():
             g['hot_vendor_score'] = r.get('hot_vendor_score')
 
     grouped = list(groups.values())
-    # Sort sources within each group alphabetically
     for g in grouped:
         g['sources'].sort(key=lambda s: (s.get('source_address') or '').lower())
         g.pop('_source_addrs_seen', None)
-    # Sort groups by primary source's address (the one we're targeting via
-    # this letter). Falls back to target_address when sources is empty.
     grouped.sort(key=lambda g: (
         (g['sources'][0].get('source_address') if g['sources'] else g['target_address'] or '').lower()
     ))
@@ -592,7 +491,6 @@ def pipeline_tracking_update(id):
     propagate_owner = 'target_owner_name' in data
 
     conn = get_db()
-
     target_row = conn.execute(
         "SELECT target_address, source_suburb FROM pipeline_tracking WHERE id = ?",
         (id,)
@@ -623,15 +521,12 @@ def pipeline_tracking_update(id):
         )
 
     conn.commit()
-
     row = conn.execute(
         "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
     ).fetchone()
     conn.close()
-
     if not row:
         return jsonify({'error': 'Not found'}), 404
-
     return jsonify(_serialize_entries([row])[0])
 
 
@@ -643,7 +538,6 @@ def pipeline_tracking_clear():
 
     suburb = (request.args.get('suburb') or '').strip()
     status = (request.args.get('status') or '').strip()
-
     if not suburb and not status:
         return jsonify({
             'error': 'At least suburb or status must be provided. '
@@ -659,21 +553,18 @@ def pipeline_tracking_clear():
     if status:
         sql += " AND status = ?"
         params.append(status)
-
     cur = conn.execute(sql, params)
     deleted = cur.rowcount or 0
     conn.commit()
     conn.close()
-
-    return jsonify({
-        'deleted': deleted,
-        'suburb': suburb or None,
-        'status': status or None,
-    })
+    return jsonify({'deleted': deleted, 'suburb': suburb or None, 'status': status or None})
 
 
 def pipeline_letter_download(id):
     conn = get_db()
+    # Make sure the letter uses the freshest owner name from hot_vendor data
+    _enrich_owner_names(conn, None)
+
     row = conn.execute(
         "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
     ).fetchone()
@@ -703,7 +594,7 @@ def pipeline_letter_download(id):
                 owner_name = n
                 break
 
-    doc = _render_letter_docx(target_address, owner_name, source_suburb, sources)
+    doc = render_letter_docx(target_address, owner_name, source_suburb, sources)
 
     buf = BytesIO()
     doc.save(buf)
@@ -711,13 +602,23 @@ def pipeline_letter_download(id):
 
     safe = re.sub(r'[^\w\s-]', '', target_address)[:60].strip().replace(' ', '_')
     filename = f"letter_{safe or 'letter'}.docx"
-
     return send_file(
         buf,
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         as_attachment=True,
         download_name=filename,
     )
+
+
+def pipeline_enrich_owners():
+    """Manual trigger — back-fill owner names across the whole pipeline
+    (or one suburb) from the latest hot_vendor_properties data. Useful
+    right after uploading a fresh RP Data CSV."""
+    suburb = (request.args.get('suburb') or '').strip() or None
+    conn = get_db()
+    updated = _enrich_owner_names(conn, suburb)
+    conn.close()
+    return jsonify({'updated': updated, 'suburb': suburb})
 
 
 # ---------------------------------------------------------------------
@@ -740,6 +641,8 @@ def register_pipeline_routes(app):
     app.add_url_rule('/api/pipeline/letter/<int:id>/download',
                      endpoint='pipeline_letter_download',
                      view_func=pipeline_letter_download, methods=['GET'])
+    app.add_url_rule('/api/pipeline/enrich-owners', endpoint='pipeline_enrich_owners',
+                     view_func=pipeline_enrich_owners, methods=['POST'])
     logger.info(
-        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking[,/grouped,/<id>],letter/<id>/download}"
+        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking,letter/<id>/download,enrich-owners}"
     )
