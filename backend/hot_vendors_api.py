@@ -120,8 +120,6 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/score-csv', methods=['POST'])
     def score_csv_upload():
-        from hot_vendor_scoring import score_csv as run_pipeline
-
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded — use multipart "file" field'}), 400
         file = request.files['file']
@@ -132,9 +130,19 @@ def register_hot_vendors_routes(app):
         agency = (request.form.get('agency') or '').strip() or None
         uploaded_by = (request.form.get('uploaded_by') or '').strip() or None
 
+        # Wrap import + pipeline in a single try so ANY failure (missing dep,
+        # syntax error, runtime exception) returns JSON instead of an HTML
+        # 500 page that the frontend can't parse.
         try:
+            from hot_vendor_scoring import score_csv as run_pipeline
             file_bytes = file.read()
             result = run_pipeline(file_bytes, suburb=suburb_override)
+        except ImportError as e:
+            logger.exception("Hot vendor scoring module failed to import")
+            return jsonify({
+                'error': f'Backend dependency missing: {e}. '
+                         f'Add to requirements.txt and redeploy.'
+            }), 500
         except Exception as e:
             logger.exception("Hot vendor scoring failed")
             return jsonify({'error': f'Scoring failed: {e}'}), 500
@@ -183,7 +191,13 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
     def download_excel(upload_id):
-        from hot_vendor_excel import build_workbook, workbook_filename
+        try:
+            from hot_vendor_excel import build_workbook, workbook_filename
+        except ImportError as e:
+            logger.exception("hot_vendor_excel failed to import")
+            return jsonify({
+                'error': f'Excel generator unavailable: {e}'
+            }), 500
 
         conn = get_db()
         upload = conn.execute(
@@ -267,7 +281,12 @@ def register_hot_vendors_routes(app):
             'properties': properties,
         }
 
-        buf = build_workbook(result)
+        try:
+            buf = build_workbook(result)
+        except Exception as e:
+            logger.exception("Excel build failed")
+            return jsonify({'error': f'Excel build failed: {e}'}), 500
+
         return send_file(
             buf,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
