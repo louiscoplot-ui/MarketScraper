@@ -8,10 +8,8 @@ def parse_date_text(text):
     """Parse REIWA's listing-age wording into dd/mm/yyyy, or empty.
 
     Strict: every pattern REQUIRES an 'Added' / 'Listed' / 'Posted' prefix.
-    This avoids false matches from sidebars like 'Properties you may be
-    interested in' which contain stray date-like text ('New', '2 hours ago'
-    on agent cards, 'Just listed' category labels, etc.) and were making
-    every listing get today's date.
+    Used on grid cards where false positives from 'Properties you may be
+    interested in' sidebars would otherwise contaminate every row.
     """
     if not text:
         return ""
@@ -62,7 +60,86 @@ def parse_date_text(text):
     return ""
 
 
+# Month name → number mapping
+_MONTHS = {m.lower(): i for i, m in enumerate(
+    ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], 1
+)}
+_MONTHS.update({m.lower(): i for i, m in enumerate(
+    ['January', 'February', 'March', 'April', 'May', 'June',
+     'July', 'August', 'September', 'October', 'November', 'December'], 1
+)})
+
+
+def parse_date_relaxed(text):
+    """Looser parser for the detail-page header area.
+
+    Looks for bare 'D Month YYYY' / 'D/M/YYYY' patterns *without* requiring
+    an 'Added/Listed/Posted' prefix. ONLY safe to call on a small slice of
+    the detail page (e.g. first 800 chars) where the listing metadata sits
+    — running it on full page text would match sidebar dates and dates of
+    other recently-sold properties.
+
+    Falls back gracefully (returns "") on no match. Returns dd/mm/yyyy.
+    """
+    if not text:
+        return ""
+    today = datetime.now()
+
+    # 1. "Listed Xth Month Year" / "First listed: Month Year" / etc.
+    #    REIWA's own header sometimes uses past-tense passive voice.
+    m = re.search(
+        r"(?:list\w*|posted|added|first\s+seen|date)\s*:?\s*"
+        r"(?:on\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+"
+        r"([A-Za-z]{3,9})\s+(\d{4})",
+        text, re.I,
+    )
+    if m:
+        try:
+            mo = _MONTHS.get(m.group(2).lower())
+            if mo:
+                dt = datetime(int(m.group(3)), mo, int(m.group(1)))
+                return dt.strftime("%d/%m/%Y")
+        except (ValueError, KeyError):
+            pass
+
+    # 2. Bare "D Month YYYY" — standalone date in the header area
+    m = re.search(
+        r"\b(\d{1,2})(?:st|nd|rd|th)?\s+"
+        r"([A-Za-z]{3,9})\s+(\d{4})\b",
+        text, re.I,
+    )
+    if m:
+        try:
+            mo = _MONTHS.get(m.group(2).lower())
+            if mo:
+                year = int(m.group(3))
+                if 2000 <= year <= today.year + 1:
+                    dt = datetime(year, mo, int(m.group(1)))
+                    if dt <= today:
+                        return dt.strftime("%d/%m/%Y")
+        except (ValueError, KeyError):
+            pass
+
+    # 3. Numeric DD/MM/YYYY or DD-MM-YYYY
+    m = re.search(r"\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{4})\b", text)
+    if m:
+        try:
+            d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if 2000 <= y <= today.year + 1 and 1 <= mo <= 12 and 1 <= d <= 31:
+                dt = datetime(y, mo, d)
+                if dt <= today:
+                    return dt.strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+
+    return ""
+
+
 def extract_date(card):
+    """Date from a grid card. Tries <time> tag first, then prefix-based
+    text parsing — never the relaxed parser, since cards live next to
+    sidebar widgets that would poison the result."""
     for el in card.find_all(["span", "div", "p", "time"]):
         if el.name == "time":
             v = el.get("datetime", "") or el.get_text(strip=True)
@@ -77,8 +154,6 @@ def extract_date(card):
         result = parse_date_text(txt)
         if result:
             return result
-    # Fallback: scan the whole card text (helps when the date sits inside a
-    # longer composite element).
     full = card.get_text(" ", strip=True)
     if full and len(full) < 3000:
         return parse_date_text(full)
