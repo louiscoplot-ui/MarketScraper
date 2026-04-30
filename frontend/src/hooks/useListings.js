@@ -64,8 +64,17 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   useEffect(() => { fetchListings() }, [fetchListings])
 
+  // Auto-reset sort to default whenever the filters change. Otherwise an
+  // earlier click on (say) "Bedrooms" would persist when switching suburbs,
+  // and the user would get rows in an unexpected order on the new view.
+  useEffect(() => {
+    setSortField('')
+  }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency])
+
+  // Date-like fields default to descending on first click — clicking
+  // "Listed" once should show the freshest listings at the top.
   const DESC_DEFAULT_FIELDS = useMemo(
-    () => new Set(['listing_date', 'sold_date', 'withdrawn_date', 'dom']),
+    () => new Set(['listing_date', 'sold_date', 'withdrawn_date', 'dom', 'price_text']),
     []
   )
 
@@ -88,8 +97,12 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       return true
     })
 
-    // 2. Sort. Default = most recent activity desc.
+    // 2. Sort. Default = most-recent activity desc (status-aware).
+    //    Even when the user picks an explicit sort column, ties break by
+    //    most-recent-activity desc so equally-bedroomed rows still come
+    //    out newest-first.
     return filtered.sort((a, b) => {
+      let primary = 0
       if (!sortField) {
         const va = mostRecentDate(a)
         const vb = mostRecentDate(b)
@@ -111,11 +124,19 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       }
       if (va == null) va = ''
       if (vb == null) vb = ''
-      if (typeof va === 'number' && typeof vb === 'number')
-        return sortDir === 'asc' ? va - vb : vb - va
-      return sortDir === 'asc'
-        ? String(va).localeCompare(String(vb))
-        : String(vb).localeCompare(String(va))
+      if (typeof va === 'number' && typeof vb === 'number') {
+        primary = sortDir === 'asc' ? va - vb : vb - va
+      } else {
+        primary = sortDir === 'asc'
+          ? String(va).localeCompare(String(vb))
+          : String(vb).localeCompare(String(va))
+      }
+      // Tie-break: most-recent-activity desc. Keeps the natural feel
+      // even when users sort by a coarse-grained column.
+      if (primary !== 0) return primary
+      const ra = mostRecentDate(a)
+      const rb = mostRecentDate(b)
+      return String(rb).localeCompare(String(ra))
     })
   }, [listings, checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, sortField, sortDir])
 
