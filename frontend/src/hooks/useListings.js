@@ -12,25 +12,20 @@ function parseDateToSortable(dateStr) {
 }
 
 
-// Pick the most-relevant date for each listing for the default "newest first"
-// sort, in a way that's robust when REIWA's listing_date is empty (which is
-// the case for most rows on noisy suburbs):
+// The "real" date for a row — the one a human looking at the table
+// would treat as authoritative for "when did this listing happen".
 //
 //   sold      → sold_date
 //   withdrawn → withdrawn_date
-//   else      → listing_date if available, else first_seen
+//   else      → listing_date (REIWA-published)
 //
-// CRITICAL: we DO NOT fall back to last_seen for the active path. last_seen
-// is "the day our scraper last refreshed this row" which is ~today for
-// every active listing — so using it would make every row tie at today's
-// date and the sort would feel random. first_seen is "the day we first
-// added this row" which is a real proxy for when the listing appeared.
-function mostRecentDate(l) {
+// Returns "" when no real date is known. We deliberately do NOT fall
+// back to first_seen here — mixing "REIWA listed 28/04" with "we first
+// saw today" is apples-to-oranges and gave a wrong sort.
+function realDate(l) {
   if (l.status === 'sold' && l.sold_date) return l.sold_date.slice(0, 10)
   if (l.status === 'withdrawn' && l.withdrawn_date) return l.withdrawn_date.slice(0, 10)
   if (l.listing_date) return parseDateToSortable(l.listing_date)
-  if (l.first_seen) return l.first_seen.slice(0, 10)
-  if (l.last_seen) return l.last_seen.slice(0, 10)
   return ''
 }
 
@@ -75,15 +70,11 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   // ALWAYS revert to "newest first" default whenever the user
   // navigates, filters, or otherwise interacts with the table layout.
-  // Explicit column clicks (toggleSort) are the only way to override —
-  // and they get cleared as soon as the next filter/tab change happens.
   useEffect(() => {
     setSortField('')
     setSortDir('desc')
   }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view])
 
-  // Date-like fields default to descending on first click — clicking
-  // "Listed" once should show the freshest listings at the top.
   const DESC_DEFAULT_FIELDS = useMemo(
     () => new Set(['listing_date', 'sold_date', 'withdrawn_date', 'dom', 'price_text']),
     []
@@ -99,7 +90,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   }, [sortField, DESC_DEFAULT_FIELDS])
 
   const filteredListings = useMemo(() => {
-    // 1. Apply filters
     const filtered = listings.filter(l => {
       if (checkedSuburbs.size > 0 && !checkedSuburbs.has(l.suburb_id)) return false
       if (selectedStatuses.size > 0 && !selectedStatuses.has(l.status)) return false
@@ -108,22 +98,24 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       return true
     })
 
-    // 2. Sort. Default = most-recent activity desc (status-aware).
     return filtered.sort((a, b) => {
-      let primary = 0
+      // ---- Default: rows with a real date come first (desc by date),
+      // rows with no real date sink to the bottom (sorted among themselves
+      // by first_seen desc so freshly-discovered listings stay near the top
+      // of the no-date block). ----
       if (!sortField) {
-        const va = mostRecentDate(a)
-        const vb = mostRecentDate(b)
-        if (va === vb) {
-          // Equal sort keys (both might be empty or both today). Tie-break
-          // by first_seen desc — earliest captured row goes last so freshly
-          // added ones stay at the top.
-          const fa = (a.first_seen || '').slice(0, 10)
-          const fb = (b.first_seen || '').slice(0, 10)
-          return String(fb).localeCompare(String(fa))
-        }
-        return String(vb).localeCompare(String(va))
+        const va = realDate(a)
+        const vb = realDate(b)
+        if (va && vb) return vb.localeCompare(va)        // both dated → desc
+        if (va && !vb) return -1                          // a wins
+        if (!va && vb) return 1                           // b wins
+        // neither dated → fall back to first_seen desc
+        const fa = (a.first_seen || '').slice(0, 10)
+        const fb = (b.first_seen || '').slice(0, 10)
+        return fb.localeCompare(fa)
       }
+
+      // ---- Explicit column sort ----
       let va, vb
       if (sortField === 'dom') {
         va = calcDOM(a) ?? -1
@@ -140,6 +132,7 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       }
       if (va == null) va = ''
       if (vb == null) vb = ''
+      let primary
       if (typeof va === 'number' && typeof vb === 'number') {
         primary = sortDir === 'asc' ? va - vb : vb - va
       } else {
@@ -147,11 +140,14 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
           ? String(va).localeCompare(String(vb))
           : String(vb).localeCompare(String(va))
       }
-      // Tie-break: most-recent-activity desc.
       if (primary !== 0) return primary
-      const ra = mostRecentDate(a)
-      const rb = mostRecentDate(b)
-      return String(rb).localeCompare(String(ra))
+      // Tie-break with realDate desc, then first_seen desc.
+      const ra = realDate(a)
+      const rb = realDate(b)
+      if (ra !== rb) return String(rb).localeCompare(String(ra))
+      const fa = (a.first_seen || '').slice(0, 10)
+      const fb = (b.first_seen || '').slice(0, 10)
+      return fb.localeCompare(fa)
     })
   }, [listings, checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, sortField, sortDir])
 
