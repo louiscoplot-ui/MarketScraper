@@ -1,10 +1,12 @@
 """Hot Vendor Lead Scoring — Excel report generator.
 
-Builds a polished .xlsx from a `score_csv` result dict. Four sheets:
-  1. Summary            (suburb profile, auto-calibrated weights, score distribution)
-  2. All Scored         (full property list with all per-factor scores)
-  3. High Probability   (HOT + WARM filtered + sorted)
-  4. Houses Priority    (Houses only, with full details)
+Builds a polished .xlsx from a `score_csv` result dict. Six sheets:
+  0. Methodology       (in hot_vendor_excel_extras) — formula + per-factor tables
+  1. Summary           — suburb profile, auto-calibrated weights, distribution
+  2. Market Analysis   (in hot_vendor_excel_extras) — full suburb stats blocks
+  3. All Scored        — full property list with all per-factor scores
+  4. High Probability  — HOT + WARM filtered + sorted
+  5. Houses Priority   — Houses only, with full details
 
 Mail-ready and consistent with the v4 scoring methodology.
 """
@@ -16,16 +18,18 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from hot_vendor_excel_extras import build_methodology, build_market_analysis
+
 
 # Palette
 NAVY = '1B2A4A'
 WHITE = 'FFFFFF'
 MID = '2E6DA4'
 ALT = 'EBF5FB'
-HRL = 'FADBD8'   # HOT pale red
-WOL = 'FDEBD0'   # WARM pale orange
-MYL = 'FEF9E7'   # MEDIUM pale yellow
-LGL = 'F2F3F4'   # LOW pale grey
+HRL = 'FADBD8'
+WOL = 'FDEBD0'
+MYL = 'FEF9E7'
+LGL = 'F2F3F4'
 HR_TXT = 'C0392B'
 WO_TXT = 'E67E22'
 MY_TXT = '7D6608'
@@ -270,31 +274,41 @@ def _build_data_sheet(wb, name, title, properties, columns, headers, widths):
 
 
 def build_workbook(result):
-    """Assemble the 4-sheet workbook in memory and return BytesIO."""
+    """Assemble the 6-sheet workbook in memory and return BytesIO."""
     wb = Workbook()
     wb.remove(wb.active)
 
+    # Sheet 0 — Methodology (insert first via index=0)
+    build_methodology(wb, result)
+
+    # Sheet 1 — Summary
     _build_summary(wb, result)
+
+    # Sheet 2 — Market Analysis
+    build_market_analysis(wb, result)
 
     properties = result['properties']
     suburb = result['suburb']
 
+    # Sheet 3 — All Scored
     _build_data_sheet(
-        wb, '2 - All Scored',
+        wb, '3 - All Scored',
         f"📋  ALL SCORED PROPERTIES — {suburb} — {len(properties):,} entries",
         properties, SCORED_COLS, SCORED_HEADERS, SCORED_WIDTHS,
     )
 
+    # Sheet 4 — High Probability Leads
     leads = [p for p in properties if p['category'] in ('HOT', 'WARM')]
     _build_data_sheet(
-        wb, '3 - High Probability Leads',
+        wb, '4 - High Probability Leads',
         f"🎯  HIGH PROBABILITY LEADS — {suburb} — {len(leads):,} (HOT+WARM)",
         leads, LEADS_COLS, LEADS_HEADERS, LEADS_WIDTHS,
     )
 
+    # Sheet 5 — Houses Priority
     houses = [p for p in properties if p['type'] == 'House']
     _build_data_sheet(
-        wb, '4 - Houses Priority',
+        wb, '5 - Houses Priority',
         f"🏠  HOUSES PRIORITY — {suburb} — {len(houses):,} houses",
         houses, LEADS_COLS, LEADS_HEADERS, LEADS_WIDTHS,
     )
