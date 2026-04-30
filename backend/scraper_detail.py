@@ -10,7 +10,7 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
 from scraper_utils import UA, CHROMIUM_PATH, normalise_agency
-from scraper_dates import parse_date_text
+from scraper_dates import parse_date_text, parse_date_relaxed
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,12 @@ def fetch_detail(page, url):
             if m:
                 out["price_text"] = m.group(0).strip()[:120]
 
+        # Listing date — try strict prefix-based parser first (covers
+        # "Listed 3 weeks ago" etc.). If REIWA doesn't include the prefix,
+        # fall back to the relaxed parser on a tighter slice (header only).
         out["listing_date"] = parse_date_text(t[:1500])
+        if not out["listing_date"]:
+            out["listing_date"] = parse_date_relaxed(t[:800])
 
         addr_el = soup.find("h2", class_="p-details__add") or soup.find("h1")
         if addr_el:
