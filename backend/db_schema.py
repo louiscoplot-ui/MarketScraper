@@ -5,7 +5,7 @@ existing callers don't need to change their imports.
 
 
 def init_db():
-    from database import get_db, normalize_address
+    from database import get_db, normalize_address, USE_POSTGRES
 
     conn = get_db()
     conn.executescript("""
@@ -201,6 +201,8 @@ def init_db():
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS potential_profit INTEGER",
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS potential_profit_pct REAL",
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS rank INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS first_seen_at TEXT",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS last_updated_at TEXT",
     ]:
         try:
             conn.execute(col_sql)
@@ -226,6 +228,59 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_hv_status_value
             ON hot_vendor_property_status(status);
     """)
+
+    # Re-upload behaviour: on the next score-csv we want UPSERT instead of
+    # plain INSERT (no duplicate rows when the same suburb is re-uploaded
+    # 6 / 12 months later — only the mutable fields refresh: sale_date,
+    # owner, agency, agent, all the recalculated scores).
+    #
+    # Step 1: dedupe any existing duplicates from previous INSERT-only
+    # uploads — keep the row with the highest id (most recent score).
+    # Step 2: add UNIQUE INDEX on normalized_address, which the UPSERT
+    # in hot_vendors_api._insert_property_rows targets via ON CONFLICT.
+    try:
+        if USE_POSTGRES:
+            conn.execute("""
+                DELETE FROM hot_vendor_properties a
+                USING hot_vendor_properties b
+                WHERE a.normalized_address = b.normalized_address
+                  AND a.normalized_address IS NOT NULL
+                  AND a.normalized_address <> ''
+                  AND a.id < b.id
+            """)
+        else:
+            conn.execute("""
+                DELETE FROM hot_vendor_properties
+                WHERE id NOT IN (
+                    SELECT MAX(id) FROM hot_vendor_properties
+                    WHERE normalized_address IS NOT NULL
+                      AND normalized_address <> ''
+                    GROUP BY normalized_address
+                )
+                AND normalized_address IS NOT NULL
+                AND normalized_address <> ''
+            """)
+        conn.commit()
+    except Exception:
+        conn.commit()
+
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_normaddr "
+            "ON hot_vendor_properties(normalized_address) "
+            "WHERE normalized_address IS NOT NULL AND normalized_address <> ''"
+        )
+    except Exception:
+        # SQLite supports partial indexes; Postgres does too. If somehow
+        # this still fails (e.g. residual dup), fall back to a non-partial
+        # index on the dedup'd table.
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_normaddr "
+                "ON hot_vendor_properties(normalized_address)"
+            )
+        except Exception:
+            conn.commit()
 
     conn.commit()
     conn.close()
