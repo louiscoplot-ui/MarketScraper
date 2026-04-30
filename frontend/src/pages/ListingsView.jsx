@@ -21,10 +21,9 @@ export default function ListingsView({
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing,
 }) {
-  // Smart column visibility — hide noise columns when:
-  //   (a) the filter excludes that status (e.g. "Withdrawn" off → hide
-  //       the Withdrawn column), AND
-  //   (b) no row in the current filtered set actually has that date
+  // Smart column visibility — hide a date column when BOTH:
+  //   (a) the filter excludes its status (e.g. Withdrawn off), AND
+  //   (b) no row in the current filtered set has that date
   //       (so a stray sold_date on an Under Offer row still shows).
   // ALL = empty filter = show every column that has data.
   const filterAll = selectedStatuses.size === 0
@@ -37,91 +36,79 @@ export default function ListingsView({
   const showSold = anySold || selectedStatuses.has('sold')
   const showWithdrawn = anyWithdrawn || selectedStatuses.has('withdrawn')
 
-  // Single source of truth for the columns rendered — header + body
-  // both walk this array so they can never drift.
+  // Column definitions — header + body render from the same list.
+  // `cell(row)` returns the cell content; the <td> wrapper is added
+  // here so the key + className stay in one place.
   const columns = [
-    { field: 'address', label: 'Address', sortable: true,
-      cell: (l) => (
-        <td className="address-cell">
-          {l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a> : l.address}
-        </td>
-      ) },
+    { field: 'address', label: 'Address', sortable: true, className: 'address-cell',
+      cell: (l) => l.reiwa_url
+        ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
+        : l.address },
     { field: 'suburb_name', label: 'Suburb', sortable: true,
-      cell: (l) => <td>{l.suburb_name}</td> },
-    { field: 'price_text', label: 'Price', sortable: true,
-      cell: (l) => <td className="price-cell">{l.price_text || '-'}</td> },
-    { field: 'bedrooms', label: 'Bed', sortable: true,
-      cell: (l) => <td className="num">{l.bedrooms ?? '-'}</td> },
-    { field: 'bathrooms', label: 'Bath', sortable: true,
-      cell: (l) => <td className="num">{l.bathrooms ?? '-'}</td> },
-    { field: 'parking', label: 'Car', sortable: true,
-      cell: (l) => <td className="num">{l.parking ?? '-'}</td> },
+      cell: (l) => l.suburb_name },
+    { field: 'price_text', label: 'Price', sortable: true, className: 'price-cell',
+      cell: (l) => l.price_text || '-' },
+    { field: 'bedrooms', label: 'Bed', sortable: true, className: 'num',
+      cell: (l) => l.bedrooms ?? '-' },
+    { field: 'bathrooms', label: 'Bath', sortable: true, className: 'num',
+      cell: (l) => l.bathrooms ?? '-' },
+    { field: 'parking', label: 'Car', sortable: true, className: 'num',
+      cell: (l) => l.parking ?? '-' },
     { field: 'land_size', label: 'Land', sortable: true,
-      cell: (l) => <td>{l.land_size || '-'}</td> },
+      cell: (l) => l.land_size || '-' },
     { field: 'internal_size', label: 'Internal', sortable: true,
-      cell: (l) => <td>{l.internal_size || '-'}</td> },
-    { field: 'agency', label: 'Agency', sortable: true,
-      cell: (l) => <td className="agency-cell">{l.agency || '-'}</td> },
+      cell: (l) => l.internal_size || '-' },
+    { field: 'agency', label: 'Agency', sortable: true, className: 'agency-cell',
+      cell: (l) => l.agency || '-' },
     { field: 'agent', label: 'Agent', sortable: true,
-      cell: (l) => <td>{l.agent || '-'}</td> },
-    showListed && { field: 'listing_date', label: 'Listed', sortable: true,
+      cell: (l) => l.agent || '-' },
+    showListed && { field: 'listing_date', label: 'Listed', sortable: true, className: 'date-cell',
       cell: (l) => (
-        <td className="date-cell">
-          <EditableDateCell
-            value={l.listing_date}
-            onSave={(iso) => updateListing(l.id, { listing_date: isoToDmy(iso) })}
-          />
-        </td>
+        <EditableDateCell
+          value={l.listing_date}
+          onSave={(iso) => updateListing(l.id, { listing_date: isoToDmy(iso) })}
+        />
       ) },
     showDom && { field: 'dom', label: 'DOM', sortable: true,
+      cellClass: (l) => `num ${(calcDOM(l) ?? 0) >= 60 ? 'stale' : ''}`,
       cell: (l) => {
         const d = calcDOM(l)
         return (
-          <td className={`num ${(d ?? 0) >= 60 ? 'stale' : ''}`}>
+          <>
             {d != null ? d : '-'}
             {(d ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
-          </td>
+          </>
         )
       } },
-    showWithdrawn && { field: 'withdrawn_date', label: 'Withdrawn', sortable: true,
+    showWithdrawn && { field: 'withdrawn_date', label: 'Withdrawn', sortable: true, className: 'date-cell',
       cell: (l) => (
-        <td className="date-cell">
-          <EditableDateCell
-            value={l.withdrawn_date}
-            onSave={(iso) => updateListing(l.id, { withdrawn_date: iso })}
-          />
-        </td>
+        <EditableDateCell
+          value={l.withdrawn_date}
+          onSave={(iso) => updateListing(l.id, { withdrawn_date: iso })}
+        />
       ) },
-    showSold && { field: 'sold_date', label: 'Sold', sortable: true,
+    showSold && { field: 'sold_date', label: 'Sold', sortable: true, className: 'date-cell',
       cell: (l) => (
-        <td className="date-cell">
-          <EditableDateCell
-            value={l.sold_date}
-            onSave={(iso) => updateListing(l.id, { sold_date: iso })}
-          />
-        </td>
+        <EditableDateCell
+          value={l.sold_date}
+          onSave={(iso) => updateListing(l.id, { sold_date: iso })}
+        />
       ) },
     { field: 'status', label: 'Status', sortable: true,
       cell: (l) => (
-        <td>
-          <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
-            {l.status?.replace('_', ' ')}
-          </span>
-        </td>
+        <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
+          {l.status?.replace('_', ' ')}
+        </span>
       ) },
     { field: 'listing_type', label: 'Type', sortable: true,
-      cell: (l) => <td>{l.listing_type || '-'}</td> },
-    { field: '__link', label: 'Link', sortable: false,
+      cell: (l) => l.listing_type || '-' },
+    { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
+      cell: (l) => l.reiwa_url
+        ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
+        : '-' },
+    { field: '__del', label: '', sortable: false, className: 'link-cell',
       cell: (l) => (
-        <td className="link-cell">
-          {l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a> : '-'}
-        </td>
-      ) },
-    { field: '__del', label: '', sortable: false,
-      cell: (l) => (
-        <td className="link-cell">
-          <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>×</button>
-        </td>
+        <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>×</button>
       ) },
   ].filter(Boolean)
 
@@ -185,26 +172,13 @@ export default function ListingsView({
           <tbody>
             {filteredListings.map((l, i) => (
               <tr key={l.id || i} className={`status-${l.status}`}>
-                {columns.map(c => (
-                  // each cell function returns its own <td> so styling
-                  // (numeric alignment, colour cells, etc.) lives with
-                  // the column definition.
-                  <c.cell.WrapperKey key={c.field} />
-                ))}
-                {/* The lambda above doesn't work with React because we need
-                    to call c.cell(l). React.Fragment trick instead: */}
-                {/* fixed below */}
-              </tr>
-            )).map(() => null) /* discard the broken pass above; real
-                                  rendering happens in the next block.
-                                  Kept as a no-op so diffs are obvious. */}
-            {filteredListings.map((l, i) => (
-              <tr key={`row-${l.id || i}`} className={`status-${l.status}`}>
                 {columns.map(c => {
-                  const td = c.cell(l)
-                  // c.cell returns a <td>; React requires a key on lists
-                  // — clone with a stable key per column.
-                  return <td.type {...td.props} key={c.field} />
+                  const cls = c.cellClass ? c.cellClass(l) : c.className
+                  return (
+                    <td key={c.field} className={cls}>
+                      {c.cell(l)}
+                    </td>
+                  )
                 })}
               </tr>
             ))}
