@@ -210,5 +210,22 @@ def init_db():
             except Exception:
                 conn.commit()
 
+    # User-facing status flag per property, keyed by normalized_address so it
+    # survives re-uploads of the same suburb. 4 buckets (matches the UI):
+    #   'listed'     — appraised / listed (green)
+    #   'pending'    — waiting for response / considering (yellow)
+    #   'declined'   — not interested (red)
+    #   NULL / empty — never contacted (default, no tint)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS hot_vendor_property_status (
+            normalized_address TEXT PRIMARY KEY,
+            status TEXT,
+            note TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_hv_status_value
+            ON hot_vendor_property_status(status);
+    """)
+
     conn.commit()
     conn.close()
