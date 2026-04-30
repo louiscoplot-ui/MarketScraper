@@ -13,15 +13,24 @@ function parseDateToSortable(dateStr) {
 
 
 // Pick the most-relevant date for each listing for the default "newest first"
-// sort: sold → sold_date, withdrawn → withdrawn_date, else listing_date,
-// fall back to last_seen / first_seen so brand-new rows without a published
-// date still bubble to the top.
+// sort, in a way that's robust when REIWA's listing_date is empty (which is
+// the case for most rows on noisy suburbs):
+//
+//   sold      → sold_date
+//   withdrawn → withdrawn_date
+//   else      → listing_date if available, else first_seen
+//
+// CRITICAL: we DO NOT fall back to last_seen for the active path. last_seen
+// is "the day our scraper last refreshed this row" which is ~today for
+// every active listing — so using it would make every row tie at today's
+// date and the sort would feel random. first_seen is "the day we first
+// added this row" which is a real proxy for when the listing appeared.
 function mostRecentDate(l) {
   if (l.status === 'sold' && l.sold_date) return l.sold_date.slice(0, 10)
   if (l.status === 'withdrawn' && l.withdrawn_date) return l.withdrawn_date.slice(0, 10)
   if (l.listing_date) return parseDateToSortable(l.listing_date)
-  if (l.last_seen) return l.last_seen.slice(0, 10)
   if (l.first_seen) return l.first_seen.slice(0, 10)
+  if (l.last_seen) return l.last_seen.slice(0, 10)
   return ''
 }
 
@@ -100,14 +109,19 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     })
 
     // 2. Sort. Default = most-recent activity desc (status-aware).
-    //    Even when the user picks an explicit sort column, ties break by
-    //    most-recent-activity desc so equally-bedroomed rows still come
-    //    out newest-first.
     return filtered.sort((a, b) => {
       let primary = 0
       if (!sortField) {
         const va = mostRecentDate(a)
         const vb = mostRecentDate(b)
+        if (va === vb) {
+          // Equal sort keys (both might be empty or both today). Tie-break
+          // by first_seen desc — earliest captured row goes last so freshly
+          // added ones stay at the top.
+          const fa = (a.first_seen || '').slice(0, 10)
+          const fb = (b.first_seen || '').slice(0, 10)
+          return String(fb).localeCompare(String(fa))
+        }
         return String(vb).localeCompare(String(va))
       }
       let va, vb
@@ -133,8 +147,7 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
           ? String(va).localeCompare(String(vb))
           : String(vb).localeCompare(String(va))
       }
-      // Tie-break: most-recent-activity desc. Keeps the natural feel
-      // even when users sort by a coarse-grained column.
+      // Tie-break: most-recent-activity desc.
       if (primary !== 0) return primary
       const ra = mostRecentDate(a)
       const rb = mostRecentDate(b)
