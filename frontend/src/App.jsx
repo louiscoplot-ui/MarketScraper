@@ -4,12 +4,12 @@ import Pipeline from './pages/Pipeline'
 import Report from './pages/Report'
 import ListingsView from './pages/ListingsView'
 import { ThemeModal, ScrapeModal } from './components/Modals'
+import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 
 const API = '/api'
 
 function App() {
   const [suburbs, setSuburbs] = useState([])
-  const [listings, setListings] = useState([])
   const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
   const [checkedSuburbs, setCheckedSuburbs] = useState(new Set())
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(['active', 'under_offer']))
@@ -22,14 +22,18 @@ function App() {
   const [view, setView] = useState('listings')
   const [report, setReport] = useState(null)
   const [reportSuburbs, setReportSuburbs] = useState(new Set())
-  // Empty sortField means "default sort" (by listing_date desc, newest first).
-  const [sortField, setSortField] = useState('')
-  const [sortDir, setSortDir] = useState('desc')
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')
   const [showThemeModal, setShowThemeModal] = useState(false)
 
-  // Terracotta & Jade — warm paper with deep ocean-jade, terracotta accent (DEFAULT)
+  // Listings state + filtering + sorting lives in useListings.
+  // Filters apply client-side — no network roundtrip per suburb/status toggle.
+  const {
+    listings, fetchListings, filteredListings,
+    sortField, sortDir, toggleSort,
+    uniqueAgents, uniqueAgencies, deleteListing,
+  } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency })
+
   const defaultTheme = {
     bg: '#EFE2C7', surface: '#F7ECD4', surfaceHover: '#E5D3B0', border: '#D4C09A',
     text: '#1B3842', textMuted: '#5C6F77', primary: '#D2775A',
@@ -79,7 +83,6 @@ function App() {
   const pollRef = useRef(null)
   const scrapeStartRef = useRef(null)
 
-  // --- Data fetching ---
   const fetchSuburbs = useCallback(async () => {
     const res = await fetch(`${API}/suburbs`)
     if (res.ok) {
@@ -91,15 +94,6 @@ function App() {
       })
     }
   }, [])
-
-  const fetchListings = useCallback(async () => {
-    const ids = checkedSuburbs.size > 0 ? Array.from(checkedSuburbs) : []
-    const suburbFilter = ids.length > 0 ? `suburb_ids=${ids.join(',')}` : ''
-    let url = `${API}/listings?${suburbFilter}`
-    if (selectedStatuses.size > 0) url += `&statuses=${Array.from(selectedStatuses).join(',')}`
-    const res = await fetch(url)
-    if (res.ok) setListings(await res.json())
-  }, [checkedSuburbs, selectedStatuses])
 
   const fetchScrapeStatus = useCallback(async () => {
     const res = await fetch(`${API}/scrape/status`)
@@ -140,10 +134,8 @@ function App() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [])
 
-  useEffect(() => { fetchListings() }, [checkedSuburbs, selectedStatuses])
   useEffect(() => { if (view === 'logs') fetchLogs() }, [view])
 
-  // --- Autocomplete ---
   const searchTimeoutRef = useRef(null)
   const suggestionsRef = useRef(null)
 
@@ -180,11 +172,8 @@ function App() {
       fetchSuburbs()
     } else {
       const data = await res.json()
-      if (data.error === 'Suburb already exists') {
-        fetchSuburbs()
-      } else {
-        alert(data.error || 'Error adding suburb')
-      }
+      if (data.error === 'Suburb already exists') fetchSuburbs()
+      else alert(data.error || 'Error adding suburb')
     }
   }
 
@@ -198,7 +187,6 @@ function App() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // --- Actions ---
   const addSuburb = async (e) => {
     e.preventDefault()
     if (!newSuburb.trim()) return
@@ -293,88 +281,6 @@ function App() {
   const selectAllCheck = () => setCheckedSuburbs(new Set(suburbs.map(s => s.id)))
   const deselectAllCheck = () => setCheckedSuburbs(new Set())
 
-  // DOM — only calculable when REIWA actually published a listing date.
-  // We deliberately don't fall back to first_seen — that would invent a DOM.
-  const calcDOM = (listing) => {
-    const dateStr = listing.listing_date
-    if (!dateStr) return null
-    let start
-    const ddmm = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-    if (ddmm) {
-      start = new Date(parseInt(ddmm[3]), parseInt(ddmm[2]) - 1, parseInt(ddmm[1]))
-    } else {
-      start = new Date(dateStr)
-    }
-    if (isNaN(start.getTime())) return null
-    const end = listing.status === 'sold' && listing.sold_date ? new Date(listing.sold_date) : new Date()
-    return Math.max(0, Math.floor((end - start) / (1000 * 60 * 60 * 24)))
-  }
-
-  const parseDateToSortable = (dateStr) => {
-    if (!dateStr) return ''
-    const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-    if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`
-    return dateStr
-  }
-
-  const formatIsoDate = (iso) => {
-    if (!iso) return ''
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return iso
-    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
-  }
-
-  const DESC_DEFAULT_FIELDS = new Set(['listing_date', 'dom', 'withdrawn_date'])
-  const toggleSort = (field) => {
-    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortField(field); setSortDir(DESC_DEFAULT_FIELDS.has(field) ? 'desc' : 'asc') }
-  }
-
-  const deleteListing = async (listing) => {
-    if (!listing?.id) return
-    const label = listing.address || `#${listing.id}`
-    if (!confirm(`Delete this ${listing.status || 'listing'}?\n\n${label}\n\nThis removes the row from the database. Cannot be undone (but a future scrape will re-add it if the URL reappears on REIWA).`)) return
-    const res = await fetch(`${API}/listings/${listing.id}`, { method: 'DELETE' })
-    if (res.ok) {
-      fetchListings()
-      fetchSuburbs()
-    } else {
-      alert('Delete failed')
-    }
-  }
-
-  const sortedListings = [...listings].sort((a, b) => {
-    const effectiveField = sortField || 'listing_date'
-    const effectiveDir = sortField ? sortDir : 'desc'
-    let va, vb
-    if (effectiveField === 'dom') {
-      va = calcDOM(a) ?? -1
-      vb = calcDOM(b) ?? -1
-    } else if (effectiveField === 'listing_date') {
-      va = parseDateToSortable(a.listing_date)
-      vb = parseDateToSortable(b.listing_date)
-    } else {
-      va = a[effectiveField]
-      vb = b[effectiveField]
-    }
-    if (va == null) va = ''
-    if (vb == null) vb = ''
-    if (typeof va === 'number' && typeof vb === 'number')
-      return effectiveDir === 'asc' ? va - vb : vb - va
-    return effectiveDir === 'asc'
-      ? String(va).localeCompare(String(vb))
-      : String(vb).localeCompare(String(va))
-  })
-
-  const filteredListings = sortedListings.filter(l => {
-    if (selectedAgent && l.agent !== selectedAgent) return false
-    if (selectedAgency && l.agency !== selectedAgency) return false
-    return true
-  })
-
-  const uniqueAgents = [...new Set(listings.map(l => l.agent).filter(Boolean))].sort()
-  const uniqueAgencies = [...new Set(listings.map(l => l.agency).filter(Boolean))].sort()
-
   const isAnyScraping = Object.values(scrapeStatus).some(j => j.status === 'running')
 
   const statusColors = {
@@ -436,9 +342,7 @@ function App() {
                 setView('report')
                 setReportSuburbs(new Set(checkedSuburbs))
                 fetchReport(checkedSuburbs)
-              } else {
-                setView('listings')
-              }
+              } else setView('listings')
             }}>
             {view === 'report' ? 'View Listings' : 'Market Report'}
           </button>
