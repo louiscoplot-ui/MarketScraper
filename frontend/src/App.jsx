@@ -4,7 +4,9 @@ import Pipeline from './pages/Pipeline'
 import Report from './pages/Report'
 import ListingsView from './pages/ListingsView'
 import { ThemeModal, ScrapeModal } from './components/Modals'
+import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
+import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
 
 const API = '/api'
 
@@ -26,43 +28,17 @@ function App() {
   const [selectedAgency, setSelectedAgency] = useState('')
   const [showThemeModal, setShowThemeModal] = useState(false)
 
-  // Listings state + filtering + sorting lives in useListings.
-  // Filters apply client-side — no network roundtrip per suburb/status toggle.
   const {
     listings, fetchListings, filteredListings,
     sortField, sortDir, toggleSort,
     uniqueAgents, uniqueAgencies, deleteListing,
   } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency })
 
-  const defaultTheme = {
-    bg: '#EFE2C7', surface: '#F7ECD4', surfaceHover: '#E5D3B0', border: '#D4C09A',
-    text: '#1B3842', textMuted: '#5C6F77', primary: '#D2775A',
-  }
-
-  const presets = {
-    'Terracotta & Jade': {
-      bg: '#EFE2C7', surface: '#F7ECD4', surfaceHover: '#E5D3B0', border: '#D4C09A',
-      text: '#1B3842', textMuted: '#5C6F77', primary: '#D2775A',
-    },
-    'Burgundy & Rye': {
-      bg: '#E8D8B8', surface: '#F1E4C6', surfaceHover: '#D8C69D', border: '#BFA97A',
-      text: '#1E1B14', textMuted: '#6B5E45', primary: '#8A2420',
-    },
-    'Nocturnal': {
-      bg: '#0E1A28', surface: '#172739', surfaceHover: '#22334A', border: '#3A4B62',
-      text: '#E4EAF1', textMuted: '#8FA3B8', primary: '#D4AA4A',
-    },
-    'Tropical Vivid': {
-      bg: '#0F2A4D', surface: '#173862', surfaceHover: '#224A82', border: '#2D5B95',
-      text: '#F7E6D4', textMuted: '#B3C3D8', primary: '#E77D37',
-    },
-  }
-
   const [theme, setTheme] = useState(() => {
     try {
-      const saved = localStorage.getItem('ms_theme_v2')
-      return saved ? JSON.parse(saved) : defaultTheme
-    } catch { return defaultTheme }
+      const saved = localStorage.getItem(THEME_STORAGE_KEY)
+      return saved ? JSON.parse(saved) : DEFAULT_THEME
+    } catch { return DEFAULT_THEME }
   })
 
   useEffect(() => {
@@ -75,7 +51,7 @@ function App() {
     root.style.setProperty('--text-muted', theme.textMuted)
     root.style.setProperty('--primary', theme.primary)
     root.style.setProperty('--primary-hover', theme.primary)
-    localStorage.setItem('ms_theme_v2', JSON.stringify(theme))
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme))
   }, [theme])
 
   const updateColor = (key, val) => setTheme(prev => ({ ...prev, [key]: val }))
@@ -312,62 +288,23 @@ function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>MarketScraper</h1>
-        <div className="header-actions">
-          <button className="btn btn-primary" onClick={scrapeSelected}
-            disabled={isAnyScraping || checkedSuburbs.size === 0}>
-            {isAnyScraping ? 'Scraping...' : `Scrape REIWA (${checkedSuburbs.size})`}
-          </button>
-          {isAnyScraping && (
-            <button className="btn btn-secondary" onClick={() => setShowScrapeModal(true)}>
-              View Progress
-            </button>
-          )}
-          <button className="btn btn-export"
-            onClick={() => {
-              const params = new URLSearchParams()
-              if (checkedSuburbs.size > 0) params.set('suburb_ids', Array.from(checkedSuburbs).join(','))
-              if (selectedStatuses.size > 0) params.set('statuses', Array.from(selectedStatuses).join(','))
-              if (selectedAgent) params.set('agent', selectedAgent)
-              if (selectedAgency) params.set('agency', selectedAgency)
-              window.open(`${API}/listings/export?${params.toString()}`, '_blank')
-            }}
-            disabled={filteredListings.length === 0}>
-            Export Excel
-          </button>
-          <button className={`btn btn-report ${view === 'report' ? 'active' : ''}`}
-            onClick={() => {
-              if (view !== 'report') {
-                setView('report')
-                setReportSuburbs(new Set(checkedSuburbs))
-                fetchReport(checkedSuburbs)
-              } else setView('listings')
-            }}>
-            {view === 'report' ? 'View Listings' : 'Market Report'}
-          </button>
-          <button className={`btn btn-secondary ${view === 'logs' ? 'active' : ''}`}
-            onClick={() => setView(v => v === 'logs' ? 'listings' : 'logs')}>
-            {view === 'logs' ? 'View Listings' : 'View Logs'}
-          </button>
-          <button className={`btn btn-hot-vendor ${view === 'hot-vendors' ? 'active' : ''}`}
-            onClick={() => setView(v => v === 'hot-vendors' ? 'listings' : 'hot-vendors')}>
-            {view === 'hot-vendors' ? 'View Listings' : 'Hot Vendors'}
-          </button>
-          <button className={`btn btn-pipeline ${view === 'pipeline' ? 'active' : ''}`}
-            onClick={() => setView(v => v === 'pipeline' ? 'listings' : 'pipeline')}>
-            {view === 'pipeline' ? 'View Listings' : 'Pipeline'}
-          </button>
-          <button className="btn btn-secondary" onClick={() => setShowThemeModal(true)}>
-            Theme
-          </button>
-        </div>
-      </header>
+      <Header
+        view={view} setView={setView}
+        checkedSuburbs={checkedSuburbs}
+        selectedStatuses={selectedStatuses}
+        selectedAgent={selectedAgent} selectedAgency={selectedAgency}
+        filteredListingsCount={filteredListings.length}
+        isAnyScraping={isAnyScraping}
+        scrapeSelected={scrapeSelected}
+        setShowScrapeModal={setShowScrapeModal}
+        setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
+        setShowThemeModal={setShowThemeModal}
+      />
 
       {showThemeModal && (
         <ThemeModal
-          theme={theme} setTheme={setTheme} defaultTheme={defaultTheme}
-          presets={presets} updateColor={updateColor}
+          theme={theme} setTheme={setTheme} defaultTheme={DEFAULT_THEME}
+          presets={PRESETS} updateColor={updateColor}
           onClose={() => setShowThemeModal(false)}
         />
       )}
