@@ -32,7 +32,7 @@ function App() {
     listings, fetchListings, filteredListings,
     sortField, sortDir, toggleSort,
     uniqueAgents, uniqueAgencies, deleteListing,
-  } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency })
+  } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view })
 
   const [theme, setTheme] = useState(() => {
     try {
