@@ -98,8 +98,8 @@ export default function Pipeline() {
   }
 
   function handleExportCSV() {
-    const headers = ['Target Address', 'Owner Name', 'Source Sales', 'Total Source Sales',
-                     'Score', 'Status', 'Sent Date', 'Notes']
+    const headers = ['Source Sales', 'Target Address', 'Owner Name',
+                     'Total Source Sales', 'Status', 'Sent Date', 'Notes']
     const rows = groups.map(g => {
       const sourcesText = g.sources
         .map(s => {
@@ -109,9 +109,8 @@ export default function Pipeline() {
         })
         .join('; ')
       return [
-        g.target_address, g.target_owner_name || '',
-        sourcesText, g.sources.length,
-        g.hot_vendor_score || '', g.status, g.sent_date, g.notes || '',
+        sourcesText, g.target_address, g.target_owner_name || '',
+        g.sources.length, g.status, g.sent_date, g.notes || '',
       ]
     })
     const csv = [headers, ...rows]
@@ -260,7 +259,7 @@ export default function Pipeline() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
-                {['Source Sale(s)', 'Target Address', 'Owner Name', 'Score', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
+                {['Source Sale(s)', 'Target Address', 'Owner Name', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -268,8 +267,8 @@ export default function Pipeline() {
             <tbody>
               {groups.map(g => (
                 <tr key={g.representative_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  {/* Source sales — primary column now (groups sorted by source) */}
-                  <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '340px' }}>
+                  {/* Source sales — primary column */}
+                  <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '360px' }}>
                     {g.sources.map((s, i) => (
                       <div key={s.row_id || i} style={{ fontSize: '12px', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         <span style={{ fontWeight: '600', color: '#111827' }}>{s.source_address}</span>
@@ -290,7 +289,7 @@ export default function Pipeline() {
                     )}
                   </td>
 
-                  {/* Target address — secondary now */}
+                  {/* Target address */}
                   <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                     <strong>{g.target_address}</strong>
                     {g.source_suburb && (
@@ -317,10 +316,6 @@ export default function Pipeline() {
                         {g.target_owner_name || '+ add name'}
                       </span>
                     )}
-                  </td>
-
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                    {g.hot_vendor_score || '—'}
                   </td>
 
                   <td style={{ padding: '10px 12px' }}>
