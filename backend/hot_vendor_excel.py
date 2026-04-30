@@ -38,6 +38,13 @@ LGY_TXT = '95A5A6'
 CAT_FILL = {'HOT': HRL, 'WARM': WOL, 'MEDIUM': MYL, 'LOW': LGL}
 CAT_TEXT = {'HOT': HR_TXT, 'WARM': WO_TXT, 'MEDIUM': MY_TXT, 'LOW': LGY_TXT}
 
+# N/A owner placeholder — flagged in amber so the agent verifies on Landgate
+OWNER_NA = 'N/A — verify on Landgate'
+OWNER_NA_FILL = 'FFF8E7'
+OWNER_NA_TEXT = '856404'
+
+OWNER_KEYS = {'current_owner', 'current_owner1', 'current_owner2'}
+
 
 def _font(sz=10, bold=False, color=NAVY):
     return Font(name='Arial', size=sz, bold=bold, color=color)
@@ -224,6 +231,12 @@ def _write_property_row(ws, row, p, cols, bg_override=None):
             c.font = _font(10)
             c.alignment = _ctr() if fmt in ('price', 'pct', 'pct2', 'num', 'int') else _lft(1)
 
+            # Owner placeholder gets an amber italic style so the agent
+            # spots the gap and verifies on Landgate before mailing
+            if key in OWNER_KEYS and v == OWNER_NA:
+                c.fill = _fill(OWNER_NA_FILL)
+                c.font = Font(name='Arial', size=9, italic=True, color=OWNER_NA_TEXT)
+
 
 SCORED_COLS = [
     ('rank', 'int'), ('address', 'str'), ('type', 'str'),
@@ -258,7 +271,8 @@ def _build_data_sheet(wb, name, title, properties, columns, headers, widths):
 
     _title_row(ws, 1, title, len(headers))
     _sub_row(ws, 2, '⚠️  Verify on REIWA / agency CRM before prospecting — '
-                    'Landgate registration lag up to 12 months.',
+                    'Landgate registration lag up to 12 months. '
+                    'Amber owner cells = unrecorded buyer, verify on Landgate.',
              len(headers), bg='FFF3CD', fg='856404')
 
     _header_row(ws, 3, headers)
@@ -278,26 +292,19 @@ def build_workbook(result):
     wb = Workbook()
     wb.remove(wb.active)
 
-    # Sheet 0 — Methodology (insert first via index=0)
     build_methodology(wb, result)
-
-    # Sheet 1 — Summary
     _build_summary(wb, result)
-
-    # Sheet 2 — Market Analysis
     build_market_analysis(wb, result)
 
     properties = result['properties']
     suburb = result['suburb']
 
-    # Sheet 3 — All Scored
     _build_data_sheet(
         wb, '3 - All Scored',
         f"📋  ALL SCORED PROPERTIES — {suburb} — {len(properties):,} entries",
         properties, SCORED_COLS, SCORED_HEADERS, SCORED_WIDTHS,
     )
 
-    # Sheet 4 — High Probability Leads
     leads = [p for p in properties if p['category'] in ('HOT', 'WARM')]
     _build_data_sheet(
         wb, '4 - High Probability Leads',
@@ -305,7 +312,6 @@ def build_workbook(result):
         leads, LEADS_COLS, LEADS_HEADERS, LEADS_WIDTHS,
     )
 
-    # Sheet 5 — Houses Priority
     houses = [p for p in properties if p['type'] == 'House']
     _build_data_sheet(
         wb, '5 - Houses Priority',
