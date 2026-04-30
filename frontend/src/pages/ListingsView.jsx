@@ -2,13 +2,24 @@
 // under the MCP push size limit. State stays in App.jsx; this is a
 // presentational component that takes everything via props.
 
+import EditableDateCell from '../components/EditableDateCell'
+
+
+// HTML5 date input emits YYYY-MM-DD. listing_date in the DB is
+// DD/MM/YYYY, the rest are stored as ISO. Convert at the boundary.
+function isoToDmy(iso) {
+  if (!iso) return null
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+}
+
+
 export default function ListingsView({
   selectedStatuses, toggleStatus, statusColors,
   selectedAgency, setSelectedAgency, uniqueAgencies,
   selectedAgent, setSelectedAgent, uniqueAgents,
   filteredListings, suburbs, checkedSuburbs,
   sortField, sortDir, toggleSort,
-  calcDOM, formatIsoDate, deleteListing,
+  calcDOM, formatIsoDate, deleteListing, updateListing,
 }) {
   return (
     <>
@@ -97,13 +108,28 @@ export default function ListingsView({
                 <td>{l.internal_size || '-'}</td>
                 <td className="agency-cell">{l.agency || '-'}</td>
                 <td>{l.agent || '-'}</td>
-                <td className="date-cell">{l.listing_date || '-'}</td>
+                <td className="date-cell">
+                  <EditableDateCell
+                    value={l.listing_date}
+                    onSave={(iso) => updateListing(l.id, { listing_date: isoToDmy(iso) })}
+                  />
+                </td>
                 <td className={`num ${(calcDOM(l) ?? 0) >= 60 ? 'stale' : ''}`}>
                   {calcDOM(l) != null ? calcDOM(l) : '-'}
                   {(calcDOM(l) ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
                 </td>
-                <td className="date-cell">{formatIsoDate(l.withdrawn_date) || '-'}</td>
-                <td className="date-cell">{formatIsoDate(l.sold_date) || '-'}</td>
+                <td className="date-cell">
+                  <EditableDateCell
+                    value={l.withdrawn_date}
+                    onSave={(iso) => updateListing(l.id, { withdrawn_date: iso })}
+                  />
+                </td>
+                <td className="date-cell">
+                  <EditableDateCell
+                    value={l.sold_date}
+                    onSave={(iso) => updateListing(l.id, { sold_date: iso })}
+                  />
+                </td>
                 <td>
                   <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
                     {l.status?.replace('_', ' ')}
