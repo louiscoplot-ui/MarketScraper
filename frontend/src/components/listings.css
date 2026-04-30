@@ -1,0 +1,133 @@
+/* Phase 2 — denser, more readable listings table.
+   Layered on top of index.css; everything here is an override. */
+
+
+/* Outer wrapper: scrolls horizontally while header + first column stay
+   visible. Vertical scroll lives further out so the sticky-top header
+   pin works even when the table is taller than the viewport. */
+.table-wrapper {
+  overflow: auto;
+  max-height: calc(100vh - 180px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.table-wrapper table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+/* Sticky header — already partly in index.css but redefined here so
+   the listings layout wins over the report tables that share the
+   table tag. */
+.table-wrapper thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 2;
+  font-size: 11px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.04em;
+}
+
+/* Sticky first column (Address) — the only one wide enough to need it. */
+.table-wrapper thead th:first-child,
+.table-wrapper tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+  box-shadow: 1px 0 0 var(--border);
+}
+
+.table-wrapper thead th:first-child {
+  z-index: 3;
+}
+
+/* Body cells — tighter padding, slightly smaller font on numeric data */
+.table-wrapper tbody td {
+  padding: 7px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.table-wrapper tbody td.num,
+.table-wrapper tbody td.date-cell {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-wrapper tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+/* Row banding — subtle, alternating for scannability */
+.table-wrapper tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg) 30%);
+}
+
+.table-wrapper tbody tr:nth-child(even) td:first-child {
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg) 30%);
+}
+
+
+/* Status pastille — coloured dot + text instead of full pill.
+   Way less visual noise on a 17-column table. */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: transparent !important;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+  letter-spacing: 0;
+}
+
+.status-badge::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+tr.status-active .status-badge { color: #16a34a; }
+tr.status-under_offer .status-badge { color: #ea580c; }
+tr.status-sold .status-badge { color: #2563eb; }
+tr.status-withdrawn .status-badge { color: #dc2626; }
+
+
+/* Filter bar — slightly cleaner spacing */
+.filters {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  gap: 10px;
+}
+
+.filter-btn {
+  font-size: 11px;
+  padding: 5px 12px;
+  letter-spacing: 0.04em;
+}
+
+
+/* Status row stripe — keep the coloured 3px left rail, but only on the
+   first cell so it doesn't fight with the sticky-column background. */
+tr.status-active td:first-child { box-shadow: inset 3px 0 0 #16a34a, 1px 0 0 var(--border); }
+tr.status-under_offer td:first-child { box-shadow: inset 3px 0 0 #ea580c, 1px 0 0 var(--border); }
+tr.status-sold td:first-child { box-shadow: inset 3px 0 0 #2563eb, 1px 0 0 var(--border); }
+tr.status-withdrawn td:first-child { box-shadow: inset 3px 0 0 #dc2626, 1px 0 0 var(--border); }
+
+.table-wrapper tbody tr {
+  border-left: none !important;
+}
