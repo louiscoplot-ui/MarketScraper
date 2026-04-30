@@ -1316,3 +1316,71 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
      stays visible without coloured rails on the side. */
   border-left: none !important;
 }
+
+/* Suburb multi-select dropdown */
+.hv-suburb-filter { position: relative; }
+
+.hv-suburb-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  padding: 6px;
+}
+
+.hv-suburb-menu-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.hv-suburb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hv-suburb-item:hover { background: var(--surface-hover); }
+
+.hv-suburb-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* Per-row status select */
+.hv-status-select {
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* Drag-to-scroll affordance */
+.hv-table-wrapper { cursor: grab; user-select: text; }
+.hv-table-wrapper.dragging { cursor: grabbing; user-select: none; }
+
+/* Compact mode — narrower columns + smaller font */
+.hot-vendor.compact table { font-size: 11.5px; }
+.hot-vendor.compact th { padding: 5px 6px; font-size: 10.5px; }
+.hot-vendor.compact td { padding: 3px 6px; }
+.hot-vendor.compact .hv-badge { padding: 2px 6px; font-size: 10px; }
+.hot-vendor.compact .hv-status-select { padding: 2px 4px; font-size: 10px; }

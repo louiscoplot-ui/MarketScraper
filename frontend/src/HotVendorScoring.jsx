@@ -3,7 +3,7 @@
 // quantile-based segmentation) and returns the full scored list. The
 // .xlsx report is regenerated on demand from the persisted data.
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const API = ''
 
@@ -21,6 +21,20 @@ const CATEGORY_BADGE = {
   LOW: { bg: '#9ca3af', label: '⚪ LOW' },
 }
 
+// User-controlled per-row flags. Tints override the category colour.
+const STATUS_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'listed', label: '✓ Listed / Appraised' },
+  { value: 'pending', label: '… Considering / Pending' },
+  { value: 'declined', label: '✗ Not interested' },
+]
+
+const STATUS_TINT = {
+  listed: '#bbf7d0',
+  pending: '#fde68a',
+  declined: '#fecaca',
+}
+
 
 function fmtMoney(n) {
   if (n == null || n === '') return '-'
@@ -35,6 +49,12 @@ function fmtPct(n, d = 1) {
 function fmtNum(n, d = 1) {
   if (n == null || n === '' || isNaN(n)) return '-'
   return Number(n).toFixed(d)
+}
+
+function getSuburb(p) {
+  if (p.suburb) return String(p.suburb).trim()
+  const m = (p.address || '').match(/,\s*([A-Za-z][A-Za-z\s'-]+?)(?:\s+\d{4})?$/)
+  return m ? m[1].trim() : null
 }
 
 
@@ -61,8 +81,14 @@ export default function HotVendorScoring() {
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState({ field: 'rank', dir: 'asc' })
+  const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
+  const [compact, setCompact] = useState(false)
+  const [statuses, setStatuses] = useState({})
+  const [suburbDropdownOpen, setSuburbDropdownOpen] = useState(false)
   const fileInputRef = useRef(null)
   const [dragActive, setDragActive] = useState(false)
+  const wrapperRef = useRef(null)
+  const suburbDropdownRef = useRef(null)
 
   const handleFile = async (file) => {
     setError('')
@@ -99,12 +125,48 @@ export default function HotVendorScoring() {
 
   const properties = data?.properties || []
 
+  // Hydrate per-row status flags from the score-csv payload (server-side
+  // join against hot_vendor_property_status). Re-runs only on new uploads.
+  useEffect(() => {
+    if (!data) { setStatuses({}); setSelectedSuburbs(new Set()); return }
+    const next = {}
+    for (const p of data.properties || []) {
+      if (p.user_status) next[p.address] = p.user_status
+    }
+    setStatuses(next)
+    setSelectedSuburbs(new Set())
+  }, [data])
+
+  const uniqueSuburbs = useMemo(() => {
+    const set = new Set()
+    for (const p of properties) {
+      const s = getSuburb(p)
+      if (s) set.add(s)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [properties])
+
+  // Close the suburb dropdown when clicking outside it.
+  useEffect(() => {
+    if (!suburbDropdownOpen) return
+    const onDocClick = (e) => {
+      if (!suburbDropdownRef.current?.contains(e.target)) setSuburbDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [suburbDropdownOpen])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
+    const subFilter = selectedSuburbs.size > 0
     return properties.filter(p => {
       if (filter !== 'ALL' && p.category !== filter) return false
       if (typeFilter === 'HOUSE' && p.type !== 'House') return false
       if (typeFilter === 'APARTMENT' && p.type !== 'Apartment') return false
+      if (subFilter) {
+        const s = getSuburb(p)
+        if (!s || !selectedSuburbs.has(s)) return false
+      }
       if (q) {
         const addr = (p.address || '').toLowerCase()
         const owner = String(p.current_owner || '').toLowerCase()
@@ -112,7 +174,7 @@ export default function HotVendorScoring() {
       }
       return true
     })
-  }, [properties, filter, typeFilter, search])
+  }, [properties, filter, typeFilter, search, selectedSuburbs])
 
   const sorted = useMemo(() => {
     const cmp = SORT_FIELDS[sort.field] || SORT_FIELDS.rank
@@ -142,12 +204,70 @@ export default function HotVendorScoring() {
   const sortIndicator = (field) =>
     sort.field === field ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''
 
+  const toggleSuburb = (s) => {
+    setSelectedSuburbs(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+
+  const setStatus = async (address, status) => {
+    setStatuses(prev => {
+      const next = { ...prev }
+      if (status) next[address] = status; else delete next[address]
+      return next
+    })
+    try {
+      await fetch(`${API}/api/hot-vendors/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, status }),
+      })
+    } catch (e) {
+      console.error('Failed to save status', e)
+    }
+  }
+
+  // Drag the table sideways with the mouse — REIWA scraper has the same
+  // affordance via overflow scroll. Skip when the drag starts on an
+  // interactive element so click/select still work.
+  const onTableMouseDown = (e) => {
+    if (e.target.closest('select, button, input, a, th')) return
+    const w = wrapperRef.current
+    if (!w) return
+    const startX = e.pageX - w.offsetLeft
+    const startScroll = w.scrollLeft
+    let moved = false
+    const onMove = (ev) => {
+      const dx = ev.pageX - w.offsetLeft - startX
+      if (Math.abs(dx) > 3) {
+        moved = true
+        w.classList.add('dragging')
+      }
+      w.scrollLeft = startScroll - dx
+      if (moved) ev.preventDefault()
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      w.classList.remove('dragging')
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
   const hasData = properties.length > 0
   const profile = data?.profile || {}
   const weights = data?.weights || {}
+  const suburbBtnLabel = selectedSuburbs.size === 0
+    ? `All suburbs${uniqueSuburbs.length > 1 ? ` (${uniqueSuburbs.length})` : ''}`
+    : selectedSuburbs.size === 1
+      ? Array.from(selectedSuburbs)[0]
+      : `${selectedSuburbs.size} suburbs`
 
   return (
-    <div className="hot-vendor">
+    <div className={`hot-vendor ${compact ? 'compact' : ''}`}>
       <div className="hot-vendor-header">
         <div>
           <h2>Hot Vendor Scoring</h2>
@@ -248,6 +368,44 @@ export default function HotVendorScoring() {
                 {c === 'ALL' ? 'ALL' : CATEGORY_BADGE[c].label}
               </button>
             ))}
+
+            {uniqueSuburbs.length > 1 && (
+              <div className="hv-suburb-filter" ref={suburbDropdownRef}>
+                <button
+                  className={`hv-pill ${selectedSuburbs.size > 0 ? 'active' : ''}`}
+                  onClick={() => setSuburbDropdownOpen(o => !o)}
+                >
+                  📍 {suburbBtnLabel} ▾
+                </button>
+                {suburbDropdownOpen && (
+                  <div className="hv-suburb-menu">
+                    <div className="hv-suburb-menu-actions">
+                      <button className="btn-link" onClick={() => setSelectedSuburbs(new Set())}>Clear</button>
+                      <button className="btn-link" onClick={() => setSelectedSuburbs(new Set(uniqueSuburbs))}>All</button>
+                    </div>
+                    {uniqueSuburbs.map(s => (
+                      <label key={s} className="hv-suburb-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedSuburbs.has(s)}
+                          onChange={() => toggleSuburb(s)}
+                        />
+                        {s}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              className={`hv-pill ${compact ? 'active' : ''}`}
+              onClick={() => setCompact(c => !c)}
+              title="Toggle compact column widths"
+            >
+              {compact ? '⊟ Compact' : '⊞ Compact'}
+            </button>
+
             <div className="hv-spacer" />
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
               <option value="ALL">All Types</option>
@@ -262,7 +420,11 @@ export default function HotVendorScoring() {
             />
           </div>
 
-          <div className="table-wrapper">
+          <div
+            className="table-wrapper hv-table-wrapper"
+            ref={wrapperRef}
+            onMouseDown={onTableMouseDown}
+          >
             <table>
               <thead>
                 <tr>
@@ -287,34 +449,50 @@ export default function HotVendorScoring() {
                   <th>Owner</th>
                   <th>Agency</th>
                   <th>Agent</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(p => (
-                  <tr key={p.rank} style={{ background: CATEGORY_COLORS[p.category] || undefined }}>
-                    <td className="num">{p.rank}</td>
-                    <td>{p.address}</td>
-                    <td>{p.type}</td>
-                    <td className="num">{p.bedrooms ?? '-'}</td>
-                    <td className="num">{fmtMoney(p.last_sale_price)}</td>
-                    <td className="num">{fmtNum(p.holding_years)}</td>
-                    <td className="num">{fmtPct(p.owner_gain_pct)}</td>
-                    <td className="num">{fmtPct(p.cagr, 2)}</td>
-                    <td className="num">{fmtMoney(p.potential_profit)}</td>
-                    <td className="num">{p.sales_count}</td>
-                    <td className="num"><strong>{fmtNum(p.final_score)}</strong></td>
-                    <td>
-                      <span className="hv-badge" style={{ background: CATEGORY_BADGE[p.category]?.bg }}>
-                        {CATEGORY_BADGE[p.category]?.label || p.category}
-                      </span>
-                    </td>
-                    <td>{p.current_owner || '-'}</td>
-                    <td>{p.agency || '-'}</td>
-                    <td>{p.agent || '-'}</td>
-                  </tr>
-                ))}
+                {sorted.map(p => {
+                  const userStatus = statuses[p.address] || ''
+                  const tint = userStatus ? STATUS_TINT[userStatus] : CATEGORY_COLORS[p.category]
+                  return (
+                    <tr key={p.rank} style={{ background: tint || undefined }}>
+                      <td className="num">{p.rank}</td>
+                      <td>{p.address}</td>
+                      <td>{p.type}</td>
+                      <td className="num">{p.bedrooms ?? '-'}</td>
+                      <td className="num">{fmtMoney(p.last_sale_price)}</td>
+                      <td className="num">{fmtNum(p.holding_years)}</td>
+                      <td className="num">{fmtPct(p.owner_gain_pct)}</td>
+                      <td className="num">{fmtPct(p.cagr, 2)}</td>
+                      <td className="num">{fmtMoney(p.potential_profit)}</td>
+                      <td className="num">{p.sales_count}</td>
+                      <td className="num"><strong>{fmtNum(p.final_score)}</strong></td>
+                      <td>
+                        <span className="hv-badge" style={{ background: CATEGORY_BADGE[p.category]?.bg }}>
+                          {CATEGORY_BADGE[p.category]?.label || p.category}
+                        </span>
+                      </td>
+                      <td>{p.current_owner || '-'}</td>
+                      <td>{p.agency || '-'}</td>
+                      <td>{p.agent || '-'}</td>
+                      <td>
+                        <select
+                          className="hv-status-select"
+                          value={userStatus}
+                          onChange={(e) => setStatus(p.address, e.target.value)}
+                        >
+                          {STATUS_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  )
+                })}
                 {!sorted.length && (
-                  <tr><td colSpan="15" className="empty">No properties match the current filters</td></tr>
+                  <tr><td colSpan="16" className="empty">No properties match the current filters</td></tr>
                 )}
               </tbody>
             </table>
