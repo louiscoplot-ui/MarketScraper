@@ -1,27 +1,33 @@
 """Word .docx letter rendering for the Appraisal Pipeline.
 
-Extracted from pipeline_api.py so layout / branding tweaks are small
-focused pushes. Single public entry point: render_letter_docx().
-
 Layout matches the standard Acton | Belle Property Cottesloe template:
-  • Full-width dark-green header band with the brand wordmark
+  • Full-width brand-green header band with the Acton | belle wordmark
+    (auto-uses backend/assets/acton_belle_logo.png if present, else a
+    styled text fallback)
   • Right-aligned date
   • Personalised salutation + body
   • Signature block (agent name, role, contact)
   • Page footer in small grey: full agency address, ABN, website
 """
 
+import os
 from datetime import datetime
 
 from docx import Document
-from docx.shared import Pt, RGBColor, Cm, Inches
+from docx.shared import Pt, RGBColor, Cm, Inches, Emu
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 
-# Acton | Belle Property dark forest green
-BRAND_GREEN = '2D5040'
+# Acton | Belle Property official brand green
+BRAND_GREEN = '386351'
+
+# Path to the logo (commit a PNG here to swap the text fallback for the
+# real wordmark). Resolved relative to this module so it works regardless
+# of where the Flask process is launched from.
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGO_PATH = os.path.join(_THIS_DIR, 'assets', 'acton_belle_logo.png')
 
 AGENCY_NAME_FOOTER = 'ACTON | Belle Property Cottesloe'
 AGENCY_LINE_1 = '160 Stirling Hwy, Nedlands WA 6009'
@@ -54,16 +60,12 @@ def _join_oxford(items):
 
 
 def format_sources_inline(sources):
-    """Build the human prose listing N source sales. Returns
-    (addr_phrase, sale_phrase) tuple."""
     if not sources:
         return '', ''
-
     n = len(sources)
     addrs = [s['source_address'] for s in sources]
     prices = [_format_price(s.get('source_price')) for s in sources]
     has_prices = [bool(p) for p in prices]
-
     if n == 1:
         addr_phrase = f"your neighbour at {addrs[0]}"
         sale_phrase = (f"recently sold for {prices[0]}" if has_prices[0]
@@ -78,12 +80,10 @@ def format_sources_inline(sources):
             sale_phrase = "recently sold"
         else:
             sale_phrase = "recently sold"
-
     return addr_phrase, sale_phrase
 
 
 def _shade_cell(cell, hex_color):
-    """Set a table cell's background fill colour."""
     tcPr = cell._tc.get_or_add_tcPr()
     shd = OxmlElement('w:shd')
     shd.set(qn('w:val'), 'clear')
@@ -93,7 +93,6 @@ def _shade_cell(cell, hex_color):
 
 
 def _set_cell_padding(cell, top=400, left=720, bottom=400, right=720):
-    """Inner padding in twentieths of a point (1cm = 567)."""
     tcPr = cell._tc.get_or_add_tcPr()
     tcMar = OxmlElement('w:tcMar')
     for side, val in (('top', top), ('left', left), ('bottom', bottom), ('right', right)):
@@ -104,12 +103,70 @@ def _set_cell_padding(cell, top=400, left=720, bottom=400, right=720):
     tcPr.append(tcMar)
 
 
+def _remove_cell_borders(cell):
+    """Strip the default thin borders so the green band reads as a solid block."""
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcBorders = OxmlElement('w:tcBorders')
+    for edge in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        b = OxmlElement(f'w:{edge}')
+        b.set(qn('w:val'), 'nil')
+        tcBorders.append(b)
+    tcPr.append(tcBorders)
+
+
+def _build_text_logo(cell):
+    """Fallback wordmark when the logo PNG isn't available — three runs
+    in a single paragraph, sized + spaced to mimic the official lockup.
+    """
+    p = cell.paragraphs[0]
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.space_before = Pt(0)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    # ACTON — large, light, letter-spaced
+    r1 = p.add_run('ACTON')
+    r1.font.size = Pt(28)
+    r1.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    r1.font.name = 'Arial'
+
+    # Spacer + thin separator
+    sep = p.add_run('   |   ')
+    sep.font.size = Pt(28)
+    sep.font.color.rgb = RGBColor(0xC9, 0xD3, 0xCD)  # muted lighter green
+    sep.font.name = 'Arial'
+
+    # belle — large, bold, lowercase
+    r2 = p.add_run('belle')
+    r2.bold = True
+    r2.font.size = Pt(28)
+    r2.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    r2.font.name = 'Arial'
+
+    # PROPERTY — small caps, on the same line for simplicity
+    r3 = p.add_run('  PROPERTY')
+    r3.bold = True
+    r3.font.size = Pt(11)
+    r3.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    r3.font.name = 'Arial'
+
+
+def _build_image_logo(cell, logo_path):
+    """Drop the official logo PNG inside the green cell, sized to fit."""
+    p = cell.paragraphs[0]
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.space_before = Pt(0)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run = p.add_run()
+    # Height fixes vertical band height; width auto-scaled by python-docx
+    run.add_picture(logo_path, height=Cm(2.4))
+
+
 def _green_header(doc):
-    """Full-width dark-green band with the Acton | Belle Property wordmark."""
+    """Full-width brand-green band. Uses the PNG logo if a file exists at
+    backend/assets/acton_belle_logo.png, otherwise a styled text fallback."""
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
 
-    # Match page width so the band visually edge-to-edge
     page_width = doc.sections[0].page_width
     left_m = doc.sections[0].left_margin
     right_m = doc.sections[0].right_margin
@@ -119,26 +176,20 @@ def _green_header(doc):
     cell = table.cell(0, 0)
     cell.width = table_width
     _shade_cell(cell, BRAND_GREEN)
-    _set_cell_padding(cell, top=500, left=720, bottom=500, right=720)
+    _set_cell_padding(cell, top=400, left=600, bottom=400, right=600)
+    _remove_cell_borders(cell)
 
-    p = cell.paragraphs[0]
-    p.paragraph_format.space_after = Pt(0)
-    p.paragraph_format.space_before = Pt(0)
-    run = p.add_run('ACTON  |  BELLE PROPERTY')
-    run.bold = True
-    run.font.size = Pt(20)
-    run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-    run.font.name = 'Arial'
+    if os.path.exists(LOGO_PATH):
+        _build_image_logo(cell, LOGO_PATH)
+    else:
+        _build_text_logo(cell)
 
 
 def _agency_footer(doc):
-    """Page footer — small grey lines: full agency address + ABN + web."""
     footer = doc.sections[0].footer
-    # Clear any default paragraph
     for p in list(footer.paragraphs):
         p.clear()
 
-    # First line: agency name
     p1 = footer.paragraphs[0]
     p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
     r = p1.add_run(AGENCY_NAME_FOOTER)
@@ -146,7 +197,6 @@ def _agency_footer(doc):
     r.font.size = Pt(8)
     r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
-    # Subsequent lines
     for line in (AGENCY_LINE_1, AGENCY_LINE_2, AGENCY_LINE_3):
         p = footer.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -157,17 +207,12 @@ def _agency_footer(doc):
 
 
 def render_letter_docx(target_address, owner_name, source_suburb, sources):
-    """Build a complete Acton | Belle Property letter as a python-docx
-    Document. Returns the Document object — caller is responsible for
-    saving / streaming."""
+    """Build a complete Acton | Belle Property letter."""
     owner = (owner_name or '').strip() or 'Homeowner'
     addr_phrase, sale_phrase = format_sources_inline(sources)
     multi = len(sources) > 1
 
     doc = Document()
-
-    # Page geometry: tight top margin so the green band starts at the page edge,
-    # generous side margins for body, normal bottom for footer.
     for section in doc.sections:
         section.top_margin = Cm(0)
         section.bottom_margin = Cm(2.0)
@@ -177,12 +222,10 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
     _green_header(doc)
     _agency_footer(doc)
 
-    # Spacer below the header
     spacer = doc.add_paragraph()
     spacer.paragraph_format.space_before = Pt(0)
     spacer.paragraph_format.space_after = Pt(18)
 
-    # Date — right-aligned
     today = datetime.utcnow().strftime('%d/%m/%Y')
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -190,12 +233,10 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
     r.font.size = Pt(11)
     r.font.name = 'Arial'
 
-    # Salutation
     doc.add_paragraph()
     p = doc.add_paragraph()
     r = p.add_run(f'Dear {owner},')
-    r.font.size = Pt(11)
-    r.font.name = 'Arial'
+    r.font.size = Pt(11); r.font.name = 'Arial'
 
     doc.add_paragraph()
 
@@ -203,8 +244,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
         p = doc.add_paragraph()
         if text is not None:
             r = p.add_run(text)
-            r.font.size = Pt(11)
-            r.font.name = 'Arial'
+            r.font.size = Pt(11); r.font.name = 'Arial'
         return p
 
     body_para('I hope this letter finds you well.')
@@ -244,7 +284,6 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
     body_para('Kind regards,')
     doc.add_paragraph()
 
-    # Signature block
     sig = doc.add_paragraph()
     r = sig.add_run(AGENT_NAME)
     r.bold = True; r.font.size = Pt(12); r.font.name = 'Arial'
