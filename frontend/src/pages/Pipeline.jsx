@@ -94,22 +94,23 @@ export default function Pipeline() {
   }
 
   function downloadLetter(representativeId) {
-    // Hits the backend endpoint that aggregates ALL sources for the
-    // target, generates a single Word doc, returns it as attachment.
     window.open(`${API}/api/pipeline/letter/${representativeId}/download`, '_blank')
   }
 
   function handleExportCSV() {
-    const headers = ['Target Address', 'Owner Name', 'Source Sales', 'Total Source Sales',
-                     'Score', 'Status', 'Sent Date', 'Notes']
+    const headers = ['Source Sales', 'Target Address', 'Owner Name',
+                     'Total Source Sales', 'Status', 'Sent Date', 'Notes']
     const rows = groups.map(g => {
       const sourcesText = g.sources
-        .map(s => `${s.source_address} ${s.source_price ? `($${s.source_price.toLocaleString()})` : ''}`)
+        .map(s => {
+          const price = s.source_price ? ` ($${s.source_price.toLocaleString()})` : ''
+          const dt = s.source_sold_date ? ` — sold ${s.source_sold_date}` : ''
+          return `${s.source_address}${price}${dt}`
+        })
         .join('; ')
       return [
-        g.target_address, g.target_owner_name || '',
-        sourcesText, g.sources.length,
-        g.hot_vendor_score || '', g.status, g.sent_date, g.notes || '',
+        sourcesText, g.target_address, g.target_owner_name || '',
+        g.sources.length, g.status, g.sent_date, g.notes || '',
       ]
     })
     const csv = [headers, ...rows]
@@ -193,7 +194,6 @@ export default function Pipeline() {
         )}
       </div>
 
-      {/* Manual add form — fallback for sales the scraper hasn't dated correctly */}
       {showManualForm && (
         <ManualAddForm
           defaultSuburb={suburb}
@@ -206,7 +206,6 @@ export default function Pipeline() {
         />
       )}
 
-      {/* Filter */}
       {groups.length > 0 && (
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
           <span style={{ fontSize: '13px', color: '#6b7280' }}>Filter by suburb:</span>
@@ -223,7 +222,6 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* Actions */}
       {groups.length > 0 && (
         <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
           <button
@@ -239,7 +237,6 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* Stats */}
       {groups.length > 0 && (
         <div style={{
           display: 'flex', gap: '24px', marginBottom: '20px',
@@ -253,7 +250,6 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* Table — one row per target neighbour, sources collapsed inline */}
       {loading ? (
         <p style={{ color: '#6b7280' }}>Loading...</p>
       ) : groups.length === 0 ? (
@@ -263,7 +259,7 @@ export default function Pipeline() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
-                {['Target Address', 'Owner Name', 'Source Sale(s)', 'Score', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
+                {['Source Sale(s)', 'Target Address', 'Owner Name', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -271,6 +267,29 @@ export default function Pipeline() {
             <tbody>
               {groups.map(g => (
                 <tr key={g.representative_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  {/* Source sales — primary column */}
+                  <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '360px' }}>
+                    {g.sources.map((s, i) => (
+                      <div key={s.row_id || i} style={{ fontSize: '12px', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontWeight: '600', color: '#111827' }}>{s.source_address}</span>
+                        <span style={{ color: '#6b7280', marginLeft: '6px' }}>
+                          {formatPrice(s.source_price)}
+                        </span>
+                        {s.source_sold_date && (
+                          <span style={{ color: '#9ca3af', marginLeft: '6px', fontSize: '11px' }}>
+                            · sold {formatDate(s.source_sold_date)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {g.sources.length > 1 && (
+                      <div style={{ fontSize: '11px', color: '#059669', fontWeight: '600', marginTop: '2px' }}>
+                        {g.sources.length} nearby sales
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Target address */}
                   <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
                     <strong>{g.target_address}</strong>
                     {g.source_suburb && (
@@ -278,7 +297,6 @@ export default function Pipeline() {
                     )}
                   </td>
 
-                  {/* Owner Name — propagates to all rows for the same target */}
                   <td style={{ padding: '10px 12px' }}>
                     {editingName === g.representative_id ? (
                       <input
@@ -300,27 +318,6 @@ export default function Pipeline() {
                     )}
                   </td>
 
-                  {/* Source sales — listed inline */}
-                  <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '320px' }}>
-                    {g.sources.map((s, i) => (
-                      <div key={s.row_id || i} style={{ fontSize: '12px', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span>{s.source_address}</span>
-                        <span style={{ color: '#9ca3af', marginLeft: '6px' }}>
-                          {formatPrice(s.source_price)}
-                        </span>
-                      </div>
-                    ))}
-                    {g.sources.length > 1 && (
-                      <div style={{ fontSize: '11px', color: '#059669', fontWeight: '600', marginTop: '2px' }}>
-                        {g.sources.length} nearby sales
-                      </div>
-                    )}
-                  </td>
-
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                    {g.hot_vendor_score || '—'}
-                  </td>
-
                   <td style={{ padding: '10px 12px' }}>
                     <span style={{
                       padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '500',
@@ -335,7 +332,6 @@ export default function Pipeline() {
                     {formatDate(g.sent_date)}
                   </td>
 
-                  {/* Notes */}
                   <td style={{ padding: '10px 12px', maxWidth: '180px' }}>
                     {editingNote === g.representative_id ? (
                       <input
@@ -357,7 +353,6 @@ export default function Pipeline() {
                     )}
                   </td>
 
-                  {/* Letter download */}
                   <td style={{ padding: '10px 12px' }}>
                     <button
                       onClick={() => downloadLetter(g.representative_id)}
@@ -370,7 +365,6 @@ export default function Pipeline() {
                     </button>
                   </td>
 
-                  {/* Action */}
                   <td style={{ padding: '10px 12px' }}>
                     <select
                       value=""
@@ -394,7 +388,6 @@ export default function Pipeline() {
         </div>
       )}
 
-      {/* Action modal */}
       {actionModal && (
         <ActionModal
           status={actionModal.status}

@@ -1,9 +1,6 @@
 """Schema initialisation — split out from database.py to keep modules
 under the MCP push size limit. Re-exported by database.init_db so
 existing callers don't need to change their imports.
-
-`get_db` and `normalize_address` are lazy-imported inside init_db to
-avoid a circular import with database.py.
 """
 
 
@@ -43,14 +40,9 @@ def init_db():
             FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
         );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_url
-            ON listings(reiwa_url);
-
-        CREATE INDEX IF NOT EXISTS idx_listings_status
-            ON listings(status);
-
-        CREATE INDEX IF NOT EXISTS idx_listings_suburb
-            ON listings(suburb_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_url ON listings(reiwa_url);
+        CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
+        CREATE INDEX IF NOT EXISTS idx_listings_suburb ON listings(suburb_id);
 
         CREATE TABLE IF NOT EXISTS scrape_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +59,6 @@ def init_db():
         );
     """)
 
-    # Idempotent column adds (deploy-time migrations)
     for col_sql in [
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS listing_date TEXT",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'",
@@ -111,10 +102,8 @@ def init_db():
             changed_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE
         );
-        CREATE INDEX IF NOT EXISTS idx_price_history_listing
-            ON price_history(listing_id);
-        CREATE INDEX IF NOT EXISTS idx_price_history_date
-            ON price_history(changed_at);
+        CREATE INDEX IF NOT EXISTS idx_price_history_listing ON price_history(listing_id);
+        CREATE INDEX IF NOT EXISTS idx_price_history_date ON price_history(changed_at);
 
         CREATE TABLE IF NOT EXISTS market_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,8 +122,6 @@ def init_db():
             ON market_snapshots(suburb_id, snapshot_date);
     """)
 
-    # Appraisal Pipeline — one row per prospecting letter sent to a
-    # neighbour of a recently-sold property.
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS pipeline_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,17 +139,11 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(target_address, sent_date)
         );
-        CREATE INDEX IF NOT EXISTS idx_pipeline_status
-            ON pipeline_tracking(status);
-        CREATE INDEX IF NOT EXISTS idx_pipeline_suburb
-            ON pipeline_tracking(source_suburb);
-        CREATE INDEX IF NOT EXISTS idx_pipeline_sent_date
-            ON pipeline_tracking(sent_date);
+        CREATE INDEX IF NOT EXISTS idx_pipeline_status ON pipeline_tracking(status);
+        CREATE INDEX IF NOT EXISTS idx_pipeline_suburb ON pipeline_tracking(source_suburb);
+        CREATE INDEX IF NOT EXISTS idx_pipeline_sent_date ON pipeline_tracking(sent_date);
     """)
 
-    # Hot Vendor data — persisted CSV uploads from RP Data scoring tool.
-    # Replaces the localStorage-only flow so data is shared across devices
-    # and joinable to pipeline_tracking for owner_name auto-match.
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS hot_vendor_uploads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -203,13 +184,31 @@ def init_db():
             FOREIGN KEY (upload_id) REFERENCES hot_vendor_uploads(id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS idx_hv_props_upload
-            ON hot_vendor_properties(upload_id);
-        CREATE INDEX IF NOT EXISTS idx_hv_props_normaddr
-            ON hot_vendor_properties(normalized_address);
-        CREATE INDEX IF NOT EXISTS idx_hv_props_score
-            ON hot_vendor_properties(final_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_hv_props_upload ON hot_vendor_properties(upload_id);
+        CREATE INDEX IF NOT EXISTS idx_hv_props_normaddr ON hot_vendor_properties(normalized_address);
+        CREATE INDEX IF NOT EXISTS idx_hv_props_score ON hot_vendor_properties(final_score DESC);
     """)
+
+    # v4 scoring additions — extra per-property scores + latent profit, plus
+    # an upload-level metadata blob (JSON) so we can rebuild the Excel
+    # report from stored data without re-running the pipeline.
+    for col_sql in [
+        "ALTER TABLE hot_vendor_uploads ADD COLUMN IF NOT EXISTS metadata TEXT",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS cagr_score INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS freq_score INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS prof_score INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS estimated_value INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS potential_profit INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS potential_profit_pct REAL",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS rank INTEGER",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            try:
+                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
+            except Exception:
+                conn.commit()
 
     conn.commit()
     conn.close()

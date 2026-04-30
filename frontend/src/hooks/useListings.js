@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 const API = '/api'
 
 
-// Parse REIWA's dd/mm/yyyy listing_date to YYYY-MM-DD (sortable as string)
 function parseDateToSortable(dateStr) {
   if (!dateStr) return ''
   const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
@@ -12,22 +11,15 @@ function parseDateToSortable(dateStr) {
 }
 
 
-// Pick the most-relevant date for each listing for the default "newest first"
-// sort: sold → sold_date, withdrawn → withdrawn_date, else listing_date,
-// fall back to last_seen / first_seen so brand-new rows without a published
-// date still bubble to the top.
-function mostRecentDate(l) {
+function realDate(l) {
   if (l.status === 'sold' && l.sold_date) return l.sold_date.slice(0, 10)
   if (l.status === 'withdrawn' && l.withdrawn_date) return l.withdrawn_date.slice(0, 10)
   if (l.listing_date) return parseDateToSortable(l.listing_date)
-  if (l.last_seen) return l.last_seen.slice(0, 10)
-  if (l.first_seen) return l.first_seen.slice(0, 10)
   return ''
 }
 
 
 export function calcDOM(listing) {
-  // DOM only when REIWA published a listing date — never fabricate from first_seen.
   const dateStr = listing.listing_date
   if (!dateStr) return null
   let start
@@ -49,10 +41,7 @@ export function formatIsoDate(iso) {
 }
 
 
-// Hook: holds full listings list, exposes filter+sort outputs, fetch helper.
-// All filtering happens client-side so suburb/status toggles are instant
-// (no network roundtrip per click).
-export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency }) {
+export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view }) {
   const [listings, setListings] = useState([])
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
@@ -64,8 +53,13 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   useEffect(() => { fetchListings() }, [fetchListings])
 
+  useEffect(() => {
+    setSortField('')
+    setSortDir('desc')
+  }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view])
+
   const DESC_DEFAULT_FIELDS = useMemo(
-    () => new Set(['listing_date', 'sold_date', 'withdrawn_date', 'dom']),
+    () => new Set(['listing_date', 'sold_date', 'withdrawn_date', 'dom', 'price_text']),
     []
   )
 
@@ -79,7 +73,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   }, [sortField, DESC_DEFAULT_FIELDS])
 
   const filteredListings = useMemo(() => {
-    // 1. Apply filters
     const filtered = listings.filter(l => {
       if (checkedSuburbs.size > 0 && !checkedSuburbs.has(l.suburb_id)) return false
       if (selectedStatuses.size > 0 && !selectedStatuses.has(l.status)) return false
@@ -88,12 +81,16 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       return true
     })
 
-    // 2. Sort. Default = most recent activity desc.
     return filtered.sort((a, b) => {
       if (!sortField) {
-        const va = mostRecentDate(a)
-        const vb = mostRecentDate(b)
-        return String(vb).localeCompare(String(va))
+        const va = realDate(a)
+        const vb = realDate(b)
+        if (va && vb) return vb.localeCompare(va)
+        if (va && !vb) return -1
+        if (!va && vb) return 1
+        const fa = (a.first_seen || '').slice(0, 10)
+        const fb = (b.first_seen || '').slice(0, 10)
+        return fb.localeCompare(fa)
       }
       let va, vb
       if (sortField === 'dom') {
@@ -111,11 +108,21 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       }
       if (va == null) va = ''
       if (vb == null) vb = ''
-      if (typeof va === 'number' && typeof vb === 'number')
-        return sortDir === 'asc' ? va - vb : vb - va
-      return sortDir === 'asc'
-        ? String(va).localeCompare(String(vb))
-        : String(vb).localeCompare(String(va))
+      let primary
+      if (typeof va === 'number' && typeof vb === 'number') {
+        primary = sortDir === 'asc' ? va - vb : vb - va
+      } else {
+        primary = sortDir === 'asc'
+          ? String(va).localeCompare(String(vb))
+          : String(vb).localeCompare(String(va))
+      }
+      if (primary !== 0) return primary
+      const ra = realDate(a)
+      const rb = realDate(b)
+      if (ra !== rb) return String(rb).localeCompare(String(ra))
+      const fa = (a.first_seen || '').slice(0, 10)
+      const fb = (b.first_seen || '').slice(0, 10)
+      return fb.localeCompare(fa)
     })
   }, [listings, checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, sortField, sortDir])
 
@@ -138,6 +145,25 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     else alert('Delete failed')
   }, [fetchListings])
 
+  // PATCH a single field on a listing. `fields` is an object like
+  // { listing_date: "30/04/2026" } or { sold_date: "2026-04-28" } or
+  // { listing_date: null } to clear. Refreshes the full list on success
+  // so the new value + sort take effect immediately.
+  const updateListing = useCallback(async (id, fields) => {
+    const res = await fetch(`${API}/listings/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    })
+    if (res.ok) {
+      fetchListings()
+      return true
+    }
+    const err = await res.json().catch(() => ({}))
+    alert(err.error || `Update failed (${res.status})`)
+    return false
+  }, [fetchListings])
+
   return {
     listings,
     fetchListings,
@@ -148,5 +174,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     uniqueAgents,
     uniqueAgencies,
     deleteListing,
+    updateListing,
   }
 }

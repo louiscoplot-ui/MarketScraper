@@ -50,8 +50,6 @@ def _generate_neighbours(addr):
 
 
 def _hot_vendors_table_exists(conn):
-    """Check whether the hot_vendor_properties table exists. Used to
-    silently skip the join when the schema migration hasn't run yet."""
     try:
         if USE_POSTGRES:
             row = conn.execute(
@@ -69,9 +67,6 @@ def _hot_vendors_table_exists(conn):
 
 
 def _match_hot_vendor(conn, target_address):
-    """Look up a target address in hot_vendor_properties (the new persisted
-    table). Match on normalized_address for fast exact lookup. Returns
-    (owner_name, final_score) or (None, None) if no match."""
     try:
         norm = normalize_address(target_address)
         if not norm:
@@ -291,6 +286,9 @@ def _render_letter_docx(target_address, owner_name, source_suburb, sources):
 
 
 def _gather_sources_for_target(conn, target_address, source_suburb):
+    """Distinct nearby sales for a target. Dedupes by source_address so
+    duplicate pipeline_tracking rows (different sent_dates, same source)
+    don't make the letter say 'sold for X — for X respectively'."""
     rows = conn.execute(
         """
         SELECT source_address, source_price, source_sold_date, target_owner_name
@@ -301,7 +299,18 @@ def _gather_sources_for_target(conn, target_address, source_suburb):
         """,
         (target_address, source_suburb)
     ).fetchall()
-    return [dict(r) for r in rows]
+
+    seen = set()
+    deduped = []
+    for r in rows:
+        d = dict(r)
+        key = (d.get('source_address') or '').strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(d)
+    deduped.sort(key=lambda d: (d.get('source_address') or '').lower())
+    return deduped
 
 
 # ---------------------------------------------------------------------
@@ -491,7 +500,11 @@ def pipeline_tracking_list():
 
 
 def pipeline_tracking_grouped():
-    """Collapse rows by target_address — one envelope per group."""
+    """One envelope per target_address. Sources are deduped (same source
+    appearing across multiple sent_dates collapses to one entry) and
+    sorted alphabetically inside each group. Groups themselves are
+    ordered by their primary source's address — so the user can scan
+    the pipeline by the SALES they're targeting, not by neighbour."""
     suburb = (request.args.get('suburb') or '').strip()
     try:
         limit = int(request.args.get('limit') or 200)
@@ -511,7 +524,6 @@ def pipeline_tracking_grouped():
     conn.close()
 
     groups = {}
-    order = []
     for raw in rows:
         r = dict(raw)
         for k, v in list(r.items()):
@@ -531,22 +543,35 @@ def pipeline_tracking_grouped():
                 'representative_id': r.get('id'),
                 'row_ids': [],
                 'sources': [],
+                '_source_addrs_seen': set(),
             }
-            order.append(key)
         g = groups[key]
         g['row_ids'].append(r['id'])
-        g['sources'].append({
-            'source_address': r.get('source_address'),
-            'source_price': r.get('source_price'),
-            'source_sold_date': r.get('source_sold_date'),
-            'row_id': r.get('id'),
-        })
+        src_addr_key = (r.get('source_address') or '').strip().lower()
+        if src_addr_key and src_addr_key not in g['_source_addrs_seen']:
+            g['_source_addrs_seen'].add(src_addr_key)
+            g['sources'].append({
+                'source_address': r.get('source_address'),
+                'source_price': r.get('source_price'),
+                'source_sold_date': r.get('source_sold_date'),
+                'row_id': r.get('id'),
+            })
         if not g.get('target_owner_name') and r.get('target_owner_name'):
             g['target_owner_name'] = r.get('target_owner_name')
         if g.get('hot_vendor_score') is None and r.get('hot_vendor_score') is not None:
             g['hot_vendor_score'] = r.get('hot_vendor_score')
 
-    grouped = [groups[k] for k in order][:limit]
+    grouped = list(groups.values())
+    # Sort sources within each group alphabetically
+    for g in grouped:
+        g['sources'].sort(key=lambda s: (s.get('source_address') or '').lower())
+        g.pop('_source_addrs_seen', None)
+    # Sort groups by primary source's address (the one we're targeting via
+    # this letter). Falls back to target_address when sources is empty.
+    grouped.sort(key=lambda g: (
+        (g['sources'][0].get('source_address') if g['sources'] else g['target_address'] or '').lower()
+    ))
+    grouped = grouped[:limit]
     return jsonify({'groups': grouped, 'count': len(grouped)})
 
 
@@ -648,8 +673,6 @@ def pipeline_tracking_clear():
 
 
 def pipeline_letter_download(id):
-    """Generate ONE consolidated .docx, aggregating every nearby sale
-    that targets this neighbour."""
     conn = get_db()
     row = conn.execute(
         "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
@@ -702,48 +725,21 @@ def pipeline_letter_download(id):
 # ---------------------------------------------------------------------
 
 def register_pipeline_routes(app):
-    app.add_url_rule(
-        '/api/pipeline/generate',
-        endpoint='pipeline_generate',
-        view_func=pipeline_generate,
-        methods=['GET']
-    )
-    app.add_url_rule(
-        '/api/pipeline/manual-add',
-        endpoint='pipeline_manual_add',
-        view_func=pipeline_manual_add,
-        methods=['POST']
-    )
-    app.add_url_rule(
-        '/api/pipeline/tracking',
-        endpoint='pipeline_tracking_list',
-        view_func=pipeline_tracking_list,
-        methods=['GET']
-    )
-    app.add_url_rule(
-        '/api/pipeline/tracking/grouped',
-        endpoint='pipeline_tracking_grouped',
-        view_func=pipeline_tracking_grouped,
-        methods=['GET']
-    )
-    app.add_url_rule(
-        '/api/pipeline/tracking/<int:id>',
-        endpoint='pipeline_tracking_update',
-        view_func=pipeline_tracking_update,
-        methods=['PATCH']
-    )
-    app.add_url_rule(
-        '/api/pipeline/tracking',
-        endpoint='pipeline_tracking_clear',
-        view_func=pipeline_tracking_clear,
-        methods=['DELETE']
-    )
-    app.add_url_rule(
-        '/api/pipeline/letter/<int:id>/download',
-        endpoint='pipeline_letter_download',
-        view_func=pipeline_letter_download,
-        methods=['GET']
-    )
+    app.add_url_rule('/api/pipeline/generate', endpoint='pipeline_generate',
+                     view_func=pipeline_generate, methods=['GET'])
+    app.add_url_rule('/api/pipeline/manual-add', endpoint='pipeline_manual_add',
+                     view_func=pipeline_manual_add, methods=['POST'])
+    app.add_url_rule('/api/pipeline/tracking', endpoint='pipeline_tracking_list',
+                     view_func=pipeline_tracking_list, methods=['GET'])
+    app.add_url_rule('/api/pipeline/tracking/grouped', endpoint='pipeline_tracking_grouped',
+                     view_func=pipeline_tracking_grouped, methods=['GET'])
+    app.add_url_rule('/api/pipeline/tracking/<int:id>', endpoint='pipeline_tracking_update',
+                     view_func=pipeline_tracking_update, methods=['PATCH'])
+    app.add_url_rule('/api/pipeline/tracking', endpoint='pipeline_tracking_clear',
+                     view_func=pipeline_tracking_clear, methods=['DELETE'])
+    app.add_url_rule('/api/pipeline/letter/<int:id>/download',
+                     endpoint='pipeline_letter_download',
+                     view_func=pipeline_letter_download, methods=['GET'])
     logger.info(
-        "Pipeline routes registered: /api/pipeline/{generate,manual-add,tracking[,/grouped,/<id>],letter/<id>/download}"
+        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking[,/grouped,/<id>],letter/<id>/download}"
     )

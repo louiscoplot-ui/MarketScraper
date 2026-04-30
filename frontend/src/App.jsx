@@ -31,8 +31,8 @@ function App() {
   const {
     listings, fetchListings, filteredListings,
     sortField, sortDir, toggleSort,
-    uniqueAgents, uniqueAgencies, deleteListing,
-  } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency })
+    uniqueAgents, uniqueAgencies, deleteListing, updateListing,
+  } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view })
 
   const [theme, setTheme] = useState(() => {
     try {
@@ -418,7 +418,8 @@ function App() {
               selectedAgent={selectedAgent} setSelectedAgent={setSelectedAgent} uniqueAgents={uniqueAgents}
               filteredListings={filteredListings} suburbs={suburbs} checkedSuburbs={checkedSuburbs}
               sortField={sortField} sortDir={sortDir} toggleSort={toggleSort}
-              calcDOM={calcDOM} formatIsoDate={formatIsoDate} deleteListing={deleteListing}
+              calcDOM={calcDOM} formatIsoDate={formatIsoDate}
+              deleteListing={deleteListing} updateListing={updateListing}
             />
           ) : (
             <div className="logs-view">
