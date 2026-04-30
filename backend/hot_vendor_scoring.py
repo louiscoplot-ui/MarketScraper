@@ -25,6 +25,46 @@ logger = logging.getLogger(__name__)
 
 CUTOFF_RECENT = date(2023, 1, 1)
 
+
+# RP Data uses '-' for missing values, plus the usual nan/None/empty
+_MISSING = ('', '-', 'N/A', 'nan', 'None', 'NaN')
+
+
+def _safe_int(v):
+    """Coerce a CSV value to int, returning None for missing markers."""
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    if s in _MISSING:
+        return None
+    try:
+        return int(float(s.replace(',', '')))
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float(v):
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    if s in _MISSING:
+        return None
+    try:
+        return float(s.replace(',', ''))
+    except (ValueError, TypeError):
+        return None
+
+
 CSV_COLS_22 = [
     'address', 'suburb', 'state', 'postcode', 'property_type',
     'bedrooms', 'bathrooms', 'car_spaces', 'land_area', 'floor_area', 'col10',
@@ -85,7 +125,6 @@ def _read_csv_with_format_detection(file_bytes):
                 continue
 
     if best_cols is None:
-        # Fallback — detect price/date columns by content signature
         logger.warning(f"CSV format not recognised ({ncols} cols), auto-detecting by position")
         generic = [f'col{i}' for i in range(ncols)]
         buf.seek(0)
@@ -123,7 +162,6 @@ def _classify_property_type(t):
 
 
 def _detect_price_thresholds(df):
-    """Premium / mid / standard suburb → different non-market filters."""
     sample_prices = pd.to_numeric(
         df['sale_price'].astype(str).str.replace('[$,]', '', regex=True),
         errors='coerce'
@@ -339,10 +377,6 @@ def _auto_calibrate_weights(profile):
     return weights, rationale
 
 
-# ---------------------------------------------------------------------
-# Per-factor scores
-# ---------------------------------------------------------------------
-
 def _holding_score(yrs, median):
     r = yrs / median if median > 0 else 1
     if r < 0.4: return 10
@@ -443,7 +477,6 @@ def _apply_scoring(prop_df, weights, profile):
 
 
 def _date_to_dmy(d):
-    """Format a date / datetime / None as DD/MM/YYYY for JSON + DB."""
     if d is None or pd.isna(d):
         return None
     if hasattr(d, 'strftime'):
@@ -452,60 +485,48 @@ def _date_to_dmy(d):
 
 
 def _serialize_properties(prop_df):
-    """DataFrame → list of dicts ready for JSON / DB insert."""
+    """DataFrame → list of dicts ready for JSON / DB insert.
+
+    Uses _safe_int / _safe_float on every numeric field so RP Data's
+    '-' (missing) values + pandas NaN don't blow up int().
+    """
     rows = []
     for _, r in prop_df.iterrows():
-        def gv(k, default=None):
-            v = r.get(k, default)
-            if pd.isna(v):
-                return None
-            return v
         rows.append({
             'address': r['address'],
-            'suburb': gv('suburb'),
+            'suburb': r.get('suburb') if not pd.isna(r.get('suburb')) else None,
             'type': r['prop_type'],
-            'bedrooms': int(gv('bedrooms')) if gv('bedrooms') not in (None, '') else None,
-            'bathrooms': int(gv('bathrooms')) if gv('bathrooms') not in (None, '') else None,
-            'last_sale_price': int(r['last_sale_price']) if not pd.isna(r['last_sale_price']) else None,
-            'owner_purchase_price': int(r['owner_purchase_price']) if not pd.isna(r['owner_purchase_price']) else None,
+            'bedrooms': _safe_int(r.get('bedrooms')),
+            'bathrooms': _safe_int(r.get('bathrooms')),
+            'last_sale_price': _safe_int(r.get('last_sale_price')),
+            'owner_purchase_price': _safe_int(r.get('owner_purchase_price')),
             'owner_purchase_date': _date_to_dmy(r.get('owner_purchase_date')),
-            'holding_years': float(r['holding_yrs']) if not pd.isna(r['holding_yrs']) else None,
-            'sales_count': int(r['n_sales']),
-            'owner_gain_dollars': int(gv('owner_gain_dollar')) if gv('owner_gain_dollar') is not None else None,
-            'owner_gain_pct': float(gv('owner_gain_pct')) if gv('owner_gain_pct') is not None else None,
-            'cagr': float(gv('owner_cagr')) if gv('owner_cagr') is not None else None,
-            'estimated_value': int(gv('estimated_value')) if gv('estimated_value') is not None else None,
-            'potential_profit': int(gv('potential_profit')) if gv('potential_profit') is not None else None,
-            'potential_profit_pct': float(gv('potential_profit_pct')) if gv('potential_profit_pct') is not None else None,
-            'hold_score': int(r['hold_score']),
-            'type_score': int(r['type_score']),
-            'gain_score': int(r['gain_score']),
-            'cagr_score': int(r['cagr_score']),
-            'freq_score': int(r['freq_score']),
-            'prof_score': int(r['prof_score']),
-            'final_score': float(r['final_score']),
-            'category': r['category'],
-            'rank': int(r['rank']),
-            'current_owner': gv('current_owner1'),
-            'agency': gv('agency'),
-            'agent': gv('agent'),
+            'holding_years': _safe_float(r.get('holding_yrs')),
+            'sales_count': _safe_int(r.get('n_sales')) or 0,
+            'owner_gain_dollars': _safe_int(r.get('owner_gain_dollar')),
+            'owner_gain_pct': _safe_float(r.get('owner_gain_pct')),
+            'cagr': _safe_float(r.get('owner_cagr')),
+            'estimated_value': _safe_int(r.get('estimated_value')),
+            'potential_profit': _safe_int(r.get('potential_profit')),
+            'potential_profit_pct': _safe_float(r.get('potential_profit_pct')),
+            'hold_score': _safe_int(r.get('hold_score')) or 0,
+            'type_score': _safe_int(r.get('type_score')) or 0,
+            'gain_score': _safe_int(r.get('gain_score')) or 0,
+            'cagr_score': _safe_int(r.get('cagr_score')) or 0,
+            'freq_score': _safe_int(r.get('freq_score')) or 0,
+            'prof_score': _safe_int(r.get('prof_score')) or 0,
+            'final_score': _safe_float(r.get('final_score')) or 0.0,
+            'category': r.get('category'),
+            'rank': _safe_int(r.get('rank')) or 0,
+            'current_owner': r.get('current_owner1') if not pd.isna(r.get('current_owner1')) else None,
+            'agency': r.get('agency') if not pd.isna(r.get('agency')) else None,
+            'agent': r.get('agent') if not pd.isna(r.get('agent')) else None,
         })
     return rows
 
 
 def score_csv(file_bytes, suburb=None, today=None):
-    """Run the full v4 pipeline on a CSV uploaded as bytes.
-
-    Returns a dict ready to persist + serialise to JSON:
-      {
-        suburb, today, raw_count, kept_count, excluded_count,
-        thresholds, profile, weights, rationale,
-        median_m2_house, median_m2_apt,
-        q_hot, q_warm, q_medium,
-        excluded: [{reason, count}, ...],
-        properties: [...],
-      }
-    """
+    """Run the full v4 pipeline on a CSV uploaded as bytes."""
     today = today or date.today()
 
     clean_df, excluded, raw_count, thresholds = _clean_dataframe(file_bytes)
