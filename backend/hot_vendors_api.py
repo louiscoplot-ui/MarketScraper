@@ -49,9 +49,23 @@ def _safe_float(v):
         return None
 
 
+def _clean_address(raw):
+    """Strip CSV scrape artefacts. Currently handles the duplicate-
+    number prefix ("18 18 Timmi Lane" → "18 Timmi Lane") that some
+    RP Data exports produce when the source field is concatenated
+    twice. Idempotent on clean addresses."""
+    if not raw:
+        return ''
+    s = str(raw).strip()
+    parts = s.split()
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit() and parts[0] == parts[1]:
+        s = ' '.join([parts[0]] + parts[2:])
+    return s
+
+
 def _coerce_property_row(p):
     return {
-        'address': (p.get('address') or '').strip(),
+        'address': _clean_address(p.get('address')),
         'suburb': p.get('suburb'),
         'type': p.get('type'),
         'bedrooms': _safe_int(p.get('bedrooms')),
