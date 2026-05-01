@@ -4,6 +4,7 @@
 
 import { useState } from 'react'
 import EditableDateCell from '../components/EditableDateCell'
+import EditableTextCell from '../components/EditableTextCell'
 
 
 // HTML5 date input emits YYYY-MM-DD. listing_date in the DB is
@@ -91,24 +92,33 @@ export default function ListingsView({
       cell: (l) => l.reiwa_url
         ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
         : l.address },
-    { field: '__note', label: '📝', sortable: false, className: 'note-cell',
+    { field: '__note', label: '📝 Note', sortable: false, className: 'note-cell',
       cell: (l) => {
-        const has = !!(l.note && l.note.trim())
-        const preview = has ? l.note.trim().slice(0, 200) : 'Click to add a note'
+        const text = (l.note || '').trim()
+        const has = !!text
+        const preview = has
+          ? (text.length > 40 ? text.slice(0, 40) + '…' : text)
+          : null
         return (
           <button
-            className={`btn-note ${has ? 'has-note' : ''}`}
-            title={preview}
+            className={`btn-note ${has ? 'has-note' : 'empty-note'}`}
+            title={has ? text : 'Click to add a note about this listing'}
             onClick={() => openNote(l)}
           >
-            {has ? '📝' : '＋'}
+            {has ? <>📝&nbsp;{preview}</> : <>＋&nbsp;Add&nbsp;note</>}
           </button>
         )
       } },
     showSuburb && { field: 'suburb_name', label: 'Suburb', sortable: true,
       cell: (l) => l.suburb_name },
     { field: 'price_text', label: 'Price', sortable: true, className: 'price-cell',
-      cell: (l) => l.price_text || '-' },
+      cell: (l) => (
+        <EditableTextCell
+          value={l.price_text}
+          placeholder="+ add price"
+          onSave={(val) => updateListing(l.id, { price_text: val })}
+        />
+      ) },
     { field: 'bedrooms', label: 'Bed', sortable: true, className: 'num',
       cell: (l) => l.bedrooms ?? '-' },
     { field: 'bathrooms', label: 'Bath', sortable: true, className: 'num',
