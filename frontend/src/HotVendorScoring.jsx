@@ -13,6 +13,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 const API = ''
 const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
 const ACTIVE_JOB_KEY = 'agentdeck_hv_active_job'
+// Bumped at every push that touches the upload flow — visible in the
+// header so we can tell at a glance which frontend bundle is live.
+const BUILD_TAG = 'upload-direct-v3'
 
 const CATEGORY_COLORS = {
   HOT: '#FFD7D7',
@@ -464,7 +467,11 @@ export default function HotVendorScoring() {
     <div className={`hot-vendor ${compact ? 'compact' : ''}`}>
       <div className="hot-vendor-header">
         <div>
-          <h2>Hot Vendor Scoring</h2>
+          <h2>Hot Vendor Scoring <span style={{
+            fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)',
+            marginLeft: 8, padding: '2px 6px', border: '1px solid var(--border)',
+            borderRadius: 4, fontFamily: 'monospace',
+          }}>{BUILD_TAG}</span></h2>
           <p className="hot-vendor-sub">
             Drop an RP Data / CoreLogic / Landgate CSV (or xlsx). The backend
             v4 pipeline auto-calibrates scoring weights against the suburb's
