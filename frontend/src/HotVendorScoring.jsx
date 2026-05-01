@@ -167,9 +167,37 @@ export default function HotVendorScoring() {
     if (file) handleFile(file)
   }
 
-  const downloadExcel = () => {
-    if (!data?.upload_id) return
-    window.open(`${API}/api/hot-vendors/uploads/${data.upload_id}/excel`, '_blank')
+  const downloadExcel = async () => {
+    if (!data?.upload_id) {
+      setError('No upload to download — score a CSV first')
+      return
+    }
+    setError('')
+    try {
+      const res = await fetch(`${API}/api/hot-vendors/uploads/${data.upload_id}/excel`)
+      if (!res.ok) {
+        let msg = `Download failed (${res.status})`
+        try {
+          const j = await res.json()
+          if (j.error) msg = j.error
+        } catch {}
+        throw new Error(msg)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const cd = res.headers.get('content-disposition') || ''
+      const m = cd.match(/filename="?([^";]+)"?/i)
+      a.download = m ? m[1] : `hot-vendors-${data.suburb || 'report'}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error(e)
+      setError(e.message || 'Excel download failed')
+    }
   }
 
   const properties = data?.properties || []
@@ -392,6 +420,12 @@ export default function HotVendorScoring() {
 
       {hasData && (
         <>
+          {error && (
+            <div className="hv-error-banner">
+              ⚠ {error}
+              <button className="btn-link" onClick={() => setError('')}>dismiss</button>
+            </div>
+          )}
           {/* Suburb profile + auto-calibrated weights banner */}
           <div style={{
             background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px',
@@ -534,7 +568,7 @@ export default function HotVendorScoring() {
                   return (
                     <tr key={p.rank} style={{ background: tint || undefined }}>
                       <td className="num">{p.rank}</td>
-                      <td>{p.address}</td>
+                      <td className="hv-cell-address" title={p.address}>{p.address}</td>
                       <td>{p.type}</td>
                       <td className="num">{p.bedrooms ?? '-'}</td>
                       <td className="num">{fmtMoney(p.last_sale_price)}</td>
@@ -549,9 +583,9 @@ export default function HotVendorScoring() {
                           {CATEGORY_BADGE[p.category]?.label || p.category}
                         </span>
                       </td>
-                      <td>{p.current_owner || '-'}</td>
-                      <td>{p.agency || '-'}</td>
-                      <td>{p.agent || '-'}</td>
+                      <td className="hv-cell-owner" title={p.current_owner || ''}>{p.current_owner || '-'}</td>
+                      <td className="hv-cell-agency" title={p.agency || ''}>{p.agency || '-'}</td>
+                      <td className="hv-cell-agent" title={p.agent || ''}>{p.agent || '-'}</td>
                       <td>
                         <select
                           className="hv-status-select"
