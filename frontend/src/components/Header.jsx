@@ -4,8 +4,6 @@
 // All state lives in App.jsx; this is a presentational component that
 // receives view + handlers via props.
 
-import { signOut } from '../auth'
-
 const TABS = [
   { id: 'listings', label: 'Listings' },
   { id: 'pipeline', label: 'Pipeline' },
@@ -90,13 +88,6 @@ export default function Header({
           title="Theme"
         >
           ⚙
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={signOut}
-          title="Sign out"
-        >
-          Sign out
         </button>
       </div>
     </header>

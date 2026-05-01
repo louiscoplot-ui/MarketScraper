@@ -19,9 +19,6 @@ from listings_api import register_listings_routes
 from report_api import register_report_routes
 from export_api import register_export_routes
 from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
-from auth import (
-    login as auth_login, verify_token, is_open_path, auth_configured,
-)
 
 app = Flask(__name__)
 CORS(app)
@@ -32,52 +29,6 @@ try:
     init_db()
 except Exception as e:
     logger.error(f"init_db at module load failed: {e}")
-
-
-@app.before_request
-def _beta_auth_gate():
-    """Block /api/* unless the request carries a valid bearer token.
-    Login + healthcheck stay open. CORS preflights bypass the gate.
-    Non-API routes (none in prod — frontend lives on Vercel) are also
-    bypassed so static assets stay reachable in dev."""
-    if request.method == 'OPTIONS':
-        return None
-    if not request.path.startswith('/api/'):
-        return None
-    if is_open_path(request.path):
-        return None
-    if not auth_configured():
-        # No emails / key configured → don't gate (local dev). In prod
-        # the env vars must be set or nobody gets in.
-        return None
-    auth_header = request.headers.get('Authorization', '')
-    token = auth_header[7:].strip() if auth_header.startswith('Bearer ') else ''
-    if not verify_token(token):
-        return jsonify({'error': 'auth required'}), 401
-    return None
-
-
-@app.route('/api/auth/login', methods=['POST'])
-def auth_login_route():
-    data = request.get_json(silent=True) or {}
-    credential = (
-        data.get('credential') or data.get('email') or data.get('key') or ''
-    )
-    token = auth_login(credential)
-    if not token:
-        return jsonify({'error': 'invalid email or access key'}), 401
-    return jsonify({'token': token})
-
-
-@app.route('/api/auth/me', methods=['GET'])
-def auth_me_route():
-    auth_header = request.headers.get('Authorization', '')
-    token = auth_header[7:].strip() if auth_header.startswith('Bearer ') else ''
-    payload = verify_token(token)
-    if not payload:
-        return jsonify({'authed': False}), 200
-    return jsonify({'authed': True, 'sub': payload.get('sub')}), 200
-
 
 register_pipeline_routes(app)
 register_import_routes(app)
