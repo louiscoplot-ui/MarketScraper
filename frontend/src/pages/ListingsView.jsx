@@ -32,8 +32,13 @@ export default function ListingsView({
   const [noteDraft, setNoteDraft] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
   const wrapperRef = useRef(null)
+  // Compact mode defaults ON for first-time visitors (denser table fits
+  // more on a laptop screen). User toggles persist after that.
   const [compact, setCompact] = useState(() => {
-    try { return localStorage.getItem('listings_compact') === '1' } catch { return false }
+    try {
+      const v = localStorage.getItem('listings_compact')
+      return v === null ? true : v === '1'
+    } catch { return true }
   })
   useEffect(() => {
     try { localStorage.setItem('listings_compact', compact ? '1' : '0') } catch {}

@@ -93,7 +93,16 @@ export default function HotVendorScoring() {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState({ field: 'rank', dir: 'asc' })
   const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
-  const [compact, setCompact] = useState(false)
+  // Compact mode defaults ON for first-time visitors. Toggle persists.
+  const [compact, setCompact] = useState(() => {
+    try {
+      const v = localStorage.getItem('hv_compact')
+      return v === null ? true : v === '1'
+    } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('hv_compact', compact ? '1' : '0') } catch {}
+  }, [compact])
   const [statuses, setStatuses] = useState({})
   const [suburbDropdownOpen, setSuburbDropdownOpen] = useState(false)
   const fileInputRef = useRef(null)
@@ -272,6 +281,7 @@ export default function HotVendorScoring() {
   }
 
   const [excelLoading, setExcelLoading] = useState(false)
+  const [excelStage, setExcelStage] = useState('')
   const [excelFallbackUrl, setExcelFallbackUrl] = useState(null)
   const [excelFallbackName, setExcelFallbackName] = useState('')
 
@@ -288,53 +298,62 @@ export default function HotVendorScoring() {
       return
     }
     setError('')
-    setExcelLoading(true)
     setExcelFallbackUrl(null)
+    setExcelLoading(true)
+    setExcelStage('Starting…')
     const t0 = Date.now()
     try {
-      // Direct to Render — Vercel proxy edge timeout (~25s) was killing
-      // the fetch while build_workbook was still serialising big suburbs.
-      const url = `${BACKEND_DIRECT}/api/hot-vendors/uploads/${id}/excel`
-      console.log('[Excel] Fetching', url)
-      const res = await fetch(url)
-      const elapsed = Date.now() - t0
-      console.log(`[Excel] Response in ${elapsed} ms — status ${res.status}, type ${res.headers.get('content-type')}`)
-      if (!res.ok) {
-        let msg = `Download failed (${res.status})`
-        try {
-          const j = await res.json()
-          if (j.error) msg = j.error
-        } catch {}
-        throw new Error(msg)
+      // Async pattern: POST starts a background build job, we poll the
+      // status, then fetch the file once ready. Avoids 502s on big
+      // suburbs that take >2 min to serialise.
+      const startRes = await fetch(
+        `${BACKEND_DIRECT}/api/hot-vendors/uploads/${id}/excel-job`,
+        { method: 'POST' }
+      )
+      const startJson = await startRes.json()
+      if (!startRes.ok || !startJson.job_id) {
+        throw new Error(startJson.error || `Could not start Excel job (${startRes.status})`)
       }
-      const blob = await res.blob()
-      console.log(`[Excel] Blob size ${blob.size} bytes, type "${blob.type}"`)
-      if (!blob.size) throw new Error('Empty file returned by backend')
-      const dlUrl = URL.createObjectURL(blob)
-      const cd = res.headers.get('content-disposition') || ''
-      const m = cd.match(/filename="?([^";]+)"?/i)
-      const fname = m ? m[1] : `hot-vendors-${data.suburb || 'report'}.xlsx`
+      const jobId = startJson.job_id
+      console.log(`[Excel] queued job ${jobId} — polling`)
 
-      // Auto-download via a transient anchor. Most browsers honour this
-      // even outside the user-gesture context after a fetch, but Safari
-      // and some Chrome configs silently block it. Always also surface
-      // a manual fallback link so the user is never stuck.
-      const a = document.createElement('a')
-      a.href = dlUrl
-      a.download = fname
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      console.log('[Excel] Triggered programmatic download:', fname)
-      // Don't revoke immediately — the click handler may still be reading.
-      setTimeout(() => { a.remove() }, 1000)
-      setExcelFallbackUrl(dlUrl)
-      setExcelFallbackName(fname)
+      const POLL_MS = 1500
+      const MAX_MS = 10 * 60 * 1000
+      while (true) {
+        await new Promise(r => setTimeout(r, POLL_MS))
+        const sRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}`)
+        const sJson = await sRes.json().catch(() => ({}))
+        if (sJson.stage) setExcelStage(sJson.stage)
+        console.log(`[Excel poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
+        if (sJson.status === 'done' && sJson.has_file) {
+          console.log(`[Excel] ready in ${((Date.now() - t0) / 1000).toFixed(1)}s — fetching file`)
+          const fileRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}/file`)
+          if (!fileRes.ok) throw new Error(`File fetch failed (${fileRes.status})`)
+          const blob = await fileRes.blob()
+          if (!blob.size) throw new Error('Empty file from backend')
+          const dlUrl = URL.createObjectURL(blob)
+          const fname = sJson.filename || `hot-vendors-${data.suburb || 'report'}.xlsx`
+          const a = document.createElement('a')
+          a.href = dlUrl
+          a.download = fname
+          a.style.display = 'none'
+          document.body.appendChild(a)
+          a.click()
+          setTimeout(() => { a.remove() }, 1000)
+          setExcelFallbackUrl(dlUrl)
+          setExcelFallbackName(fname)
+          return
+        }
+        if (sJson.status === 'error') throw new Error(sJson.error || 'Excel build failed')
+        if (sJson.status === 'lost' || !sRes.ok) throw new Error(sJson.error || 'Job lost')
+        if (Date.now() - t0 > MAX_MS) throw new Error('Excel job took >10 min')
+      }
     } catch (e) {
       console.error('[Excel] Failed:', e)
       setError(e.message || 'Excel download failed')
     } finally {
       setExcelLoading(false)
+      setExcelStage('')
     }
   }
 
@@ -504,7 +523,9 @@ export default function HotVendorScoring() {
               onClick={downloadExcel}
               disabled={excelLoading}
             >
-              {excelLoading ? '⏳ Generating…' : '⬇ Download Excel report'}
+              {excelLoading
+                ? `⏳ ${excelStage || 'Generating…'}`
+                : '⬇ Download Excel report'}
             </button>
             {excelFallbackUrl && (
               <a

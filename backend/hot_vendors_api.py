@@ -32,6 +32,34 @@ _hv_jobs = {}
 _hv_jobs_lock = threading.Lock()
 _HV_JOB_TTL_SECONDS = 3600  # 1h
 
+# Same pattern for Excel report generation — `build_workbook` on a 9k-
+# property upload can take 1-3 min on free-tier Render and blow the
+# gateway timeout. We build in a thread, return 202 + job_id, and let
+# the frontend poll then download from the worker once it's ready.
+_hv_excel_jobs = {}
+_hv_excel_jobs_lock = threading.Lock()
+_HV_EXCEL_TTL_SECONDS = 600  # 10 min — file bytes evicted after that
+
+
+def _hv_excel_set(job_id, **fields):
+    with _hv_excel_jobs_lock:
+        cur = _hv_excel_jobs.get(job_id) or {}
+        cur.update(fields)
+        cur['updated_at'] = time.time()
+        _hv_excel_jobs[job_id] = cur
+
+
+def _hv_excel_get(job_id):
+    with _hv_excel_jobs_lock:
+        return dict(_hv_excel_jobs.get(job_id) or {})
+
+
+def _hv_excel_purge_expired():
+    cutoff = time.time() - _HV_EXCEL_TTL_SECONDS
+    with _hv_excel_jobs_lock:
+        for k in [k for k, v in _hv_excel_jobs.items() if v.get('updated_at', 0) < cutoff]:
+            _hv_excel_jobs.pop(k, None)
+
 
 def _hv_job_set(job_id, **fields):
     with _hv_jobs_lock:
@@ -587,7 +615,95 @@ def register_hot_vendors_routes(app):
 
 
     # ------------------------------------------------------------------
-    # Excel report rebuild
+    # Async Excel build — POST starts a job, GET status, GET file once done.
+    # Synchronous /excel route below kept as a fallback for tiny suburbs.
+    # ------------------------------------------------------------------
+    def _excel_worker(job_id, upload_id):
+        try:
+            _hv_excel_set(job_id, status='running', stage='Loading data…')
+            from hot_vendor_excel import build_workbook, workbook_filename
+            conn = get_db()
+            try:
+                result = _build_upload_payload(conn, upload_id)
+            finally:
+                try: conn.close()
+                except Exception: pass
+            if not result:
+                _hv_excel_set(job_id, status='error', error='Upload not found')
+                return
+            suburb = result.get('suburb', 'report')
+            n_props = len(result.get('properties') or [])
+            _hv_excel_set(job_id, stage=f'Building workbook ({n_props} rows)…')
+            logger.info(f"[Excel job {job_id}] building for {suburb} ({n_props} rows)")
+            t = time.time()
+            buf = build_workbook(result)
+            buf.seek(0)
+            file_bytes = buf.read()
+            try:
+                fname = workbook_filename(suburb)
+            except Exception:
+                fname = f"hot-vendors-{suburb}.xlsx"
+            logger.info(
+                f"[Excel job {job_id}] DONE in {time.time() - t:.1f}s "
+                f"({len(file_bytes)} bytes) — {fname}"
+            )
+            _hv_excel_set(
+                job_id, status='done', stage='Done',
+                file_bytes=file_bytes, filename=fname,
+            )
+        except Exception as e:
+            logger.exception(f"[Excel job {job_id}] failed")
+            _hv_excel_set(job_id, status='error', error=f'{type(e).__name__}: {e}')
+
+
+    @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel-job', methods=['POST'])
+    def excel_job_start(upload_id):
+        _hv_excel_purge_expired()
+        job_id = uuid.uuid4().hex[:12]
+        _hv_excel_set(job_id, status='running', stage='Queued', upload_id=upload_id)
+        threading.Thread(
+            target=_excel_worker, args=(job_id, upload_id), daemon=True,
+        ).start()
+        logger.info(f"[Excel] queued job {job_id} for upload_id={upload_id}")
+        return jsonify({'job_id': job_id, 'status': 'running'}), 202
+
+
+    @app.route('/api/hot-vendors/excel-job/<job_id>', methods=['GET'])
+    def excel_job_status(job_id):
+        job = _hv_excel_get(job_id)
+        if not job:
+            return jsonify({
+                'status': 'lost',
+                'error': 'Job not found — server may have restarted',
+            }), 404
+        return jsonify({
+            'status': job.get('status'),
+            'stage': job.get('stage'),
+            'filename': job.get('filename'),
+            'error': job.get('error'),
+            'has_file': bool(job.get('file_bytes')),
+        })
+
+
+    @app.route('/api/hot-vendors/excel-job/<job_id>/file', methods=['GET'])
+    def excel_job_file(job_id):
+        job = _hv_excel_get(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+        if not job.get('file_bytes'):
+            return jsonify({'error': 'File not ready', 'status': job.get('status')}), 404
+        from io import BytesIO
+        return send_file(
+            BytesIO(job['file_bytes']),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=job.get('filename', 'hot-vendors.xlsx'),
+        )
+
+
+    # ------------------------------------------------------------------
+    # Excel report rebuild (sync — kept for tiny suburbs, large ones
+    # should use the async /excel-job pattern above to avoid 502s).
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
     def download_excel(upload_id):
