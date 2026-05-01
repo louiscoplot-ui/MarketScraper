@@ -271,6 +271,8 @@ export default function HotVendorScoring() {
   }
 
   const [excelLoading, setExcelLoading] = useState(false)
+  const [excelFallbackUrl, setExcelFallbackUrl] = useState(null)
+  const [excelFallbackName, setExcelFallbackName] = useState('')
 
   const downloadExcel = async () => {
     const id = data?.upload_id ?? data?.id ?? data?.uploadId
@@ -286,11 +288,14 @@ export default function HotVendorScoring() {
     }
     setError('')
     setExcelLoading(true)
+    setExcelFallbackUrl(null)
+    const t0 = Date.now()
     try {
       const url = `${API}/api/hot-vendors/uploads/${id}/excel`
       console.log('[Excel] Fetching', url)
       const res = await fetch(url)
-      console.log('[Excel] Response', res.status, res.headers.get('content-type'))
+      const elapsed = Date.now() - t0
+      console.log(`[Excel] Response in ${elapsed} ms — status ${res.status}, type ${res.headers.get('content-type')}`)
       if (!res.ok) {
         let msg = `Download failed (${res.status})`
         try {
@@ -300,18 +305,28 @@ export default function HotVendorScoring() {
         throw new Error(msg)
       }
       const blob = await res.blob()
-      console.log('[Excel] Blob size', blob.size, 'type', blob.type)
+      console.log(`[Excel] Blob size ${blob.size} bytes, type "${blob.type}"`)
       if (!blob.size) throw new Error('Empty file returned by backend')
       const dlUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = dlUrl
       const cd = res.headers.get('content-disposition') || ''
       const m = cd.match(/filename="?([^";]+)"?/i)
-      a.download = m ? m[1] : `hot-vendors-${data.suburb || 'report'}.xlsx`
+      const fname = m ? m[1] : `hot-vendors-${data.suburb || 'report'}.xlsx`
+
+      // Auto-download via a transient anchor. Most browsers honour this
+      // even outside the user-gesture context after a fetch, but Safari
+      // and some Chrome configs silently block it. Always also surface
+      // a manual fallback link so the user is never stuck.
+      const a = document.createElement('a')
+      a.href = dlUrl
+      a.download = fname
+      a.style.display = 'none'
       document.body.appendChild(a)
       a.click()
-      a.remove()
-      URL.revokeObjectURL(dlUrl)
+      console.log('[Excel] Triggered programmatic download:', fname)
+      // Don't revoke immediately — the click handler may still be reading.
+      setTimeout(() => { a.remove() }, 1000)
+      setExcelFallbackUrl(dlUrl)
+      setExcelFallbackName(fname)
     } catch (e) {
       console.error('[Excel] Failed:', e)
       setError(e.message || 'Excel download failed')
@@ -480,13 +495,25 @@ export default function HotVendorScoring() {
           </p>
         </div>
         {hasData && (
-          <button
-            className="btn btn-primary"
-            onClick={downloadExcel}
-            disabled={excelLoading}
-          >
-            {excelLoading ? '⏳ Generating…' : '⬇ Download Excel report'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn btn-primary"
+              onClick={downloadExcel}
+              disabled={excelLoading}
+            >
+              {excelLoading ? '⏳ Generating…' : '⬇ Download Excel report'}
+            </button>
+            {excelFallbackUrl && (
+              <a
+                href={excelFallbackUrl}
+                download={excelFallbackName}
+                className="btn btn-ghost btn-sm"
+                style={{ textDecoration: 'none' }}
+              >
+                ⬇ Click here if it didn't download
+              </a>
+            )}
+          </div>
         )}
       </div>
 

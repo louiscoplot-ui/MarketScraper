@@ -1374,18 +1374,15 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
   cursor: pointer;
 }
 
-/* Drag-to-scroll affordance + sticky horizontal scrollbar.
-   The wrapper now bounds itself to the viewport so the bottom edge
-   (where the horizontal scrollbar lives) stays visible no matter how
-   far down the user scrolls — they don't have to chase it. */
+/* The wrapper bounds itself to the viewport so vertical scroll happens
+   INSIDE the table — the horizontal scrollbar then sits at the bottom
+   of the visible table region, not 30 rows below the fold. */
 .hv-table-wrapper {
   cursor: grab;
   user-select: text;
-  max-height: calc(100vh - 320px);
+  max-height: calc(100vh - 280px);
   min-height: 320px;
   overflow: auto;
-  position: sticky;
-  bottom: 0;
 }
 .hv-table-wrapper.dragging { cursor: grabbing; user-select: none; }
 
