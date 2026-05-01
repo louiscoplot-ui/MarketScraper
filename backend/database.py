@@ -240,7 +240,17 @@ def get_suburbs():
 
 def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
     conn = get_db()
-    query = "SELECT l.*, s.name as suburb_name FROM listings l JOIN suburbs s ON l.suburb_id = s.id WHERE 1=1"
+    # LEFT JOIN listing_notes so each listing carries its free-text
+    # note inline — frontend renders the 📝 icon as filled when n.note
+    # is non-null. Notes are keyed on normalized_address so they survive
+    # re-listings (the listings.id changes when REIWA reposts).
+    query = (
+        "SELECT l.*, s.name as suburb_name, n.note as note "
+        "FROM listings l "
+        "JOIN suburbs s ON l.suburb_id = s.id "
+        "LEFT JOIN listing_notes n ON n.normalized_address = l.normalized_address "
+        "WHERE 1=1"
+    )
     params = []
     if suburb_ids:
         placeholders = ','.join('?' * len(suburb_ids))

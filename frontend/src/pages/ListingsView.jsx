@@ -2,6 +2,7 @@
 // under the MCP push size limit. State stays in App.jsx; this is a
 // presentational component that takes everything via props.
 
+import { useState } from 'react'
 import EditableDateCell from '../components/EditableDateCell'
 
 
@@ -21,6 +22,45 @@ export default function ListingsView({
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing,
 }) {
+  // Note editor state — `editing` holds the listing whose note we're
+  // editing (or null). PATCH writes to listing_notes keyed on the
+  // normalised address so the note follows the property across re-
+  // listings (REIWA reposting a withdrawn property → new id, same address).
+  const [noteEditing, setNoteEditing] = useState(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
+
+  const openNote = (l) => {
+    setNoteEditing(l)
+    setNoteDraft(l.note || '')
+  }
+  const closeNote = () => {
+    setNoteEditing(null)
+    setNoteDraft('')
+    setNoteSaving(false)
+  }
+  const saveNote = async () => {
+    if (!noteEditing) return
+    setNoteSaving(true)
+    try {
+      const res = await fetch('/api/listings/note', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: noteEditing.address, note: noteDraft }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'Save failed')
+      }
+      // Mirror to local state — the JOIN will surface it on next refetch.
+      updateListing(noteEditing.id, { note: noteDraft.trim() || null })
+      closeNote()
+    } catch (e) {
+      alert(`Could not save note: ${e.message}`)
+      setNoteSaving(false)
+    }
+  }
+
   // Smart column visibility — hide a date column when BOTH:
   //   (a) the filter excludes its status (e.g. Withdrawn off), AND
   //   (b) no row in the current filtered set has that date
@@ -44,6 +84,20 @@ export default function ListingsView({
       cell: (l) => l.reiwa_url
         ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
         : l.address },
+    { field: '__note', label: '📝', sortable: false, className: 'note-cell',
+      cell: (l) => {
+        const has = !!(l.note && l.note.trim())
+        const preview = has ? l.note.trim().slice(0, 200) : 'Click to add a note'
+        return (
+          <button
+            className={`btn-note ${has ? 'has-note' : ''}`}
+            title={preview}
+            onClick={() => openNote(l)}
+          >
+            {has ? '📝' : '＋'}
+          </button>
+        )
+      } },
     { field: 'suburb_name', label: 'Suburb', sortable: true,
       cell: (l) => l.suburb_name },
     { field: 'price_text', label: 'Price', sortable: true, className: 'price-cell',
@@ -194,6 +248,47 @@ export default function ListingsView({
           </tbody>
         </table>
       </div>
+
+      {noteEditing && (
+        <div className="note-modal-overlay" onClick={closeNote}>
+          <div className="note-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="note-modal-header">
+              <div>
+                <div className="note-modal-title">Note</div>
+                <div className="note-modal-sub">{noteEditing.address}</div>
+              </div>
+              <button className="btn-icon" onClick={closeNote} title="Close">×</button>
+            </div>
+            <textarea
+              className="note-textarea"
+              autoFocus
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="Spoke with the owner, considering selling next quarter…"
+              rows={6}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote()
+                if (e.key === 'Escape') closeNote()
+              }}
+            />
+            <div className="note-modal-footer">
+              <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+              <div className="note-modal-actions">
+                <button className="btn btn-ghost btn-sm" onClick={closeNote} disabled={noteSaving}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveNote}
+                  disabled={noteSaving}
+                >
+                  {noteSaving ? 'Saving…' : 'Save note'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

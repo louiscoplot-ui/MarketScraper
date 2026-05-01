@@ -1462,6 +1462,120 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
 .hot-vendor.compact .hv-badge { padding: 1px 5px; font-size: 9px; }
 .hot-vendor.compact .hv-status-select { padding: 1px 3px; font-size: 9.5px; }
 
+/* Per-listing note column + modal */
+.note-cell { text-align: center; padding: 2px 4px !important; }
+
+.btn-note {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 26px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-note:hover {
+  border-color: var(--primary);
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.btn-note.has-note {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--under-offer);
+  color: var(--under-offer);
+}
+
+.btn-note.has-note:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.note-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.note-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 560px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.note-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.note-modal-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.note-textarea {
+  margin: 14px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  min-height: 120px;
+}
+
+.note-textarea:focus {
+  border-color: var(--primary);
+}
+
+.note-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 18px 16px;
+  gap: 12px;
+}
+
+.note-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.note-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* Error banner — visible above the table when data is loaded. */
 .hv-error-banner {
   display: flex;

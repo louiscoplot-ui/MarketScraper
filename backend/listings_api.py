@@ -165,6 +165,52 @@ def patch_listing(id):
     return jsonify(dict(row))
 
 
+def patch_listing_note():
+    """UPSERT a free-text note on a listing, keyed on normalized_address
+    so the note follows the property across re-listings / re-scrapes.
+
+    Body: {address: str, note: str}    — empty / blank note clears the row."""
+    from flask import request, jsonify
+    from database import get_db, normalize_address, USE_POSTGRES
+
+    body = request.get_json(silent=True) or {}
+    addr = (body.get('address') or '').strip()
+    note = (body.get('note') or '').strip()
+    if not addr:
+        return jsonify({'error': 'address required'}), 400
+
+    norm = normalize_address(addr)
+    if not norm:
+        return jsonify({'error': 'address normalises to empty'}), 400
+
+    conn = get_db()
+    try:
+        if not note:
+            conn.execute(
+                "DELETE FROM listing_notes WHERE normalized_address = ?",
+                (norm,)
+            )
+        else:
+            if USE_POSTGRES:
+                conn.execute(
+                    "INSERT INTO listing_notes (normalized_address, note, updated_at) "
+                    "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT (normalized_address) DO UPDATE SET "
+                    "note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP",
+                    (norm, note)
+                )
+            else:
+                conn.execute(
+                    "INSERT OR REPLACE INTO listing_notes "
+                    "(normalized_address, note, updated_at) VALUES (?, ?, datetime('now'))",
+                    (norm, note)
+                )
+        conn.commit()
+        return jsonify({'normalized_address': norm, 'note': note or None})
+    finally:
+        conn.close()
+
+
 def register_listings_routes(app):
     app.add_url_rule(
         '/api/listings/<int:id>',
@@ -172,4 +218,10 @@ def register_listings_routes(app):
         view_func=patch_listing,
         methods=['PATCH']
     )
-    logger.info("Listings routes registered: PATCH /api/listings/<id>")
+    app.add_url_rule(
+        '/api/listings/note',
+        endpoint='patch_listing_note',
+        view_func=patch_listing_note,
+        methods=['PATCH']
+    )
+    logger.info("Listings routes registered: PATCH /api/listings/<id>, PATCH /api/listings/note")

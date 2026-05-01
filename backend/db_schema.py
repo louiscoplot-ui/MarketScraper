@@ -294,5 +294,17 @@ def init_db():
         );
     """)
 
+    # Per-listing free-text notes — keyed on normalized_address so the
+    # note survives re-scrapes, re-listings, and agency switches. The
+    # listings.id renews when REIWA reposts a withdrawn property; the
+    # normalised address is the stable identifier.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS listing_notes (
+            normalized_address TEXT PRIMARY KEY,
+            note TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
     conn.commit()
     conn.close()
