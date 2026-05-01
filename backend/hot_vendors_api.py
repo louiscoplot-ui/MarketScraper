@@ -174,8 +174,11 @@ def _insert_property_rows(conn, upload_id, rows):
     update_cols = ['upload_id'] + _PROP_COLUMNS[1:]
 
     def row_values(r):
+        # Coerce empty-string normalized_address to NULL so multiple
+        # bad-address rows don't trip the (now non-partial) unique index.
+        norm = normalize_address(r['address']) or None
         return tuple(
-            [upload_id, r['address'], normalize_address(r['address'])] +
+            [upload_id, r['address'], norm] +
             [r.get(c) for c in _PROP_COLUMNS[1:]]
         )
 

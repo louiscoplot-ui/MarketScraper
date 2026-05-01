@@ -264,23 +264,40 @@ def init_db():
     except Exception:
         conn.commit()
 
+    # Postgres ON CONFLICT (normalized_address) requires a NON-PARTIAL
+    # unique index — partial indexes only match when the INSERT repeats
+    # the WHERE predicate, which our _insert_property_rows doesn't.
+    # 1. Coerce empty-string normalized_address rows to NULL (NULLs are
+    #    distinct in unique indexes by default, so multiple bad-address
+    #    rows still co-exist).
+    # 2. Drop any pre-existing partial index from older migrations.
+    # 3. Create a clean non-partial unique index.
+    try:
+        conn.execute(
+            "UPDATE hot_vendor_properties SET normalized_address = NULL "
+            "WHERE normalized_address = ''"
+        )
+        conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception: pass
+
+    try:
+        conn.execute("DROP INDEX IF EXISTS uq_hv_props_normaddr")
+        conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception: pass
+
     try:
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_normaddr "
-            "ON hot_vendor_properties(normalized_address) "
-            "WHERE normalized_address IS NOT NULL AND normalized_address <> ''"
+            "ON hot_vendor_properties(normalized_address)"
         )
+        conn.commit()
     except Exception:
-        # SQLite supports partial indexes; Postgres does too. If somehow
-        # this still fails (e.g. residual dup), fall back to a non-partial
-        # index on the dedup'd table.
-        try:
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_normaddr "
-                "ON hot_vendor_properties(normalized_address)"
-            )
-        except Exception:
-            conn.commit()
+        try: conn.commit()
+        except Exception: pass
 
     # Cache for OSM Overpass street lookups — pipeline neighbour generation
     # falls back to OSM when we have no Hot Vendor / listings data on a
