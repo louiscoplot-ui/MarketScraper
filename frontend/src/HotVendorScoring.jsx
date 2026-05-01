@@ -167,14 +167,21 @@ export default function HotVendorScoring() {
     if (file) handleFile(file)
   }
 
+  const [excelLoading, setExcelLoading] = useState(false)
+
   const downloadExcel = async () => {
+    console.log('[Excel] Download clicked. upload_id =', data?.upload_id)
     if (!data?.upload_id) {
-      setError('No upload to download — score a CSV first')
+      setError('No upload_id on this report — try re-uploading the CSV')
       return
     }
     setError('')
+    setExcelLoading(true)
     try {
-      const res = await fetch(`${API}/api/hot-vendors/uploads/${data.upload_id}/excel`)
+      const url = `${API}/api/hot-vendors/uploads/${data.upload_id}/excel`
+      console.log('[Excel] Fetching', url)
+      const res = await fetch(url)
+      console.log('[Excel] Response', res.status, res.headers.get('content-type'))
       if (!res.ok) {
         let msg = `Download failed (${res.status})`
         try {
@@ -184,19 +191,23 @@ export default function HotVendorScoring() {
         throw new Error(msg)
       }
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
+      console.log('[Excel] Blob size', blob.size, 'type', blob.type)
+      if (!blob.size) throw new Error('Empty file returned by backend')
+      const dlUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      a.href = url
+      a.href = dlUrl
       const cd = res.headers.get('content-disposition') || ''
       const m = cd.match(/filename="?([^";]+)"?/i)
       a.download = m ? m[1] : `hot-vendors-${data.suburb || 'report'}.xlsx`
       document.body.appendChild(a)
       a.click()
       a.remove()
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(dlUrl)
     } catch (e) {
-      console.error(e)
+      console.error('[Excel] Failed:', e)
       setError(e.message || 'Excel download failed')
+    } finally {
+      setExcelLoading(false)
     }
   }
 
@@ -356,8 +367,12 @@ export default function HotVendorScoring() {
           </p>
         </div>
         {hasData && (
-          <button className="btn btn-primary" onClick={downloadExcel}>
-            ⬇ Download Excel report
+          <button
+            className="btn btn-primary"
+            onClick={downloadExcel}
+            disabled={excelLoading}
+          >
+            {excelLoading ? '⏳ Generating…' : '⬇ Download Excel report'}
           </button>
         )}
       </div>

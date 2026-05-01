@@ -507,6 +507,7 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
     def download_excel(upload_id):
+        logger.info(f"[Excel] Download requested for upload_id={upload_id}")
         try:
             from hot_vendor_excel import build_workbook, workbook_filename
         except ImportError as e:
@@ -517,19 +518,29 @@ def register_hot_vendors_routes(app):
         result = _build_upload_payload(conn, upload_id)
         conn.close()
         if not result:
+            logger.warning(f"[Excel] upload_id={upload_id} not found")
             return jsonify({'error': 'Upload not found'}), 404
 
+        logger.info(f"[Excel] Building workbook: suburb={result.get('suburb')}, "
+                    f"properties={len(result.get('properties') or [])}")
         try:
             buf = build_workbook(result)
         except Exception as e:
             logger.exception("Excel build failed")
-            return jsonify({'error': f'Excel build failed: {e}'}), 500
+            return jsonify({'error': f'Excel build failed: {type(e).__name__}: {e}'}), 500
+
+        try:
+            fname = workbook_filename(result['suburb'])
+        except Exception as e:
+            logger.exception("workbook_filename failed")
+            fname = f"hot-vendors-{result.get('suburb', 'report')}.xlsx"
+        logger.info(f"[Excel] Sending {fname}")
 
         return send_file(
             buf,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
-            download_name=workbook_filename(result['suburb']),
+            download_name=fname,
         )
 
 
