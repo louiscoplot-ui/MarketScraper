@@ -60,19 +60,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-.table-wrapper tbody tr:hover td {
-  background: var(--surface-hover);
-}
-
-/* Row banding — subtle, alternating for scannability */
-.table-wrapper tbody tr:nth-child(even) td {
-  background: color-mix(in srgb, var(--surface) 70%, var(--bg) 30%);
-}
-
-.table-wrapper tbody tr:nth-child(even) td:first-child {
-  background: color-mix(in srgb, var(--surface) 70%, var(--bg) 30%);
-}
-
+/* Hover handled in index.css with status-aware tinting (each
+   tr.status-X:hover deepens its own colour) — overriding here
+   on td would clobber the status tint. */
 
 /* Status pastille — coloured dot + text instead of full pill.
    Way less visual noise on a 17-column table. */
