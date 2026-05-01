@@ -104,6 +104,10 @@ export default function HotVendorScoring() {
     try { localStorage.setItem('hv_compact', compact ? '1' : '0') } catch {}
   }, [compact])
   const [statuses, setStatuses] = useState({})
+  const [notes, setNotes] = useState({})
+  const [noteEditing, setNoteEditing] = useState(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
   const [suburbDropdownOpen, setSuburbDropdownOpen] = useState(false)
   const fileInputRef = useRef(null)
   const [dragActive, setDragActive] = useState(false)
@@ -359,15 +363,19 @@ export default function HotVendorScoring() {
 
   const properties = data?.properties || []
 
-  // Hydrate per-row status flags from the score-csv payload (server-side
-  // join against hot_vendor_property_status). Re-runs only on new uploads.
+  // Hydrate per-row status + note from the score-csv payload (server-
+  // side join against hot_vendor_property_status). Re-runs on new
+  // uploads; notes survive across re-uploads keyed on normalized address.
   useEffect(() => {
-    if (!data) { setStatuses({}); setSelectedSuburbs(new Set()); return }
-    const next = {}
+    if (!data) { setStatuses({}); setNotes({}); setSelectedSuburbs(new Set()); return }
+    const nextS = {}
+    const nextN = {}
     for (const p of data.properties || []) {
-      if (p.user_status) next[p.address] = p.user_status
+      if (p.user_status) nextS[p.address] = p.user_status
+      if (p.user_note) nextN[p.address] = p.user_note
     }
-    setStatuses(next)
+    setStatuses(nextS)
+    setNotes(nextN)
     setSelectedSuburbs(new Set())
   }, [data])
 
@@ -460,6 +468,42 @@ export default function HotVendorScoring() {
       })
     } catch (e) {
       console.error('Failed to save status', e)
+    }
+  }
+
+  const openNote = (p) => {
+    setNoteEditing(p)
+    setNoteDraft(notes[p.address] || '')
+  }
+  const closeNote = () => {
+    setNoteEditing(null)
+    setNoteDraft('')
+    setNoteSaving(false)
+  }
+  const saveNote = async () => {
+    if (!noteEditing) return
+    setNoteSaving(true)
+    try {
+      const res = await fetch(`${API}/api/hot-vendors/note`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: noteEditing.address, note: noteDraft }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'Save failed')
+      }
+      const trimmed = noteDraft.trim()
+      setNotes(prev => {
+        const next = { ...prev }
+        if (trimmed) next[noteEditing.address] = trimmed
+        else delete next[noteEditing.address]
+        return next
+      })
+      closeNote()
+    } catch (e) {
+      alert(`Could not save note: ${e.message}`)
+      setNoteSaving(false)
     }
   }
 
@@ -745,6 +789,7 @@ export default function HotVendorScoring() {
                   <th>Agency</th>
                   <th>Agent</th>
                   <th>Status</th>
+                  <th>📝 Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -783,17 +828,76 @@ export default function HotVendorScoring() {
                           ))}
                         </select>
                       </td>
+                      <td className="note-cell">
+                        {(() => {
+                          const text = (notes[p.address] || '').trim()
+                          const has = !!text
+                          const preview = has
+                            ? (text.length > 30 ? text.slice(0, 30) + '…' : text)
+                            : null
+                          return (
+                            <button
+                              className={`btn-note ${has ? 'has-note' : 'empty-note'}`}
+                              title={has ? text : 'Click to add a note'}
+                              onClick={() => openNote(p)}
+                            >
+                              {has ? <>📝&nbsp;{preview}</> : <>＋&nbsp;Add</>}
+                            </button>
+                          )
+                        })()}
+                      </td>
                     </tr>
                   )
                 })}
                 {!sorted.length && (
-                  <tr><td colSpan="16" className="empty">No properties match the current filters</td></tr>
+                  <tr><td colSpan="17" className="empty">No properties match the current filters</td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <StickyHScroll targetRef={wrapperRef} />
         </>
+      )}
+
+      {noteEditing && (
+        <div className="note-modal-overlay" onClick={closeNote}>
+          <div className="note-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="note-modal-header">
+              <div>
+                <div className="note-modal-title">Note</div>
+                <div className="note-modal-sub">{noteEditing.address}</div>
+              </div>
+              <button className="btn-icon" onClick={closeNote} title="Close">×</button>
+            </div>
+            <textarea
+              className="note-textarea"
+              autoFocus
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="Spoke with the owner, considering selling next quarter…"
+              rows={6}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote()
+                if (e.key === 'Escape') closeNote()
+              }}
+            />
+            <div className="note-modal-footer">
+              <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+              <div className="note-modal-actions">
+                <button className="btn btn-ghost btn-sm" onClick={closeNote} disabled={noteSaving}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveNote}
+                  disabled={noteSaving}
+                >
+                  {noteSaving ? 'Saving…' : 'Save note'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

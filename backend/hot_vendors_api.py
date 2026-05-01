@@ -237,7 +237,7 @@ def _insert_property_rows(conn, upload_id, rows):
 
 
 def _fetch_status_map(conn, normalized_addresses):
-    """Return {normalized_address: status} for the given addresses."""
+    """Return {normalized_address: (status, note)} tuples for hydration."""
     if not normalized_addresses:
         return {}
     addrs = [a for a in normalized_addresses if a]
@@ -245,19 +245,25 @@ def _fetch_status_map(conn, normalized_addresses):
         return {}
     placeholders = ','.join(['?'] * len(addrs))
     rows = conn.execute(
-        f"SELECT normalized_address, status FROM hot_vendor_property_status "
+        f"SELECT normalized_address, status, note FROM hot_vendor_property_status "
         f"WHERE normalized_address IN ({placeholders})",
         addrs
     ).fetchall()
-    return {r['normalized_address']: r['status'] for r in rows if r['status']}
+    out = {}
+    for r in rows:
+        d = dict(r)
+        out[d['normalized_address']] = (d.get('status') or '', d.get('note') or '')
+    return out
 
 
 def _attach_user_status(conn, properties):
-    """Mutate `properties` to include a `user_status` field per row."""
+    """Mutate `properties` to include `user_status` and `user_note`."""
     addrs = [normalize_address(p.get('address') or '') for p in properties]
     status_map = _fetch_status_map(conn, addrs)
     for p, na in zip(properties, addrs):
-        p['user_status'] = status_map.get(na) or ''
+        s, n = status_map.get(na, ('', ''))
+        p['user_status'] = s
+        p['user_note'] = n
 
 
 def _build_upload_payload(conn, upload_id):
@@ -535,6 +541,60 @@ def register_hot_vendors_routes(app):
             'status': status or '',
             'note': note or '',
         })
+
+
+    # ------------------------------------------------------------------
+    # PATCH free-text note for an address — independent of status so the
+    # agent can scribble a note without committing to a category. Uses
+    # the same hot_vendor_property_status table (note column already
+    # there) so notes survive across re-uploads keyed on normalized_addr.
+    # ------------------------------------------------------------------
+    @app.route('/api/hot-vendors/note', methods=['PATCH'])
+    def patch_note():
+        body = request.get_json(silent=True) or {}
+        addr = (body.get('address') or '').strip()
+        note = (body.get('note') or '').strip()
+        if not addr:
+            return jsonify({'error': 'address required'}), 400
+        norm = normalize_address(addr)
+        if not norm:
+            return jsonify({'error': 'address normalises to empty'}), 400
+
+        conn = get_db()
+        try:
+            if USE_POSTGRES:
+                conn.execute(
+                    "INSERT INTO hot_vendor_property_status "
+                    "(normalized_address, note, updated_at) "
+                    "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT (normalized_address) DO UPDATE SET "
+                    "note = EXCLUDED.note, updated_at = CURRENT_TIMESTAMP",
+                    (norm, note or None)
+                )
+            else:
+                # SQLite — preserve any existing status field on the row.
+                existing = conn.execute(
+                    "SELECT 1 FROM hot_vendor_property_status WHERE normalized_address = ?",
+                    (norm,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE hot_vendor_property_status SET note = ?, "
+                        "updated_at = datetime('now') WHERE normalized_address = ?",
+                        (note or None, norm)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO hot_vendor_property_status "
+                        "(normalized_address, note, updated_at) "
+                        "VALUES (?, ?, datetime('now'))",
+                        (norm, note or None)
+                    )
+            conn.commit()
+        finally:
+            try: conn.close()
+            except Exception: pass
+        return jsonify({'normalized_address': norm, 'note': note or ''})
 
 
     # ------------------------------------------------------------------
