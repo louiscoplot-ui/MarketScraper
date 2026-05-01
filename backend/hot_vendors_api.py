@@ -12,11 +12,45 @@
 
 import json
 import logging
+import threading
+import time
+import uuid
 from flask import jsonify, request, send_file
 
 from database import get_db, normalize_address, USE_POSTGRES
 
 logger = logging.getLogger(__name__)
+
+
+# In-memory job registry for async CSV scoring. Free-tier Render only
+# gives gunicorn 120s of wall time per request; large suburbs (Ellenbrook,
+# Mandurah) blow through that. The async route reads the file bytes,
+# returns a job_id immediately, and a background thread does the heavy
+# lifting. Worker restart drops in-flight jobs — fine for beta, the
+# user retries.
+_hv_jobs = {}
+_hv_jobs_lock = threading.Lock()
+_HV_JOB_TTL_SECONDS = 3600  # 1h
+
+
+def _hv_job_set(job_id, **fields):
+    with _hv_jobs_lock:
+        cur = _hv_jobs.get(job_id) or {}
+        cur.update(fields)
+        cur['updated_at'] = time.time()
+        _hv_jobs[job_id] = cur
+
+
+def _hv_job_get(job_id):
+    with _hv_jobs_lock:
+        return dict(_hv_jobs.get(job_id) or {})
+
+
+def _hv_jobs_purge_expired():
+    cutoff = time.time() - _HV_JOB_TTL_SECONDS
+    with _hv_jobs_lock:
+        for k in [k for k, v in _hv_jobs.items() if v.get('updated_at', 0) < cutoff]:
+            _hv_jobs.pop(k, None)
 
 
 # Columns in hot_vendor_properties that we actually score / persist.
@@ -289,80 +323,115 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     # NEW: backend pipeline — upload raw CSV, get scored result back
     # ------------------------------------------------------------------
+    def _score_csv_worker(job_id, file_bytes, filename, suburb_override, agency, uploaded_by):
+        """Background worker — heavy lifting for big suburbs (Ellenbrook).
+        Updates job state at each stage so the frontend can show progress."""
+        try:
+            _hv_job_set(job_id, status='running', stage='Parsing CSV…')
+            from hot_vendor_scoring import score_csv as run_pipeline
+            result = run_pipeline(file_bytes, suburb=suburb_override)
+
+            _hv_job_set(job_id, stage=f"Coercing {len(result['properties'])} rows…")
+            rows = [_coerce_property_row(p) for p in result['properties']]
+            metadata = {
+                'profile': result['profile'],
+                'weights': result['weights'],
+                'rationale': result['rationale'],
+                'thresholds': result['thresholds'],
+                'q_hot': result['q_hot'],
+                'q_warm': result['q_warm'],
+                'q_medium': result['q_medium'],
+                'median_m2_house': result['median_m2_house'],
+                'median_m2_apt': result['median_m2_apt'],
+                'today': result['today'],
+                'raw_count': result['raw_count'],
+                'kept_count': result['kept_count'],
+                'excluded_count': result['excluded_count'],
+                'excluded': result['excluded'],
+            }
+            meta = {
+                'agency': agency,
+                'uploaded_by': uploaded_by,
+                'suburb': result['suburb'],
+                'filename': filename,
+                'row_count': len(rows),
+                'median_holding_years': result['profile'].get('median_hold'),
+                'metadata': json.dumps(metadata),
+            }
+
+            _hv_job_set(job_id, stage='Saving to database…')
+            conn = get_db()
+            try:
+                upload_id = _create_upload_row(conn, meta)
+                _insert_property_rows(conn, upload_id, rows)
+                conn.commit()
+                _attach_user_status(conn, result['properties'])
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+            _hv_job_set(
+                job_id,
+                status='done',
+                stage='Done',
+                result={'upload_id': upload_id, 'id': upload_id, **result},
+            )
+        except Exception as e:
+            logger.exception(f"[score-csv job {job_id}] failed")
+            _hv_job_set(job_id, status='error', error=f'{type(e).__name__}: {e}')
+
+
     @app.route('/api/hot-vendors/score-csv', methods=['POST'])
     def score_csv_upload():
+        """Async upload — returns 202 + job_id immediately. Frontend polls
+        /api/hot-vendors/score-csv/job/<id> until status=done|error."""
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded — use multipart "file" field'}), 400
         file = request.files['file']
         if not file or file.filename == '':
             return jsonify({'error': 'Empty file'}), 400
 
+        # Read into memory now — request scope ends as soon as we return,
+        # so the file stream is gone by the time the worker thread runs.
+        file_bytes = file.read()
+        filename = file.filename
         suburb_override = (request.form.get('suburb') or '').strip() or None
         agency = (request.form.get('agency') or '').strip() or None
         uploaded_by = (request.form.get('uploaded_by') or '').strip() or None
 
-        try:
-            from hot_vendor_scoring import score_csv as run_pipeline
-            file_bytes = file.read()
-            result = run_pipeline(file_bytes, suburb=suburb_override)
-        except ImportError as e:
-            logger.exception("Hot vendor scoring module failed to import")
-            return jsonify({'error': f'Backend dep missing: {e}'}), 500
-        except Exception as e:
-            logger.exception("Hot vendor scoring failed")
-            return jsonify({'error': f'Scoring failed: {e}'}), 500
+        _hv_jobs_purge_expired()
+        job_id = uuid.uuid4().hex[:12]
+        _hv_job_set(job_id, status='running', stage='Queued', filename=filename)
+        threading.Thread(
+            target=_score_csv_worker,
+            args=(job_id, file_bytes, filename, suburb_override, agency, uploaded_by),
+            daemon=True,
+        ).start()
+        logger.info(f"[score-csv] queued job {job_id} for {filename}")
+        return jsonify({'job_id': job_id, 'status': 'running'}), 202
 
-        rows = [_coerce_property_row(p) for p in result['properties']]
-        metadata = {
-            'profile': result['profile'],
-            'weights': result['weights'],
-            'rationale': result['rationale'],
-            'thresholds': result['thresholds'],
-            'q_hot': result['q_hot'],
-            'q_warm': result['q_warm'],
-            'q_medium': result['q_medium'],
-            'median_m2_house': result['median_m2_house'],
-            'median_m2_apt': result['median_m2_apt'],
-            'today': result['today'],
-            'raw_count': result['raw_count'],
-            'kept_count': result['kept_count'],
-            'excluded_count': result['excluded_count'],
-            'excluded': result['excluded'],
-        }
-        meta = {
-            'agency': agency,
-            'uploaded_by': uploaded_by,
-            'suburb': result['suburb'],
-            'filename': file.filename,
-            'row_count': len(rows),
-            'median_holding_years': result['profile'].get('median_hold'),
-            'metadata': json.dumps(metadata),
-        }
 
-        conn = get_db()
-        try:
-            upload_id = _create_upload_row(conn, meta)
-            _insert_property_rows(conn, upload_id, rows)
-            conn.commit()
-            _attach_user_status(conn, result['properties'])
-        except Exception as e:
-            logger.exception("Persist failed after scoring")
-            try:
-                conn.close()
-            except Exception:
-                pass
+    @app.route('/api/hot-vendors/score-csv/job/<job_id>', methods=['GET'])
+    def score_csv_job_status(job_id):
+        job = _hv_job_get(job_id)
+        if not job:
             return jsonify({
-                'upload_id': None,
-                'persist_error': f'DB persist failed: {e}',
-                **result,
-            }), 200
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-        return jsonify({'upload_id': upload_id, 'id': upload_id, **result}), 201
+                'error': 'Job not found — server may have restarted. Re-upload the CSV.',
+                'status': 'lost',
+            }), 404
+        # Echo a slim view; the result blob is only included on success.
+        out = {
+            'status': job.get('status'),
+            'stage': job.get('stage'),
+            'filename': job.get('filename'),
+        }
+        if job.get('status') == 'done' and job.get('result'):
+            out['result'] = job['result']
+        if job.get('status') == 'error':
+            out['error'] = job.get('error')
+        return jsonify(out)
 
 
     # ------------------------------------------------------------------

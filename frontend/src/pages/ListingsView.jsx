@@ -61,15 +61,12 @@ export default function ListingsView({
     }
   }
 
-  // Hide low-value columns when context makes them redundant — keeps
-  // the table on one screen most of the time.
-  //   Internal size  — almost always empty in REIWA listings
-  //   Suburb         — redundant when the filter is one suburb
-  //   Listing type   — redundant when every row is the same type
+  // Hide Suburb when the filter is on a single suburb — every row
+  // would carry the same value, the column adds clutter without info.
+  // Internal size and Type stay always-visible: the agent uses them
+  // to spot land vs house vs apartment differences at a glance.
   const showSuburb = filteredListings.length > 0
     && !filteredListings.every(l => l.suburb_name === filteredListings[0].suburb_name)
-  const showType = filteredListings.length > 0
-    && !filteredListings.every(l => l.listing_type === filteredListings[0].listing_type)
 
   // Smart column visibility — hide a date column when BOTH:
   //   (a) the filter excludes its status (e.g. Withdrawn off), AND
@@ -120,6 +117,8 @@ export default function ListingsView({
       cell: (l) => l.parking ?? '-' },
     { field: 'land_size', label: 'Land', sortable: true,
       cell: (l) => l.land_size || '-' },
+    { field: 'internal_size', label: 'Internal', sortable: true,
+      cell: (l) => l.internal_size || '-' },
     { field: 'agency', label: 'Agency', sortable: true, className: 'agency-cell',
       cell: (l) => l.agency || '-' },
     { field: 'agent', label: 'Agent', sortable: true, className: 'agent-cell',
@@ -162,7 +161,7 @@ export default function ListingsView({
           {l.status?.replace('_', ' ')}
         </span>
       ) },
-    showType && { field: 'listing_type', label: 'Type', sortable: true,
+    { field: 'listing_type', label: 'Type', sortable: true,
       cell: (l) => l.listing_type || '-' },
     { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
       cell: (l) => l.reiwa_url

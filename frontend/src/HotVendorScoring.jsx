@@ -138,25 +138,53 @@ export default function HotVendorScoring() {
     } catch {}
   }
 
+  const [loadingStage, setLoadingStage] = useState('')
+
   const handleFile = async (file) => {
     setError('')
     setLoading(true)
+    setLoadingStage('Uploading…')
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const res = await fetch(`${API}/api/hot-vendors/score-csv`, {
+      const startRes = await fetch(`${API}/api/hot-vendors/score-csv`, {
         method: 'POST',
         body: fd,
       })
-      const result = await res.json()
-      if (!res.ok) throw new Error(result.error || `Upload failed (${res.status})`)
-      setData(result)
-      refreshSavedUploads()
+      const startJson = await startRes.json()
+      if (!startRes.ok || !startJson.job_id) {
+        throw new Error(startJson.error || `Upload rejected (${startRes.status})`)
+      }
+      const jobId = startJson.job_id
+
+      // Poll the job status. Big suburbs (Ellenbrook) can take 2-5 min.
+      // Free tier Render has 120s gunicorn timeout, hence async pattern.
+      const start = Date.now()
+      const POLL_MS = 2500
+      const MAX_MS = 10 * 60 * 1000  // 10 minutes — generous safety net.
+      while (true) {
+        await new Promise(r => setTimeout(r, POLL_MS))
+        const sRes = await fetch(`${API}/api/hot-vendors/score-csv/job/${jobId}`)
+        const sJson = await sRes.json().catch(() => ({}))
+        if (sJson.stage) setLoadingStage(sJson.stage)
+        if (sJson.status === 'done' && sJson.result) {
+          setData(sJson.result)
+          refreshSavedUploads()
+          return
+        }
+        if (sJson.status === 'error' || sJson.status === 'lost' || !sRes.ok) {
+          throw new Error(sJson.error || `Job failed (${sRes.status})`)
+        }
+        if (Date.now() - start > MAX_MS) {
+          throw new Error('Job took longer than 10 minutes — likely a server issue')
+        }
+      }
     } catch (e) {
       console.error(e)
       setError(e.message || 'Failed to process file')
     } finally {
       setLoading(false)
+      setLoadingStage('')
     }
   }
 
@@ -424,11 +452,18 @@ export default function HotVendorScoring() {
             />
             <div className="drop-icon">⬇</div>
             <div className="drop-title">
-              {loading ? 'Scoring on backend… (this can take 5-30s for big suburbs)' :
-               savedUploads.length > 0
-                 ? 'Or drop a new CSV / xlsx here to score another suburb'
-                 : 'Drop your CSV or xlsx here, or click to browse'}
+              {loading
+                ? (loadingStage || 'Working on it…')
+                : savedUploads.length > 0
+                  ? 'Or drop a new CSV / xlsx here to score another suburb'
+                  : 'Drop your CSV or xlsx here, or click to browse'}
             </div>
+            {loading && (
+              <div className="drop-hint">
+                Big suburbs (Ellenbrook, Mandurah) can take 1-5 min.
+                You can leave this page open in another tab.
+              </div>
+            )}
             <div className="drop-hint">
               RP Data exports detected automatically (20 / 21 / 22-column
               layouts). Backend handles cleaning, latent profit, and
