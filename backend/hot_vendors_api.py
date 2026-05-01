@@ -195,6 +195,94 @@ def _attach_user_status(conn, properties):
         p['user_status'] = status_map.get(na) or ''
 
 
+def _build_upload_payload(conn, upload_id):
+    """Score-csv-shaped JSON for a saved upload. Used by the Excel
+    rebuild AND the UI hydration on mount, so the table sticks even
+    when the user closes the browser. Returns None on missing id."""
+    upload = conn.execute(
+        "SELECT * FROM hot_vendor_uploads WHERE id = ?", (upload_id,)
+    ).fetchone()
+    if not upload:
+        return None
+
+    order_clause = ("ORDER BY final_score DESC NULLS LAST, address ASC"
+                    if USE_POSTGRES else "ORDER BY final_score DESC, address ASC")
+    props_rows = conn.execute(
+        f"SELECT * FROM hot_vendor_properties WHERE upload_id = ? {order_clause}",
+        (upload_id,)
+    ).fetchall()
+
+    upload_d = dict(upload)
+    meta_raw = upload_d.get('metadata')
+    try:
+        meta = json.loads(meta_raw) if meta_raw else {}
+    except (TypeError, ValueError):
+        meta = {}
+
+    properties = []
+    for i, p in enumerate(props_rows, 1):
+        d = dict(p)
+        properties.append({
+            'rank': d.get('rank') or i,
+            'address': d.get('address'),
+            'type': d.get('type'),
+            'bedrooms': d.get('bedrooms'),
+            'bathrooms': d.get('bathrooms'),
+            'last_sale_price': d.get('last_sale_price'),
+            'owner_purchase_price': d.get('owner_purchase_price'),
+            'owner_purchase_date': d.get('owner_purchase_date'),
+            'holding_years': d.get('holding_years'),
+            'sales_count': d.get('sales_count'),
+            'owner_gain_pct': d.get('owner_gain_pct'),
+            'cagr': d.get('cagr'),
+            'estimated_value': d.get('estimated_value'),
+            'potential_profit': d.get('potential_profit'),
+            'potential_profit_pct': d.get('potential_profit_pct'),
+            'hold_score': d.get('hold_score'),
+            'type_score': d.get('type_score'),
+            'gain_score': d.get('gain_score'),
+            'cagr_score': d.get('cagr_score'),
+            'freq_score': d.get('freq_score'),
+            'prof_score': d.get('prof_score'),
+            'final_score': d.get('final_score'),
+            'category': d.get('category'),
+            'current_owner': d.get('current_owner'),
+            'agency': d.get('agency'),
+            'agent': d.get('agent'),
+            'suburb': d.get('suburb'),
+        })
+
+    _attach_user_status(conn, properties)
+
+    return {
+        'upload_id': upload_id,
+        'suburb': upload_d.get('suburb') or 'UNKNOWN',
+        'uploaded_at': str(upload_d.get('uploaded_at') or ''),
+        'filename': upload_d.get('filename') or '',
+        'today': meta.get('today', ''),
+        'raw_count': meta.get('raw_count', len(properties)),
+        'kept_count': meta.get('kept_count', len(properties)),
+        'excluded_count': meta.get('excluded_count', 0),
+        'profile': meta.get('profile', {
+            'median_hold': upload_d.get('median_holding_years') or 0,
+            'pct_long_hold': 0, 'pct_high_gain': 0, 'pct_1sale': 0,
+            'med_price': 0, 'median_gain_pct': 0,
+            'is_premium': False, 'is_mature': False, 'is_high_gain': False,
+        }),
+        'weights': meta.get('weights', {
+            'hold': 0.50, 'type': 0.15, 'gain': 0.20,
+            'cagr': 0.10, 'freq': 0.05, 'profit': 0.05,
+        }),
+        'rationale': meta.get('rationale', []),
+        'q_hot': meta.get('q_hot', 80),
+        'q_warm': meta.get('q_warm', 60),
+        'q_medium': meta.get('q_medium', 40),
+        'median_m2_house': meta.get('median_m2_house', 0),
+        'median_m2_apt': meta.get('median_m2_apt', 0),
+        'properties': properties,
+    }
+
+
 def register_hot_vendors_routes(app):
 
     # ------------------------------------------------------------------
@@ -352,6 +440,69 @@ def register_hot_vendors_routes(app):
 
 
     # ------------------------------------------------------------------
+    # GET list of past uploads (one row per suburb, latest first).
+    # Used by HotVendorScoring on mount so previously-uploaded reports
+    # rehydrate without forcing the user to re-upload the CSV.
+    # ------------------------------------------------------------------
+    @app.route('/api/hot-vendors/uploads', methods=['GET'])
+    def list_uploads():
+        conn = get_db()
+        if USE_POSTGRES:
+            rows = conn.execute("""
+                SELECT DISTINCT ON (suburb)
+                    id, suburb, filename, row_count, uploaded_at,
+                    agency, uploaded_by
+                FROM hot_vendor_uploads
+                WHERE suburb IS NOT NULL AND suburb <> ''
+                ORDER BY suburb, uploaded_at DESC
+            """).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT u.id, u.suburb, u.filename, u.row_count,
+                       u.uploaded_at, u.agency, u.uploaded_by
+                FROM hot_vendor_uploads u
+                INNER JOIN (
+                    SELECT suburb, MAX(uploaded_at) AS max_at
+                    FROM hot_vendor_uploads
+                    WHERE suburb IS NOT NULL AND suburb <> ''
+                    GROUP BY suburb
+                ) m ON u.suburb = m.suburb AND u.uploaded_at = m.max_at
+                ORDER BY u.uploaded_at DESC
+            """).fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            out.append({
+                'id': d.get('id'),
+                'suburb': d.get('suburb'),
+                'filename': d.get('filename'),
+                'row_count': d.get('row_count'),
+                'uploaded_at': str(d.get('uploaded_at') or ''),
+                'agency': d.get('agency'),
+                'uploaded_by': d.get('uploaded_by'),
+            })
+        return jsonify({'uploads': out})
+
+
+    # ------------------------------------------------------------------
+    # GET a single upload's full scored payload (same shape as score-csv
+    # response, minus the persist_error key). Frontend uses this to
+    # restore an existing upload without re-running the pipeline.
+    # ------------------------------------------------------------------
+    @app.route('/api/hot-vendors/uploads/<int:upload_id>', methods=['GET'])
+    def get_upload(upload_id):
+        conn = get_db()
+        try:
+            payload = _build_upload_payload(conn, upload_id)
+        finally:
+            conn.close()
+        if not payload:
+            return jsonify({'error': 'Upload not found'}), 404
+        return jsonify(payload)
+
+
+    # ------------------------------------------------------------------
     # Excel report rebuild
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
@@ -363,85 +514,10 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': f'Excel generator unavailable: {e}'}), 500
 
         conn = get_db()
-        upload = conn.execute(
-            "SELECT * FROM hot_vendor_uploads WHERE id = ?", (upload_id,)
-        ).fetchone()
-        if not upload:
-            conn.close()
-            return jsonify({'error': 'Upload not found'}), 404
-
-        order_clause = ("ORDER BY final_score DESC NULLS LAST, address ASC"
-                        if USE_POSTGRES else "ORDER BY final_score DESC, address ASC")
-        props_rows = conn.execute(
-            f"SELECT * FROM hot_vendor_properties WHERE upload_id = ? {order_clause}",
-            (upload_id,)
-        ).fetchall()
+        result = _build_upload_payload(conn, upload_id)
         conn.close()
-
-        upload_d = dict(upload)
-        meta_raw = upload_d.get('metadata')
-        try:
-            meta = json.loads(meta_raw) if meta_raw else {}
-        except (TypeError, ValueError):
-            meta = {}
-
-        properties = []
-        for i, p in enumerate(props_rows, 1):
-            d = dict(p)
-            properties.append({
-                'rank': d.get('rank') or i,
-                'address': d.get('address'),
-                'type': d.get('type'),
-                'bedrooms': d.get('bedrooms'),
-                'bathrooms': d.get('bathrooms'),
-                'last_sale_price': d.get('last_sale_price'),
-                'owner_purchase_price': d.get('owner_purchase_price'),
-                'owner_purchase_date': d.get('owner_purchase_date'),
-                'holding_years': d.get('holding_years'),
-                'sales_count': d.get('sales_count'),
-                'owner_gain_pct': d.get('owner_gain_pct'),
-                'cagr': d.get('cagr'),
-                'estimated_value': d.get('estimated_value'),
-                'potential_profit': d.get('potential_profit'),
-                'potential_profit_pct': d.get('potential_profit_pct'),
-                'hold_score': d.get('hold_score'),
-                'type_score': d.get('type_score'),
-                'gain_score': d.get('gain_score'),
-                'cagr_score': d.get('cagr_score'),
-                'freq_score': d.get('freq_score'),
-                'prof_score': d.get('prof_score'),
-                'final_score': d.get('final_score'),
-                'category': d.get('category'),
-                'current_owner': d.get('current_owner'),
-                'agency': d.get('agency'),
-                'agent': d.get('agent'),
-                'suburb': d.get('suburb'),
-            })
-
-        result = {
-            'suburb': upload_d.get('suburb') or 'UNKNOWN',
-            'today': meta.get('today', ''),
-            'raw_count': meta.get('raw_count', len(properties)),
-            'kept_count': meta.get('kept_count', len(properties)),
-            'excluded_count': meta.get('excluded_count', 0),
-            'profile': meta.get('profile', {
-                'median_hold': upload_d.get('median_holding_years') or 0,
-                'pct_long_hold': 0, 'pct_high_gain': 0, 'pct_1sale': 0,
-                'med_price': 0, 'median_gain_pct': 0,
-                'is_premium': False, 'is_mature': False, 'is_high_gain': False,
-            }),
-            'weights': meta.get('weights', {
-                'hold': 0.50, 'type': 0.15, 'gain': 0.20,
-                'cagr': 0.10, 'freq': 0.05, 'profit': 0.05,
-            }),
-            'rationale': meta.get('rationale', []),
-            'q_hot': meta.get('q_hot', 80),
-            'q_warm': meta.get('q_warm', 60),
-            'q_medium': meta.get('q_medium', 40),
-            'median_m2_house': meta.get('median_m2_house', 0),
-            'median_m2_apt': meta.get('median_m2_apt', 0),
-            'properties': properties,
-        }
+        if not result:
+            return jsonify({'error': 'Upload not found'}), 404
 
         try:
             buf = build_workbook(result)

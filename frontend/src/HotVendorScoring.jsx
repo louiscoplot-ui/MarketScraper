@@ -89,6 +89,54 @@ export default function HotVendorScoring() {
   const [dragActive, setDragActive] = useState(false)
   const wrapperRef = useRef(null)
   const suburbDropdownRef = useRef(null)
+  const [savedUploads, setSavedUploads] = useState([])
+  const [savedLoading, setSavedLoading] = useState(true)
+
+  // Load past uploads on mount so a returning user lands on a list of
+  // previously-scored suburbs (latest per suburb) instead of a blank
+  // dropzone. UPSERT keeps re-uploads from duplicating rows.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API}/api/hot-vendors/uploads`)
+        if (!res.ok) throw new Error('list failed')
+        const j = await res.json()
+        if (!cancelled) setSavedUploads(j.uploads || [])
+      } catch (e) {
+        console.warn('Could not load past uploads:', e)
+      } finally {
+        if (!cancelled) setSavedLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const loadSavedUpload = async (uploadId) => {
+    setError('')
+    setLoading(true)
+    try {
+      const res = await fetch(`${API}/api/hot-vendors/uploads/${uploadId}`)
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || `Load failed (${res.status})`)
+      setData(result)
+    } catch (e) {
+      console.error(e)
+      setError(e.message || 'Failed to load saved upload')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshSavedUploads = async () => {
+    try {
+      const res = await fetch(`${API}/api/hot-vendors/uploads`)
+      if (res.ok) {
+        const j = await res.json()
+        setSavedUploads(j.uploads || [])
+      }
+    } catch {}
+  }
 
   const handleFile = async (file) => {
     setError('')
@@ -103,6 +151,7 @@ export default function HotVendorScoring() {
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || `Upload failed (${res.status})`)
       setData(result)
+      refreshSavedUploads()
     } catch (e) {
       console.error(e)
       setError(e.message || 'Failed to process file')
@@ -286,33 +335,59 @@ export default function HotVendorScoring() {
       </div>
 
       {!hasData && (
-        <div
-          className={`drop-zone ${dragActive ? 'active' : ''}`}
-          onDragEnter={(e) => { e.preventDefault(); setDragActive(true) }}
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={onDrop}
-          onClick={() => !loading && fileInputRef.current?.click()}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            style={{ display: 'none' }}
-            onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
-          />
-          <div className="drop-icon">⬇</div>
-          <div className="drop-title">
-            {loading ? 'Scoring on backend… (this can take 5-30s for big suburbs)' :
-             'Drop your CSV or xlsx here, or click to browse'}
+        <>
+          {!savedLoading && savedUploads.length > 0 && (
+            <div className="hv-saved">
+              <div className="hv-saved-title">Recent reports</div>
+              <div className="hv-saved-grid">
+                {savedUploads.map(u => (
+                  <button
+                    key={u.id}
+                    className="hv-saved-card"
+                    onClick={() => loadSavedUpload(u.id)}
+                    disabled={loading}
+                  >
+                    <div className="hv-saved-suburb">{u.suburb}</div>
+                    <div className="hv-saved-meta">
+                      {u.row_count} properties
+                      {u.uploaded_at && ` · ${(u.uploaded_at || '').slice(0, 10)}`}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div
+            className={`drop-zone ${dragActive ? 'active' : ''}`}
+            onDragEnter={(e) => { e.preventDefault(); setDragActive(true) }}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={onDrop}
+            onClick={() => !loading && fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              style={{ display: 'none' }}
+              onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
+            />
+            <div className="drop-icon">⬇</div>
+            <div className="drop-title">
+              {loading ? 'Scoring on backend… (this can take 5-30s for big suburbs)' :
+               savedUploads.length > 0
+                 ? 'Or drop a new CSV / xlsx here to score another suburb'
+                 : 'Drop your CSV or xlsx here, or click to browse'}
+            </div>
+            <div className="drop-hint">
+              RP Data exports detected automatically (20 / 21 / 22-column
+              layouts). Backend handles cleaning, latent profit, and
+              quantile-based segmentation.
+            </div>
+            {error && <div className="drop-error">{error}</div>}
           </div>
-          <div className="drop-hint">
-            RP Data exports detected automatically (20 / 21 / 22-column
-            layouts). Backend handles cleaning, latent profit, and
-            quantile-based segmentation.
-          </div>
-          {error && <div className="drop-error">{error}</div>}
-        </div>
+        </>
       )}
 
       {hasData && (

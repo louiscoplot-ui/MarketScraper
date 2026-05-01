@@ -1374,9 +1374,72 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
   cursor: pointer;
 }
 
-/* Drag-to-scroll affordance */
-.hv-table-wrapper { cursor: grab; user-select: text; }
+/* Drag-to-scroll affordance + sticky horizontal scrollbar.
+   The wrapper now bounds itself to the viewport so the bottom edge
+   (where the horizontal scrollbar lives) stays visible no matter how
+   far down the user scrolls — they don't have to chase it. */
+.hv-table-wrapper {
+  cursor: grab;
+  user-select: text;
+  max-height: calc(100vh - 320px);
+  min-height: 320px;
+  overflow: auto;
+  position: sticky;
+  bottom: 0;
+}
 .hv-table-wrapper.dragging { cursor: grabbing; user-select: none; }
+
+/* Saved uploads picker (no-data state) */
+.hv-saved {
+  margin-bottom: 18px;
+}
+
+.hv-saved-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.hv-saved-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.hv-saved-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  transition: all 0.15s;
+}
+
+.hv-saved-card:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--surface-hover);
+}
+
+.hv-saved-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hv-saved-suburb {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.hv-saved-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
 
 /* Compact mode — narrower columns + smaller font */
 .hot-vendor.compact table { font-size: 11.5px; }
