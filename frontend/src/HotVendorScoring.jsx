@@ -5,7 +5,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+// Vercel proxy has a ~25s edge timeout that includes upload buffering.
+// For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
+// Vercel and POST directly to Render. CORS is wide-open on the backend
+// (`CORS(app)` in app.py) so cross-origin POST works. Polling stays on
+// the proxy because each poll is tiny + low-latency.
 const API = ''
+const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
+const ACTIVE_JOB_KEY = 'agentdeck_hv_active_job'
 
 const CATEGORY_COLORS = {
   HOT: '#FFD7D7',
@@ -140,53 +147,118 @@ export default function HotVendorScoring() {
 
   const [loadingStage, setLoadingStage] = useState('')
 
+  // Polls a backend job until it's done / errored / timed out.
+  // Extracted so we can resume polling on mount when localStorage has
+  // an active job (user navigated away and came back).
+  const pollJob = async (jobId, opts = {}) => {
+    const { onResult, signal } = opts
+    const POLL_MS = 2500
+    const MAX_MS = 30 * 60 * 1000  // 30 min hard cap.
+    const start = Date.now()
+    while (true) {
+      if (signal?.aborted) return
+      await new Promise(r => setTimeout(r, POLL_MS))
+      let sJson = {}
+      let sRes
+      try {
+        sRes = await fetch(`${API}/api/hot-vendors/score-csv/job/${jobId}`)
+        sJson = await sRes.json().catch(() => ({}))
+      } catch (netErr) {
+        // Transient network blip — keep polling, the job is still on
+        // the server. Log so we see it in DevTools.
+        console.warn('[poll] network blip, retrying:', netErr.message)
+        continue
+      }
+      console.log(`[poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
+      if (sJson.stage) setLoadingStage(sJson.stage)
+      if (sJson.status === 'done' && sJson.result) {
+        onResult?.(sJson.result)
+        return sJson.result
+      }
+      if (sJson.status === 'error' || sJson.status === 'lost' || !sRes.ok) {
+        throw new Error(sJson.error || `Job failed (${sRes?.status})`)
+      }
+      if (Date.now() - start > MAX_MS) {
+        throw new Error('Job exceeded 30 minutes — server likely stuck')
+      }
+    }
+  }
+
   const handleFile = async (file) => {
     setError('')
     setLoading(true)
-    setLoadingStage('Uploading…')
+    setLoadingStage(`Uploading ${(file.size / (1024 * 1024)).toFixed(1)} MB…`)
+    console.log(`[upload] ${file.name} — ${(file.size / (1024 * 1024)).toFixed(2)} MB`)
+    const t0 = Date.now()
     try {
       const fd = new FormData()
       fd.append('file', file)
-      const startRes = await fetch(`${API}/api/hot-vendors/score-csv`, {
+      // Direct to Render — Vercel proxy edge timeout (~25s) would kill
+      // big uploads while it's still buffering the multipart body.
+      const startRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/score-csv`, {
         method: 'POST',
         body: fd,
       })
+      console.log(`[upload] POST took ${Date.now() - t0} ms, status=${startRes.status}`)
       const startJson = await startRes.json()
       if (!startRes.ok || !startJson.job_id) {
         throw new Error(startJson.error || `Upload rejected (${startRes.status})`)
       }
       const jobId = startJson.job_id
+      // Persist so we can resume polling after a page change / reload.
+      try {
+        localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({
+          job_id: jobId, filename: file.name, started_at: Date.now(),
+        }))
+      } catch {}
+      console.log(`[upload] queued job ${jobId} — polling every 2.5s`)
 
-      // Poll the job status. Big suburbs (Ellenbrook) can take 2-5 min.
-      // Free tier Render has 120s gunicorn timeout, hence async pattern.
-      const start = Date.now()
-      const POLL_MS = 2500
-      const MAX_MS = 10 * 60 * 1000  // 10 minutes — generous safety net.
-      while (true) {
-        await new Promise(r => setTimeout(r, POLL_MS))
-        const sRes = await fetch(`${API}/api/hot-vendors/score-csv/job/${jobId}`)
-        const sJson = await sRes.json().catch(() => ({}))
-        if (sJson.stage) setLoadingStage(sJson.stage)
-        if (sJson.status === 'done' && sJson.result) {
-          setData(sJson.result)
-          refreshSavedUploads()
-          return
-        }
-        if (sJson.status === 'error' || sJson.status === 'lost' || !sRes.ok) {
-          throw new Error(sJson.error || `Job failed (${sRes.status})`)
-        }
-        if (Date.now() - start > MAX_MS) {
-          throw new Error('Job took longer than 10 minutes — likely a server issue')
-        }
-      }
+      const result = await pollJob(jobId)
+      console.log(`[upload] job ${jobId} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+      setData(result)
+      refreshSavedUploads()
+      try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
     } catch (e) {
-      console.error(e)
+      console.error('[upload] failed:', e)
       setError(e.message || 'Failed to process file')
+      try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
     } finally {
       setLoading(false)
       setLoadingStage('')
     }
   }
+
+  // Resume polling on mount if a job was in-flight when the user
+  // navigated away. The backend thread keeps running independently of
+  // the frontend, so the result is already (or about to be) in DB.
+  useEffect(() => {
+    let cancelled = false
+    let stored
+    try { stored = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || 'null') } catch { stored = null }
+    if (!stored?.job_id) return
+    console.log(`[resume] picking up job ${stored.job_id} from localStorage`)
+    setLoading(true)
+    setLoadingStage('Resuming…')
+    ;(async () => {
+      try {
+        const result = await pollJob(stored.job_id, { signal: { get aborted() { return cancelled } } })
+        if (cancelled) return
+        setData(result)
+        refreshSavedUploads()
+      } catch (e) {
+        if (cancelled) return
+        console.warn('[resume] job lost or failed:', e.message)
+        setError(`Previous upload (${stored.filename}) — ${e.message}`)
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setLoadingStage('')
+          try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const onDrop = (e) => {
     e.preventDefault()

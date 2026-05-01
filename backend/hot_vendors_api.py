@@ -326,10 +326,17 @@ def register_hot_vendors_routes(app):
     def _score_csv_worker(job_id, file_bytes, filename, suburb_override, agency, uploaded_by):
         """Background worker — heavy lifting for big suburbs (Ellenbrook).
         Updates job state at each stage so the frontend can show progress."""
+        t0 = time.time()
         try:
-            _hv_job_set(job_id, status='running', stage='Parsing CSV…')
+            size_mb = len(file_bytes) / (1024 * 1024)
+            logger.info(f"[score-csv {job_id}] start — {filename} {size_mb:.2f} MB")
+            _hv_job_set(job_id, status='running', stage=f'Parsing CSV ({size_mb:.1f} MB)…')
             from hot_vendor_scoring import score_csv as run_pipeline
+            t_score_start = time.time()
             result = run_pipeline(file_bytes, suburb=suburb_override)
+            logger.info(f"[score-csv {job_id}] scoring took "
+                        f"{time.time() - t_score_start:.1f}s "
+                        f"({len(result.get('properties') or [])} rows)")
 
             _hv_job_set(job_id, stage=f"Coercing {len(result['properties'])} rows…")
             rows = [_coerce_property_row(p) for p in result['properties']]
@@ -359,7 +366,8 @@ def register_hot_vendors_routes(app):
                 'metadata': json.dumps(metadata),
             }
 
-            _hv_job_set(job_id, stage='Saving to database…')
+            _hv_job_set(job_id, stage=f'Saving {len(rows)} rows to database…')
+            t_db_start = time.time()
             conn = get_db()
             try:
                 upload_id = _create_upload_row(conn, meta)
@@ -371,7 +379,10 @@ def register_hot_vendors_routes(app):
                     conn.close()
                 except Exception:
                     pass
+            logger.info(f"[score-csv {job_id}] DB persist took {time.time() - t_db_start:.1f}s")
 
+            total = time.time() - t0
+            logger.info(f"[score-csv {job_id}] DONE in {total:.1f}s — upload_id={upload_id}")
             _hv_job_set(
                 job_id,
                 status='done',
@@ -379,7 +390,7 @@ def register_hot_vendors_routes(app):
                 result={'upload_id': upload_id, 'id': upload_id, **result},
             )
         except Exception as e:
-            logger.exception(f"[score-csv job {job_id}] failed")
+            logger.exception(f"[score-csv job {job_id}] failed after {time.time() - t0:.1f}s")
             _hv_job_set(job_id, status='error', error=f'{type(e).__name__}: {e}')
 
 
