@@ -2,9 +2,10 @@
 // under the MCP push size limit. State stays in App.jsx; this is a
 // presentational component that takes everything via props.
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import EditableDateCell from '../components/EditableDateCell'
 import EditableTextCell from '../components/EditableTextCell'
+import StickyHScroll from '../components/StickyHScroll'
 
 
 // HTML5 date input emits YYYY-MM-DD. listing_date in the DB is
@@ -30,6 +31,45 @@ export default function ListingsView({
   const [noteEditing, setNoteEditing] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
+  const wrapperRef = useRef(null)
+  const [compact, setCompact] = useState(() => {
+    try { return localStorage.getItem('listings_compact') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('listings_compact', compact ? '1' : '0') } catch {}
+  }, [compact])
+
+  // Resizable Price column — default tight, drag the right edge of the
+  // header to widen when reading a long price string. Persisted across
+  // reloads so the agent's preferred width sticks.
+  const [priceWidth, setPriceWidth] = useState(() => {
+    try {
+      const saved = parseInt(localStorage.getItem('listings_price_width') || '100', 10)
+      return Number.isFinite(saved) && saved > 40 ? saved : 100
+    } catch { return 100 }
+  })
+  const priceWidthRef = useRef(priceWidth)
+  useEffect(() => { priceWidthRef.current = priceWidth }, [priceWidth])
+
+  const startPriceResize = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = priceWidthRef.current
+    const onMove = (ev) => {
+      const next = Math.max(60, Math.min(600, startW + (ev.clientX - startX)))
+      setPriceWidth(next)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.classList.remove('col-resizing')
+      try { localStorage.setItem('listings_price_width', String(priceWidthRef.current)) } catch {}
+    }
+    document.body.classList.add('col-resizing')
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   const openNote = (l) => {
     setNoteEditing(l)
@@ -111,7 +151,16 @@ export default function ListingsView({
       } },
     showSuburb && { field: 'suburb_name', label: 'Suburb', sortable: true,
       cell: (l) => l.suburb_name },
-    { field: 'price_text', label: 'Price', sortable: true, className: 'price-cell',
+    { field: 'price_text', label: 'Price', sortable: true, className: 'price-cell resizable-cell',
+      style: { width: priceWidth, minWidth: priceWidth, maxWidth: priceWidth },
+      headerExtra: (
+        <span
+          className="col-resize-handle"
+          onMouseDown={startPriceResize}
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to resize"
+        />
+      ),
       cell: (l) => (
         <EditableTextCell
           value={l.price_text}
@@ -216,6 +265,14 @@ export default function ListingsView({
           {uniqueAgents.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
 
+        <button
+          className={`filter-btn ${compact ? 'active' : ''}`}
+          onClick={() => setCompact(c => !c)}
+          title="Toggle compact density"
+        >
+          {compact ? '⊟ Compact' : '⊞ Compact'}
+        </button>
+
         <span className="listing-count">
           {filteredListings.length} listing{filteredListings.length !== 1 ? 's' : ''}
           {checkedSuburbs.size > 0 && checkedSuburbs.size < suburbs.length && ` (${checkedSuburbs.size} suburb${checkedSuburbs.size > 1 ? 's' : ''})`}
@@ -224,7 +281,7 @@ export default function ListingsView({
         </span>
       </div>
 
-      <div className="table-wrapper listings-table-wrapper">
+      <div className={`table-wrapper listings-table-wrapper ${compact ? 'compact' : ''}`} ref={wrapperRef}>
         <table className="listings-table">
           <thead>
             <tr>
@@ -233,9 +290,11 @@ export default function ListingsView({
                   key={c.field}
                   onClick={c.sortable ? () => toggleSort(c.field) : undefined}
                   className={c.sortable ? 'sortable' : undefined}
+                  style={c.style}
                 >
                   {c.label}
                   {c.sortable && sortField === c.field && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  {c.headerExtra}
                 </th>
               ))}
             </tr>
@@ -246,7 +305,7 @@ export default function ListingsView({
                 {columns.map(c => {
                   const cls = c.cellClass ? c.cellClass(l) : c.className
                   return (
-                    <td key={c.field} className={cls}>
+                    <td key={c.field} className={cls} style={c.style}>
                       {c.cell(l)}
                     </td>
                   )
@@ -265,6 +324,7 @@ export default function ListingsView({
           </tbody>
         </table>
       </div>
+      <StickyHScroll targetRef={wrapperRef} />
 
       {noteEditing && (
         <div className="note-modal-overlay" onClick={closeNote}>

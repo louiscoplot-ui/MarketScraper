@@ -1374,16 +1374,80 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
   cursor: pointer;
 }
 
-/* The wrapper bounds itself to the viewport so vertical scroll happens
-   INSIDE the table — the horizontal scrollbar then sits at the bottom
-   of the visible table region, not 30 rows below the fold. */
+/* Page-level vertical scroll. The horizontal scrollbar lives at the
+   natural bottom of the wrapper; the StickyHScroll component renders
+   a synced floating bar at the viewport bottom so the user never
+   has to scroll the page down to drag it. */
 .hv-table-wrapper {
   cursor: grab;
   user-select: text;
-  max-height: calc(100vh - 280px);
-  min-height: 320px;
   overflow: auto;
 }
+
+/* Synced horizontal scrollbar at viewport bottom — rendered by
+   <StickyHScroll/>. Only paints when the target table overflows AND
+   its native scrollbar is below the fold. Two-way scroll sync. */
+.sticky-h-scroll {
+  position: fixed;
+  bottom: 0;
+  height: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+  scrollbar-width: thin;
+}
+
+.sticky-h-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+
+/* Column resize handle (Price column on Listings) — invisible until
+   hover, then shows a faint accent line so the user discovers it. */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.col-resize-handle:hover,
+body.col-resizing .col-resize-handle {
+  background: var(--primary);
+  opacity: 0.5;
+}
+
+th.resizable-cell {
+  position: relative;
+}
+
+td.resizable-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.col-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.col-resizing * {
+  cursor: col-resize !important;
+}
+
+/* Listings Compact mode — same idea as Hot Vendor's compact toggle. */
+.listings-table-wrapper.compact .listings-table { font-size: 11.5px; }
+.listings-table-wrapper.compact .listings-table th { padding: 5px 6px; font-size: 10.5px; }
+.listings-table-wrapper.compact .listings-table td { padding: 3px 6px; }
+.listings-table-wrapper.compact .btn-note { padding: 3px 6px; font-size: 11px; }
+.listings-table-wrapper.compact .status-badge { padding: 1px 5px; font-size: 9.5px; }
 .hv-table-wrapper.dragging { cursor: grabbing; user-select: none; }
 
 /* Saved uploads picker (no-data state) */

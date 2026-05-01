@@ -4,6 +4,7 @@
 // .xlsx report is regenerated on demand from the persisted data.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import StickyHScroll from './components/StickyHScroll'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -291,7 +292,9 @@ export default function HotVendorScoring() {
     setExcelFallbackUrl(null)
     const t0 = Date.now()
     try {
-      const url = `${API}/api/hot-vendors/uploads/${id}/excel`
+      // Direct to Render — Vercel proxy edge timeout (~25s) was killing
+      // the fetch while build_workbook was still serialising big suburbs.
+      const url = `${BACKEND_DIRECT}/api/hot-vendors/uploads/${id}/excel`
       console.log('[Excel] Fetching', url)
       const res = await fetch(url)
       const elapsed = Date.now() - t0
@@ -768,6 +771,7 @@ export default function HotVendorScoring() {
               </tbody>
             </table>
           </div>
+          <StickyHScroll targetRef={wrapperRef} />
         </>
       )}
     </div>
