@@ -660,42 +660,6 @@ def register_hot_vendors_routes(app):
         return jsonify({'upload_id': upload_id, 'count': len(rows)}), 201
 
 
-    @app.route('/api/hot-vendors/uploads', methods=['GET'])
-    def list_uploads():
-        conn = get_db()
-        rows = conn.execute(
-            "SELECT id, agency, uploaded_by, suburb, filename, row_count, "
-            "median_holding_years, uploaded_at "
-            "FROM hot_vendor_uploads ORDER BY uploaded_at DESC"
-        ).fetchall()
-        conn.close()
-        return jsonify({'uploads': [dict(r) for r in rows]})
-
-
-    @app.route('/api/hot-vendors/uploads/<int:upload_id>', methods=['GET'])
-    def get_upload(upload_id):
-        conn = get_db()
-        upload = conn.execute(
-            "SELECT * FROM hot_vendor_uploads WHERE id = ?", (upload_id,)
-        ).fetchone()
-        if not upload:
-            conn.close()
-            return jsonify({'error': 'upload not found'}), 404
-        order = "ORDER BY final_score DESC NULLS LAST, address ASC" if USE_POSTGRES \
-                else "ORDER BY final_score DESC, address ASC"
-        props = conn.execute(
-            f"SELECT * FROM hot_vendor_properties WHERE upload_id = ? {order}",
-            (upload_id,)
-        ).fetchall()
-        conn.close()
-        u = dict(upload)
-        try:
-            u['metadata'] = json.loads(u['metadata']) if u.get('metadata') else None
-        except (TypeError, ValueError):
-            u['metadata'] = None
-        return jsonify({'upload': u, 'properties': [dict(p) for p in props]})
-
-
     @app.route('/api/hot-vendors/uploads/<int:upload_id>', methods=['DELETE'])
     def delete_upload(upload_id):
         conn = get_db()
