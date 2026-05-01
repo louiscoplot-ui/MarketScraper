@@ -170,15 +170,21 @@ export default function HotVendorScoring() {
   const [excelLoading, setExcelLoading] = useState(false)
 
   const downloadExcel = async () => {
-    console.log('[Excel] Download clicked. upload_id =', data?.upload_id)
-    if (!data?.upload_id) {
-      setError('No upload_id on this report — try re-uploading the CSV')
+    const id = data?.upload_id ?? data?.id ?? data?.uploadId
+    console.log('[Excel] Download clicked. data keys =', data && Object.keys(data),
+                ' upload_id =', id, ' suburb =', data?.suburb)
+    if (!id) {
+      setError(
+        'No upload_id on this report. The backend may not have finished ' +
+        'persisting yet, or the saved upload predates this version. ' +
+        'Try re-uploading the CSV (UPSERT — won\'t duplicate rows).'
+      )
       return
     }
     setError('')
     setExcelLoading(true)
     try {
-      const url = `${API}/api/hot-vendors/uploads/${data.upload_id}/excel`
+      const url = `${API}/api/hot-vendors/uploads/${id}/excel`
       console.log('[Excel] Fetching', url)
       const res = await fetch(url)
       console.log('[Excel] Response', res.status, res.headers.get('content-type'))

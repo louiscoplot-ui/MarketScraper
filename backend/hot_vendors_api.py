@@ -256,6 +256,7 @@ def _build_upload_payload(conn, upload_id):
 
     return {
         'upload_id': upload_id,
+        'id': upload_id,
         'suburb': upload_d.get('suburb') or 'UNKNOWN',
         'uploaded_at': str(upload_d.get('uploaded_at') or ''),
         'filename': upload_d.get('filename') or '',
@@ -361,7 +362,7 @@ def register_hot_vendors_routes(app):
             except Exception:
                 pass
 
-        return jsonify({'upload_id': upload_id, **result}), 201
+        return jsonify({'upload_id': upload_id, 'id': upload_id, **result}), 201
 
 
     # ------------------------------------------------------------------
