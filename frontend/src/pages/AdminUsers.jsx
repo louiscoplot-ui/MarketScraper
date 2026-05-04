@@ -22,6 +22,11 @@ export default function AdminUsers() {
   // Suburb-assignment modal — keyed by user id
   const [assigning, setAssigning] = useState(null)  // { user, suburb_ids: Set }
   const [assignSaving, setAssignSaving] = useState(false)
+  // Inline "add new suburb" input inside the assign modal — lets the
+  // admin set up the suburb for an agent without leaving the modal
+  // (the new suburb auto-checks for them; nightly scrape picks it up).
+  const [newSuburbDraft, setNewSuburbDraft] = useState('')
+  const [addingSuburb, setAddingSuburb] = useState(false)
 
   const refresh = async () => {
     setLoading(true)
@@ -130,6 +135,36 @@ export default function AdminUsers() {
       alert(`Could not save: ${e.message}`)
     } finally {
       setAssignSaving(false)
+    }
+  }
+
+  // Add a brand-new suburb from inside the assign modal. The new entry
+  // is auto-ticked for the current user so the admin doesn't have to
+  // click twice. Nightly scrape picks it up on the next run because
+  // `run_daily_scrape.py` reads the suburbs table at runtime.
+  const addSuburbFromModal = async () => {
+    const name = newSuburbDraft.trim()
+    if (!name || !assigning) return
+    setAddingSuburb(true)
+    try {
+      const res = await apiJson('/api/suburbs', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      })
+      // Insert into the local list, sorted alphabetically.
+      setAllSuburbs(prev => [...prev, res].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '')
+      ))
+      // Auto-tick for the current user.
+      setAssigning(a => ({
+        ...a,
+        suburb_ids: new Set([...a.suburb_ids, res.id]),
+      }))
+      setNewSuburbDraft('')
+    } catch (e) {
+      alert(`Could not add suburb: ${e.message}`)
+    } finally {
+      setAddingSuburb(false)
     }
   }
 
@@ -315,6 +350,27 @@ export default function AdminUsers() {
             </div>
             <div className="admin-assign-hint">
               Tick the suburbs this user can see and scrape. Untick to revoke.
+            </div>
+            <div className="admin-assign-add">
+              <input
+                className="admin-assign-add-input"
+                placeholder="+ Add a new suburb (e.g. Karrinyup) — picked up by tonight's scrape"
+                value={newSuburbDraft}
+                onChange={(e) => setNewSuburbDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addSuburbFromModal()
+                  }
+                }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={addSuburbFromModal}
+                disabled={!newSuburbDraft.trim() || addingSuburb}
+              >
+                {addingSuburb ? 'Adding…' : 'Add'}
+              </button>
             </div>
             <div className="admin-assign-grid">
               {allSuburbs.map(s => (

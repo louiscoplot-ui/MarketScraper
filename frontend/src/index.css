@@ -1795,3 +1795,13 @@ body.col-resizing * {
   font-weight: 600; text-transform: uppercase;
 }
 .admin-me-locked { color: #888; font-size: 11px; }
+
+/* Inline "add new suburb" inside the assign-suburbs modal. */
+.admin-assign-add {
+  display: flex; gap: 8px; padding: 0 16px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.admin-assign-add-input {
+  flex: 1; padding: 6px 10px; border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 6px; font-size: 13px;
+}
