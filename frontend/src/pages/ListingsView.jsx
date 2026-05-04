@@ -30,7 +30,6 @@ export default function ListingsView({
   // listings (REIWA reposting a withdrawn property → new id, same address).
   const [noteEditing, setNoteEditing] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
-  const [noteSaving, setNoteSaving] = useState(false)
   const wrapperRef = useRef(null)
   // Compact mode defaults ON for first-time visitors (denser table fits
   // more on a laptop screen). User toggles persist after that.
@@ -83,29 +82,32 @@ export default function ListingsView({
   const closeNote = () => {
     setNoteEditing(null)
     setNoteDraft('')
-    setNoteSaving(false)
   }
-  const saveNote = async () => {
+  const saveNote = () => {
     if (!noteEditing) return
-    setNoteSaving(true)
-    try {
-      const res = await fetch('/api/listings/note', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: noteEditing.address, note: noteDraft }),
+    // Optimistic: close + mirror locally immediately so the UI feels
+    // instant. The Render free tier cold-start can take 30-60s — we
+    // don't make the agent wait. Revert + alert if the request fails.
+    const target = noteEditing
+    const previous = target.note || null
+    const draft = noteDraft.trim() || null
+    mirrorListing(target.id, { note: draft })
+    closeNote()
+    fetch('/api/listings/note', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: target.address, note: noteDraft }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j.error || `Save failed (${res.status})`)
+        }
       })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.error || 'Save failed')
-      }
-      // Mirror to local state — the JOIN surfaces it on next refetch,
-      // but reflect immediately so the cell preview updates without lag.
-      mirrorListing(noteEditing.id, { note: noteDraft.trim() || null })
-      closeNote()
-    } catch (e) {
-      alert(`Could not save note: ${e.message}`)
-      setNoteSaving(false)
-    }
+      .catch((e) => {
+        mirrorListing(target.id, { note: previous })
+        alert(`Could not save note: ${e.message}`)
+      })
   }
 
   // Hide Suburb when the filter is on a single suburb — every row
@@ -354,15 +356,14 @@ export default function ListingsView({
             <div className="note-modal-footer">
               <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
               <div className="note-modal-actions">
-                <button className="btn btn-ghost btn-sm" onClick={closeNote} disabled={noteSaving}>
+                <button className="btn btn-ghost btn-sm" onClick={closeNote}>
                   Cancel
                 </button>
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={saveNote}
-                  disabled={noteSaving}
                 >
-                  {noteSaving ? 'Saving…' : 'Save note'}
+                  Save note
                 </button>
               </div>
             </div>
