@@ -1777,3 +1777,12 @@ body.col-resizing * {
 .admin-assign-row:hover { background: rgba(0,0,0,0.03); }
 .admin-assign-name { flex: 1; }
 .admin-assign-count { color: var(--text-muted, #999); font-size: 11px; }
+
+/* Welcome-email banner — green when sent, amber when fallback. */
+.admin-newkey-success { background: #ecfdf5; border-color: #10b981; }
+.admin-newkey-success .admin-newkey-title { color: #065f46; }
+.admin-newkey-warn {
+  background: #fff8e7; color: #856404; padding: 8px 12px;
+  border-radius: 4px; margin: 6px 0 10px; font-size: 12px; line-height: 1.5;
+}
+.admin-newkey-hint { color: #047857; font-size: 12px; margin-top: 8px; line-height: 1.5; }

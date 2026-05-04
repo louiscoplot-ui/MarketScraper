@@ -54,7 +54,12 @@ export default function AdminUsers() {
         method: 'POST',
         body: JSON.stringify(draft),
       })
-      setNewKey({ email: res.email, key: res.access_key })
+      setNewKey({
+        email: res.email,
+        key: res.access_key,
+        email_sent: !!res.email_sent,
+        email_error: res.email_error || null,
+      })
       setDraft({ email: '', first_name: '', last_name: '', phone: '', role: 'user' })
       refresh()
     } catch (e) {
@@ -161,10 +166,17 @@ export default function AdminUsers() {
       {loading && <div className="admin-loading">Loading…</div>}
 
       {newKey && (
-        <div className="admin-newkey">
+        <div className={`admin-newkey ${newKey.email_sent ? 'admin-newkey-success' : ''}`}>
           <div className="admin-newkey-title">
-            ✓ User created — copy this key NOW, it won't be shown again
+            {newKey.email_sent
+              ? `✓ User created — welcome email sent to ${newKey.email}`
+              : '✓ User created — email NOT sent, copy the key below manually'}
           </div>
+          {!newKey.email_sent && newKey.email_error && (
+            <div className="admin-newkey-warn">
+              Email failed: {newKey.email_error}. Most likely cause: RESEND_API_KEY env var not set on Render.
+            </div>
+          )}
           <div className="admin-newkey-row">
             <span className="admin-newkey-email">{newKey.email}</span>
             <code className="admin-newkey-code">{newKey.key}</code>
@@ -172,7 +184,7 @@ export default function AdminUsers() {
               className="btn btn-ghost btn-sm"
               onClick={() => navigator.clipboard.writeText(newKey.key)}
             >
-              Copy
+              Copy key
             </button>
             <button
               className="btn btn-ghost btn-sm"
@@ -181,6 +193,12 @@ export default function AdminUsers() {
               Dismiss
             </button>
           </div>
+          {newKey.email_sent && (
+            <div className="admin-newkey-hint">
+              They'll receive the access key + step-by-step instructions
+              by email. You can still copy the key here as a backup.
+            </div>
+          )}
         </div>
       )}
 

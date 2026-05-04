@@ -173,7 +173,7 @@ def register_admin_routes(app):
 
     @app.route('/api/admin/users', methods=['POST'])
     def admin_create_user():
-        _, err = _require_admin()
+        admin, err = _require_admin()
         if err:
             return err
         body = request.get_json(silent=True) or {}
@@ -213,9 +213,24 @@ def register_admin_routes(app):
             return jsonify({'error': f'DB error: {e}'}), 500
         conn.close()
 
+        # Auto-send the welcome email with the access key + 3-step tutorial.
+        # Uses the inviter's name (or email) so the recipient knows who
+        # invited them. If Resend isn't configured (RESEND_API_KEY missing)
+        # or the send fails, the user is still created — the admin can
+        # fall back to the access_key shown in the response banner.
+        from email_service import send_welcome_email
+        new_user = {
+            'email': email, 'first_name': first_name, 'last_name': last_name,
+        }
+        inviter = (' '.join(filter(None, [
+            admin.get('first_name'), admin.get('last_name')
+        ])).strip() or admin.get('email'))
+        email_ok, email_err = send_welcome_email(new_user, key, inviter_name=inviter)
+
         # Returns the access_key ONCE on creation — the admin must copy
-        # it now and pass it to the new user. Subsequent GET /users calls
-        # don't include it.
+        # it now if the email failed; on subsequent GET /users calls the
+        # key is never returned. The frontend uses email_sent / email_error
+        # to decide whether to nag the admin to copy manually.
         return jsonify({
             'id': new_id,
             'email': email,
@@ -224,6 +239,8 @@ def register_admin_routes(app):
             'phone': phone,
             'role': role,
             'access_key': key,
+            'email_sent': email_ok,
+            'email_error': email_err,
         }), 201
 
     @app.route('/api/admin/users/<int:user_id>', methods=['PATCH'])
