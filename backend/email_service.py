@@ -102,7 +102,7 @@ def _welcome_html(user, access_key, inviter_name):
           <p style="margin:0 0 18px;color:#444;line-height:1.55;font-size:14px;">
             <strong>{inviter}</strong> has invited you to SuburbDesk —
             the tool that scrapes your suburbs every night, surfaces hot
-            vendor leads, and pre-fills your appraisal letters so you can
+            vendor leads, and pre-fills your prospecting letters so you can
             spend your time on calls and meetings, not spreadsheets.
           </p>
 
