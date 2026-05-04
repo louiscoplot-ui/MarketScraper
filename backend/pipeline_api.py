@@ -194,93 +194,236 @@ def _format_sources_inline(sources):
     return addr_phrase, sale_phrase
 
 
+BRAND_GREEN = '386351'  # Acton | Belle dark green from official letterhead
+
+
+def _set_cell_shading(cell, hex_color):
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), hex_color)
+    tc_pr.append(shd)
+
+
+def _set_row_height(row, twips, exact=True):
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tr_pr = row._tr.get_or_add_trPr()
+    tr_h = OxmlElement('w:trHeight')
+    tr_h.set(qn('w:val'), str(twips))
+    if exact:
+        tr_h.set(qn('w:hRule'), 'exact')
+    tr_pr.append(tr_h)
+
+
+def _set_cell_margins(cell, top_twips=0, bottom_twips=0, left_twips=0, right_twips=0):
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = OxmlElement('w:tcMar')
+    for side, val in (('top', top_twips), ('left', left_twips),
+                      ('bottom', bottom_twips), ('right', right_twips)):
+        m = OxmlElement(f'w:{side}')
+        m.set(qn('w:w'), str(val))
+        m.set(qn('w:type'), 'dxa')
+        tc_mar.append(m)
+    tc_pr.append(tc_mar)
+
+
+def _add_top_border(paragraph, color='000000', size=6):
+    """Add a horizontal rule above the paragraph."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    p_pr = paragraph._p.get_or_add_pPr()
+    p_borders = OxmlElement('w:pBdr')
+    top = OxmlElement('w:top')
+    top.set(qn('w:val'), 'single')
+    top.set(qn('w:sz'), str(size))
+    top.set(qn('w:space'), '6')
+    top.set(qn('w:color'), color)
+    p_borders.append(top)
+    p_pr.append(p_borders)
+
+
+def _emu_to_twips(emu):
+    """Word internal: 914400 EMU per inch, 1440 twips per inch."""
+    return int(emu / 914400 * 1440)
+
+
 def _render_letter_docx(target_address, owner_name, source_suburb, sources):
-    """Build a Belle Property letter as a python-docx Document."""
+    """Build an Acton | Belle Property Cottesloe letter matching the official
+    letterhead: dark green band with logo at top, body, footer with company
+    details and a black horizontal rule above."""
     from docx import Document
     from docx.shared import Pt, RGBColor, Cm
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
     owner = (owner_name or '').strip() or 'Homeowner'
     addr_phrase, sale_phrase = _format_sources_inline(sources)
     multi = len(sources) > 1
 
     doc = Document()
-    for section in doc.sections:
-        section.top_margin = Cm(2.5)
-        section.bottom_margin = Cm(2.5)
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(2.5)
 
-    head = doc.add_paragraph()
-    r = head.add_run('BELLE PROPERTY  |  Cottesloe')
-    r.bold = True
-    r.font.size = Pt(20)
+    section = doc.sections[0]
+    # Body margins. Top is generous to clear the header band, bottom leaves
+    # room for the company footer block.
+    section.top_margin = Cm(5.5)
+    section.bottom_margin = Cm(4.5)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2.5)
+    section.header_distance = Cm(0)
+    section.footer_distance = Cm(0.8)
 
-    addr = doc.add_paragraph()
-    r = addr.add_run('160 Stirling Highway, Nedlands WA 6009')
-    r.font.size = Pt(10)
-    r.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+    page_width_twips = _emu_to_twips(section.page_width)
+    left_margin_twips = _emu_to_twips(section.left_margin)
 
-    doc.add_paragraph()
+    # ---------------- HEADER: full-width green band with logo ----------------
+    header = section.header
+    for p in list(header.paragraphs):
+        p._element.getparent().remove(p._element)
+
+    header_tbl = header.add_table(rows=1, cols=1, width=section.page_width)
+    header_tbl.autofit = False
+
+    # Bleed the table out to the page edges (negative left indent + full
+    # page width). Without this, the band stops at the body margins.
+    tbl_pr = header_tbl._element.find(qn('w:tblPr'))
+    if tbl_pr is None:
+        tbl_pr = OxmlElement('w:tblPr')
+        header_tbl._element.insert(0, tbl_pr)
+
+    tbl_ind = OxmlElement('w:tblInd')
+    tbl_ind.set(qn('w:w'), str(-left_margin_twips))
+    tbl_ind.set(qn('w:type'), 'dxa')
+    tbl_pr.append(tbl_ind)
+
+    tbl_w = OxmlElement('w:tblW')
+    tbl_w.set(qn('w:w'), str(page_width_twips))
+    tbl_w.set(qn('w:type'), 'dxa')
+    tbl_pr.append(tbl_w)
+
+    cell = header_tbl.rows[0].cells[0]
+    _set_cell_shading(cell, BRAND_GREEN)
+    _set_row_height(header_tbl.rows[0], 1700)  # ~3.0cm band
+
+    # Vertical-align the logo in the middle of the band
+    tc_pr = cell._tc.get_or_add_tcPr()
+    v_align = OxmlElement('w:vAlign')
+    v_align.set(qn('w:val'), 'center')
+    tc_pr.append(v_align)
+
+    # Push logo in from the page edge (~3cm from left)
+    _set_cell_margins(cell, left_twips=1700, right_twips=1700)
+
+    logo_p = cell.paragraphs[0]
+    logo_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    logo_p.paragraph_format.space_before = Pt(0)
+    logo_p.paragraph_format.space_after = Pt(0)
+
+    def add_logo_run(text, size, bold=False):
+        r = logo_p.add_run(text)
+        r.font.name = 'Arial'
+        r.font.size = Pt(size)
+        r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        r.font.bold = bold
+        return r
+
+    add_logo_run('ACTON', 22, bold=True)
+    add_logo_run('   |   ', 22, bold=False)
+    add_logo_run('belle', 24, bold=False)
+    add_logo_run('  ', 12, bold=False)
+    add_logo_run('PROPERTY', 9, bold=True)
+
+    # ---------------- FOOTER: company info + black rule ----------------
+    footer = section.footer
+    for p in list(footer.paragraphs):
+        p._element.getparent().remove(p._element)
+
+    rule_p = footer.add_paragraph()
+    _add_top_border(rule_p, color='000000', size=6)
+    rule_p.paragraph_format.space_before = Pt(0)
+    rule_p.paragraph_format.space_after = Pt(4)
+
+    footer_lines = [
+        ('ACTON | Belle Property Cottesloe', 9, True, None),
+        ('180 Stirling Hwy, Nedlands WA 6009', 9, False, None),
+        ('08 9388 8255', 9, False, None),
+        ('cottesloe@belleproperty.com', 9, False, None),
+        ('Dalkeith Region Pty Ltd', 9, False, None),
+        ('ABN 26 125 014 997', 9, False, None),
+        ('belleproperty.com/Cottesloe', 8, False, (0x80, 0x80, 0x80)),
+    ]
+    for text, size, bold, color in footer_lines:
+        fp = footer.add_paragraph(text)
+        fp.paragraph_format.space_before = Pt(0)
+        fp.paragraph_format.space_after = Pt(0)
+        for run in fp.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            if color:
+                run.font.color.rgb = RGBColor(*color)
+
+    # ---------------- BODY ----------------
+    def body_paragraph(text='', size=11, bold=False):
+        p = doc.add_paragraph(text)
+        for run in p.runs:
+            run.font.name = 'Arial'
+            run.font.size = Pt(size)
+            run.font.bold = bold
+        return p
 
     today = datetime.utcnow().strftime('%d %B %Y')
-    p = doc.add_paragraph(today)
-    p.runs[0].font.size = Pt(11)
-
-    doc.add_paragraph()
-
-    doc.add_paragraph(f'Dear {owner},')
-    doc.add_paragraph()
-
-    doc.add_paragraph('I hope this letter finds you well.')
+    body_paragraph(today)
+    body_paragraph()
+    body_paragraph(f'Dear {owner},')
+    body_paragraph()
+    body_paragraph('I hope this letter finds you well.')
 
     p = doc.add_paragraph()
-    p.add_run(f'I wanted to reach out personally — {addr_phrase} {sale_phrase}')
+    r = p.add_run(f'I wanted to reach out personally — {addr_phrase} {sale_phrase}')
+    r.font.name = 'Arial'; r.font.size = Pt(11)
     if source_suburb:
-        if multi:
-            p.add_run(f", reflecting strong recent results across {source_suburb}.")
-        else:
-            p.add_run(
-                f", one of {source_suburb}'s strongest results this season."
-            )
+        tail = (f", reflecting strong recent results across {source_suburb}." if multi
+                else f", one of {source_suburb}'s strongest results this season.")
     else:
-        p.add_run('.')
+        tail = '.'
+    r2 = p.add_run(tail)
+    r2.font.name = 'Arial'; r2.font.size = Pt(11)
 
     p = doc.add_paragraph()
-    if multi:
-        p.add_run(
-            'With this level of activity on your doorstep and buyer demand '
-            'remaining high, this could be the ideal moment to understand '
-            'what your property at '
-        )
-    else:
-        p.add_run(
-            f'With buyer demand remaining high across {source_suburb}, this '
-            f'could be the ideal moment to understand what your property at '
-        )
-    bold = p.add_run(target_address)
-    bold.bold = True
-    p.add_run(" is truly worth in today's market.")
+    intro = ('With this level of activity on your doorstep and buyer demand '
+             'remaining high, this could be the ideal moment to understand '
+             'what your property at ') if multi else \
+            (f'With buyer demand remaining high across {source_suburb}, this '
+             f'could be the ideal moment to understand what your property at ')
+    r = p.add_run(intro); r.font.name = 'Arial'; r.font.size = Pt(11)
+    rb = p.add_run(target_address); rb.bold = True; rb.font.name = 'Arial'; rb.font.size = Pt(11)
+    re_ = p.add_run(" is truly worth in today's market.")
+    re_.font.name = 'Arial'; re_.font.size = Pt(11)
 
-    doc.add_paragraph(
+    body_paragraph(
         'I would love to offer you a complimentary, no-obligation market '
         'appraisal at a time that suits you — no pressure, just clarity.'
     )
-
-    doc.add_paragraph("Please don't hesitate to reach out.")
-
-    doc.add_paragraph()
-    doc.add_paragraph('Warm regards,')
-    doc.add_paragraph()
+    body_paragraph("Please don't hesitate to reach out.")
+    body_paragraph()
+    body_paragraph('Warm regards,')
+    body_paragraph()
 
     sig = doc.add_paragraph()
-    r = sig.add_run('Louis Coplot')
-    r.bold = True
-    r.font.size = Pt(13)
+    rs = sig.add_run('Louis Coplot')
+    rs.bold = True; rs.font.name = 'Arial'; rs.font.size = Pt(13)
 
-    doc.add_paragraph('Sales Agent | Belle Property Cottesloe')
-    doc.add_paragraph('M: 0400 XXX XXX')
-    doc.add_paragraph('E: louis@belleproperty.com.au')
-    doc.add_paragraph('W: belleproperty.com.au/cottesloe')
+    body_paragraph('Sales Agent | Belle Property Cottesloe', size=10)
+    body_paragraph('M: 0400 XXX XXX', size=10)
+    body_paragraph('E: louis@belleproperty.com.au', size=10)
+    body_paragraph('W: belleproperty.com.au/cottesloe', size=10)
 
     return doc
 
