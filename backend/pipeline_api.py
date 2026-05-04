@@ -124,7 +124,7 @@ def _osm_fetch_street_numbers(street, suburb):
         req = urllib.request.Request(
             OVERPASS_URL, data=body,
             headers={
-                'User-Agent': 'MarketScraper/1.0 (real-estate prospecting; '
+                'User-Agent': 'AgentDeck/1.0 (real-estate prospecting; '
                               'contact: louiscoplot@bellepropertycottesloe.com.au)',
                 'Content-Type': 'application/x-www-form-urlencoded',
             }

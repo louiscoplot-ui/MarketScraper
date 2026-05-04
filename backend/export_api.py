@@ -356,7 +356,7 @@ def export_listings():
         else:
             suburb_label = f'_{len(names)}_suburbs'
 
-    filename = f'MarketScraper{suburb_label}_{date_str}.xlsx'
+    filename = f'AgentDeck{suburb_label}_{date_str}.xlsx'
 
     return send_file(
         buf,

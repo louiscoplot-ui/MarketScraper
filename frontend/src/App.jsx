@@ -3,6 +3,7 @@ import HotVendorScoring from './HotVendorScoring'
 import Pipeline from './pages/Pipeline'
 import Report from './pages/Report'
 import ListingsView from './pages/ListingsView'
+import AdminUsers from './pages/AdminUsers'
 import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
@@ -406,6 +407,8 @@ function App() {
             <Pipeline />
           ) : view === 'hot-vendors' ? (
             <HotVendorScoring />
+          ) : view === 'admin' ? (
+            <AdminUsers />
           ) : view === 'report' && report ? (
             <Report
               report={report} suburbs={suburbs} reportSuburbs={reportSuburbs}

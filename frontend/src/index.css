@@ -1689,3 +1689,71 @@ body.col-resizing * {
   font-size: 13px;
   margin-bottom: 12px;
 }
+
+/* ------------------------------------------------------------------
+   AgentDeck Admin — Users page
+   ------------------------------------------------------------------ */
+.admin-users { padding: 16px 24px; max-width: 1200px; }
+.admin-users h2 { margin: 0 0 16px; }
+.admin-users h3 { margin: 0 0 12px; font-size: 14px; }
+
+.admin-keybox {
+  background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;
+}
+.admin-keylabel { font-size: 12px; font-weight: 600; color: var(--text-muted, #666); }
+.admin-keyrow { display: flex; gap: 8px; margin-top: 6px; }
+.admin-keyinput {
+  flex: 1; padding: 6px 10px; border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 6px; font-family: monospace; font-size: 13px;
+}
+.admin-keyhint { font-size: 11px; color: var(--text-muted, #888); margin-top: 6px; }
+
+.admin-me {
+  background: rgba(56,99,81,0.08); border-left: 3px solid #386351;
+  padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; font-size: 13px;
+}
+
+.admin-error {
+  background: rgba(239,68,68,0.1); color: #b91c1c;
+  border: 1px solid rgba(239,68,68,0.3); border-radius: 6px;
+  padding: 10px 14px; margin-bottom: 12px; font-size: 13px;
+}
+.admin-loading { color: var(--text-muted, #888); padding: 8px 0; }
+
+.admin-newkey {
+  background: #fffbeb; border: 1px solid #f59e0b;
+  border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;
+}
+.admin-newkey-title { font-weight: 600; margin-bottom: 8px; color: #92400e; }
+.admin-newkey-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.admin-newkey-email { font-weight: 600; }
+.admin-newkey-code {
+  background: rgba(0,0,0,0.05); padding: 4px 8px; border-radius: 4px;
+  font-family: monospace; font-size: 13px; user-select: all;
+}
+
+.admin-form { background: rgba(0,0,0,0.02); border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
+.admin-form-grid {
+  display: grid; gap: 8px;
+  grid-template-columns: 2fr 1fr 1fr 1fr 0.7fr auto;
+}
+.admin-form-grid input,
+.admin-form-grid select {
+  padding: 6px 10px; border: 1px solid rgba(0,0,0,0.15); border-radius: 6px; font-size: 13px;
+}
+
+.admin-users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-users-table th,
+.admin-users-table td { padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,0.06); text-align: left; }
+.admin-users-table th { background: rgba(0,0,0,0.03); font-weight: 600; }
+
+.role-pill {
+  border: none; padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; cursor: pointer; text-transform: uppercase;
+}
+.role-pill.role-admin { background: #386351; color: #fff; }
+.role-pill.role-user  { background: rgba(0,0,0,0.08); color: #444; }
+
+.btn-danger { color: #b91c1c; }
+.btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.08); }

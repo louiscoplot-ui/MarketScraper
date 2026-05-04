@@ -10,6 +10,7 @@ const TABS = [
   { id: 'report', label: 'Market Report' },
   { id: 'hot-vendors', label: 'Hot Vendors' },
   { id: 'logs', label: 'History' },
+  { id: 'admin', label: 'Admin' },
 ]
 
 
@@ -46,7 +47,7 @@ export default function Header({
         {/* Logo slot — left empty intentionally. When you have an
             approved logo asset, drop an <img src=... /> in here. */}
         <div className="logo-slot" aria-label="Logo" />
-        <span className="brand-text">MarketScraper</span>
+        <span className="brand-text">AgentDeck</span>
       </div>
 
       <nav className="tabs" aria-label="Primary">

@@ -1,0 +1,36 @@
+name: Keep cron alive
+
+# GitHub disables scheduled workflows after 60 days without any push
+# activity to the repo. This job pushes a tiny timestamp file once a
+# week so the daily-scrape cron never gets auto-disabled, even if no
+# real code changes land for months.
+#
+# Cost: one micro-commit per week. The file lives in .github/ so it
+# stays out of the way.
+
+on:
+  schedule:
+    - cron: '0 12 * * 1'  # Every Monday at 12:00 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump keep-alive timestamp
+        run: |
+          mkdir -p .github
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive.txt
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-keepalive.txt
+          if git diff --cached --quiet; then
+            echo "No change to commit (already up-to-date)"
+          else
+            git commit -m "chore: keep-alive ping"
+            git push
+          fi

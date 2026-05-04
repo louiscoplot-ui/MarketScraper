@@ -18,6 +18,7 @@ from hot_vendors_api import register_hot_vendors_routes
 from listings_api import register_listings_routes
 from report_api import register_report_routes
 from export_api import register_export_routes
+from admin_api import register_admin_routes, seed_admin_if_needed
 from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
 
 app = Flask(__name__)
@@ -27,6 +28,9 @@ CORS(app)
 # Idempotent (CREATE TABLE IF NOT EXISTS), safe to call here.
 try:
     init_db()
+    # Seed the initial admin from ADMIN_EMAIL on first boot. Logs the
+    # access_key once so the operator can grab it from Render logs.
+    seed_admin_if_needed()
 except Exception as e:
     logger.error(f"init_db at module load failed: {e}")
 
@@ -36,6 +40,7 @@ register_hot_vendors_routes(app)
 register_listings_routes(app)
 register_report_routes(app)
 register_export_routes(app)
+register_admin_routes(app)
 
 
 @app.route('/api/ping', methods=['GET'])
@@ -46,7 +51,7 @@ def ping():
     from database import USE_POSTGRES
     info = {
         'status': 'ok',
-        'app': 'market-scraper',
+        'app': 'agentdeck',
         'db': 'postgres' if USE_POSTGRES else 'sqlite-ephemeral',
     }
     try:

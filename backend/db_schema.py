@@ -323,5 +323,26 @@ def init_db():
         );
     """)
 
+    # AgentDeck users — admin-managed allowlist. Each user gets an
+    # access_key (32-char hex) that they paste into the login screen.
+    # `role` is 'admin' or 'user'. The first admin is seeded via the
+    # ADMIN_EMAIL env var on app startup so the allowlist is never
+    # empty after a fresh deploy.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            first_name TEXT,
+            last_name TEXT,
+            phone TEXT,
+            role TEXT NOT NULL DEFAULT 'user',
+            access_key TEXT NOT NULL UNIQUE,
+            last_seen TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_users_access_key ON users(access_key);
+    """)
+
     conn.commit()
     conn.close()
