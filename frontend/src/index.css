@@ -1786,3 +1786,12 @@ body.col-resizing * {
   border-radius: 4px; margin: 6px 0 10px; font-size: 12px; line-height: 1.5;
 }
 .admin-newkey-hint { color: #047857; font-size: 12px; margin-top: 8px; line-height: 1.5; }
+
+/* Highlight the admin's own row in the user list. */
+.admin-row-me { background: rgba(56, 99, 81, 0.08); }
+.admin-row-me:hover { background: rgba(56, 99, 81, 0.12); }
+.admin-you-badge {
+  margin-left: 6px; font-size: 11px; color: #386351;
+  font-weight: 600; text-transform: uppercase;
+}
+.admin-me-locked { color: #888; font-size: 11px; }

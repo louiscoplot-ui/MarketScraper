@@ -162,7 +162,16 @@ export default function AdminUsers() {
 
       {me && (
         <div className="admin-me">
-          Signed in as <strong>{me.email}</strong> ({me.role})
+          Signed in as <strong>{me.email}</strong>
+          {' · '}
+          <span className={`role-pill role-${me.role}`} style={{ cursor: 'default' }}>
+            {me.role}
+          </span>
+          {me.role === 'admin' && (
+            <span className="admin-me-locked" title="Sealed by ADMIN_EMAIL on Render — only env var or DB edit can change this">
+              {' · 🔒 permanent'}
+            </span>
+          )}
         </div>
       )}
 
@@ -240,9 +249,18 @@ export default function AdminUsers() {
           </tr>
         </thead>
         <tbody>
-          {users.map(u => (
-            <tr key={u.id}>
-              <td>{u.email}</td>
+          {[...users].sort((a, b) => {
+            // Pin the current user to the top so they always see their
+            // own row first, then everyone else by creation date desc.
+            if (me && a.id === me.id) return -1
+            if (me && b.id === me.id) return 1
+            return (b.created_at || '').localeCompare(a.created_at || '')
+          }).map(u => (
+            <tr key={u.id} className={me && u.id === me.id ? 'admin-row-me' : undefined}>
+              <td>
+                {u.email}
+                {me && u.id === me.id && <span className="admin-you-badge"> (you)</span>}
+              </td>
               <td>{[u.first_name, u.last_name].filter(Boolean).join(' ') || '-'}</td>
               <td>{u.phone || '-'}</td>
               <td>
