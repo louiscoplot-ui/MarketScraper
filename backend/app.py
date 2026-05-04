@@ -19,6 +19,7 @@ from listings_api import register_listings_routes
 from report_api import register_report_routes
 from export_api import register_export_routes
 from admin_api import register_admin_routes, seed_admin_if_needed
+from auth_api import register_auth_routes
 from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
 
 app = Flask(__name__)
@@ -41,6 +42,30 @@ register_listings_routes(app)
 register_report_routes(app)
 register_export_routes(app)
 register_admin_routes(app)
+register_auth_routes(app)
+
+
+# --- GLOBAL AUTH GATE ---
+# Block every /api/* call from unauthenticated callers. Exempt the auth
+# endpoints (login flow needs to be reachable) and /api/ping (Render
+# health check + UI splash check). CORS preflight is also exempt — the
+# browser sends OPTIONS without our custom header.
+_AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping')
+
+
+@app.before_request
+def _require_auth_for_api():
+    if request.method == 'OPTIONS':
+        return None
+    path = request.path or ''
+    if not path.startswith('/api/'):
+        return None
+    if any(path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES):
+        return None
+    from admin_api import get_current_user
+    if get_current_user() is None:
+        return jsonify({'error': 'Not authenticated'}), 401
+    return None
 
 
 @app.route('/api/ping', methods=['GET'])

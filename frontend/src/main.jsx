@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import AuthGate from './AuthGate'
 import PipelinePrint from './pages/PipelinePrint'
 import { getAccessKey } from './lib/api'
 import './index.css'
@@ -30,6 +31,6 @@ const isPrintView = window.location.pathname === '/pipeline/print'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isPrintView ? <PipelinePrint /> : <App />}
+    {isPrintView ? <PipelinePrint /> : <AuthGate><App /></AuthGate>}
   </React.StrictMode>
 )
