@@ -237,6 +237,7 @@ def register_hot_vendors_routes(app):
                 'owner_purchase_date': d.get('owner_purchase_date'),
                 'holding_years': d.get('holding_years'),
                 'sales_count': d.get('sales_count'),
+                'owner_gain_dollars': d.get('owner_gain_dollars'),
                 'owner_gain_pct': d.get('owner_gain_pct'),
                 'cagr': d.get('cagr'),
                 'estimated_value': d.get('estimated_value'),

@@ -225,20 +225,22 @@ SCORED_COLS = [
     ('rank', 'int'), ('address', 'str'), ('type', 'str'),
     ('bedrooms', 'int'), ('bathrooms', 'int'),
     ('last_sale_price', 'price'), ('owner_purchase_date', 'date'),
-    ('holding_years', 'num'), ('owner_gain_pct', 'pct'),
+    ('holding_years', 'num'),
+    ('owner_gain_dollars', 'int'), ('owner_gain_pct', 'pct'),
     ('cagr', 'pct2'), ('sales_count', 'int'),
     ('estimated_value', 'price'), ('potential_profit', 'price'),
     ('potential_profit_pct', 'pct'),
-    ('hold_score', 'int'), ('gain_score', 'int'), ('cagr_score', 'int'),
-    ('freq_score', 'int'), ('prof_score', 'int'),
+    ('hold_score', 'int'), ('type_score', 'int'), ('gain_score', 'int'),
+    ('cagr_score', 'int'), ('freq_score', 'int'), ('prof_score', 'int'),
     ('final_score', 'num'), ('category', 'cat'),
 ]
 SCORED_HEADERS = ['Rank', 'Address', 'Type', 'Bed', 'Bath', 'Last Sale $',
-                  'Owner Purchase Date', 'Holding (yrs)', 'Gain %', 'CAGR %/yr',
+                  'Purchase Date', 'Holding (yrs)',
+                  'Gain ($)', 'Gain %', 'CAGR %/yr',
                   '# Sales', 'Est. Value', 'Latent Profit $', 'Latent Profit %',
-                  'Hold', 'Gain', 'CAGR', 'Freq', 'Profit',
+                  'Hold', 'Type', 'Gain', 'CAGR', 'Freq', 'Profit',
                   'Final Score', 'Category']
-SCORED_WIDTHS = [6, 32, 10, 5, 5, 14, 16, 11, 10, 10, 7, 14, 14, 12, 7, 7, 7, 7, 7, 11, 11]
+SCORED_WIDTHS = [6, 32, 10, 5, 5, 14, 16, 11, 12, 10, 10, 7, 14, 14, 12, 7, 7, 7, 7, 7, 7, 11, 11]
 
 
 LEADS_COLS = SCORED_COLS + [
