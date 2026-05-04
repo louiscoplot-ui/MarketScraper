@@ -22,7 +22,7 @@ export default function ListingsView({
   selectedAgent, setSelectedAgent, uniqueAgents,
   filteredListings, suburbs, checkedSuburbs,
   sortField, sortDir, toggleSort,
-  calcDOM, formatIsoDate, deleteListing, updateListing,
+  calcDOM, formatIsoDate, deleteListing, updateListing, mirrorListing,
 }) {
   // Note editor state — `editing` holds the listing whose note we're
   // editing (or null). PATCH writes to listing_notes keyed on the
@@ -98,8 +98,9 @@ export default function ListingsView({
         const j = await res.json().catch(() => ({}))
         throw new Error(j.error || 'Save failed')
       }
-      // Mirror to local state — the JOIN will surface it on next refetch.
-      updateListing(noteEditing.id, { note: noteDraft.trim() || null })
+      // Mirror to local state — the JOIN surfaces it on next refetch,
+      // but reflect immediately so the cell preview updates without lag.
+      mirrorListing(noteEditing.id, { note: noteDraft.trim() || null })
       closeNote()
     } catch (e) {
       alert(`Could not save note: ${e.message}`)
@@ -141,16 +142,13 @@ export default function ListingsView({
       cell: (l) => {
         const text = (l.note || '').trim()
         const has = !!text
-        const preview = has
-          ? (text.length > 40 ? text.slice(0, 40) + '…' : text)
-          : null
         return (
           <button
             className={`btn-note ${has ? 'has-note' : 'empty-note'}`}
             title={has ? text : 'Click to add a note about this listing'}
             onClick={() => openNote(l)}
           >
-            {has ? <>📝&nbsp;{preview}</> : <>＋&nbsp;Add&nbsp;note</>}
+            {has ? <>📝&nbsp;{text}</> : <>＋&nbsp;Note</>}
           </button>
         )
       } },

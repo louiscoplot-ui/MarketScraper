@@ -164,6 +164,14 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     return false
   }, [fetchListings])
 
+  // Local-only mirror — updates client state without hitting the API.
+  // Used after writes that go through a side-table endpoint (e.g. notes
+  // via /api/listings/note) so the row reflects the change immediately
+  // without a refetch round-trip.
+  const mirrorListing = useCallback((id, fields) => {
+    setListings(prev => prev.map(l => l.id === id ? { ...l, ...fields } : l))
+  }, [])
+
   return {
     listings,
     fetchListings,
@@ -175,5 +183,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     uniqueAgencies,
     deleteListing,
     updateListing,
+    mirrorListing,
   }
 }
