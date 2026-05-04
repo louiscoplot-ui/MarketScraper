@@ -280,30 +280,35 @@ def _render_letter_docx(target_address, owner_name, source_suburb, sources):
     section.footer_distance = Cm(0.8)
 
     page_width_twips = _emu_to_twips(section.page_width)
-    left_margin_twips = _emu_to_twips(section.left_margin)
+    right_margin_twips = _emu_to_twips(section.right_margin)
 
-    # ---------------- HEADER: full-width green band with logo ----------------
+    # ---------------- HEADER: right-aligned green band with logo ----------------
+    # The band starts roughly 40% from the left and extends all the way to
+    # the right edge of the page (matches the official Belle template).
     header = section.header
     for p in list(header.paragraphs):
         p._element.getparent().remove(p._element)
 
+    BAND_WIDTH_TWIPS = int(page_width_twips * 0.60)  # 60% of page width
+    band_indent_twips = page_width_twips - BAND_WIDTH_TWIPS - right_margin_twips
+
     header_tbl = header.add_table(rows=1, cols=1, width=section.page_width)
     header_tbl.autofit = False
 
-    # Bleed the table out to the page edges (negative left indent + full
-    # page width). Without this, the band stops at the body margins.
     tbl_pr = header_tbl._element.find(qn('w:tblPr'))
     if tbl_pr is None:
         tbl_pr = OxmlElement('w:tblPr')
         header_tbl._element.insert(0, tbl_pr)
 
+    # Indent so the band starts at ~40% from the left, extends to the
+    # right page edge (the trailing right_margin is bled through).
     tbl_ind = OxmlElement('w:tblInd')
-    tbl_ind.set(qn('w:w'), str(-left_margin_twips))
+    tbl_ind.set(qn('w:w'), str(band_indent_twips))
     tbl_ind.set(qn('w:type'), 'dxa')
     tbl_pr.append(tbl_ind)
 
     tbl_w = OxmlElement('w:tblW')
-    tbl_w.set(qn('w:w'), str(page_width_twips))
+    tbl_w.set(qn('w:w'), str(BAND_WIDTH_TWIPS + right_margin_twips))
     tbl_w.set(qn('w:type'), 'dxa')
     tbl_pr.append(tbl_w)
 
