@@ -344,5 +344,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_users_access_key ON users(access_key);
     """)
 
+    # Per-user suburb assignment. A user only sees + scrapes the suburbs
+    # they're assigned to (admins see all). Multiple users can share a
+    # suburb — that's intentional, an agency team often works the same
+    # patch. The "personne vole rien à personne" rule is enforced at
+    # query time: unassigned users don't see the suburb at all.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS user_suburbs (
+            user_id INTEGER NOT NULL,
+            suburb_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, suburb_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_suburbs_user ON user_suburbs(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_suburbs_suburb ON user_suburbs(suburb_id);
+    """)
+
     conn.commit()
     conn.close()

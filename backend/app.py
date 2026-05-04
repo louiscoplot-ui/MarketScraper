@@ -83,11 +83,20 @@ def search_suburbs():
 
 @app.route('/api/suburbs', methods=['GET'])
 def list_suburbs():
-    return jsonify(get_suburbs())
+    # resolve_request_scope() returns (user, allowed_ids). For admins
+    # and unauthenticated requests `allowed_ids` is None → no filtering.
+    # For regular users it's their assigned suburb ids (possibly empty).
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
+    return jsonify(get_suburbs(allowed_ids=allowed))
 
 
 @app.route('/api/suburbs', methods=['POST'])
 def create_suburb():
+    """Add a suburb. Auto-assigns the new suburb to the calling user so
+    they see it immediately (admins keep their global view). The daily
+    scrape picks it up automatically on the next run."""
+    from admin_api import get_current_user
     data = request.json
     name = data.get('name', '').strip()
     if not name:
@@ -95,11 +104,33 @@ def create_suburb():
     suburb = add_suburb(name)
     if suburb is None:
         return jsonify({'error': 'Suburb already exists'}), 409
+    user = get_current_user()
+    if user and user.get('role') != 'admin':
+        try:
+            conn = get_db()
+            conn.execute(
+                "INSERT INTO user_suburbs (user_id, suburb_id) VALUES (?, ?)",
+                (user['id'], suburb['id'])
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # FK error / dup — non-fatal, suburb still created
     return jsonify(suburb), 201
 
 
 @app.route('/api/suburbs/<int:suburb_id>', methods=['DELETE'])
 def delete_suburb(suburb_id):
+    """Hard delete — removes the suburb AND all its listings/scrape logs
+    via cascade. Restricted to admins so a user can't accidentally wipe
+    a suburb that other agents on the team are also working."""
+    from admin_api import get_current_user
+    user = get_current_user()
+    if user and user.get('role') != 'admin':
+        return jsonify({
+            'error': 'Only admins can delete a suburb. Ask your admin to '
+                     'remove it from your assignments instead.'
+        }), 403
     remove_suburb(suburb_id)
     return jsonify({'ok': True})
 
@@ -125,6 +156,7 @@ def delete_listing(listing_id):
 
 @app.route('/api/listings', methods=['GET'])
 def list_listings():
+    from admin_api import resolve_request_scope
     suburb_id = request.args.get('suburb_id', type=int)
     suburb_ids_str = request.args.get('suburb_ids', '')
     status = request.args.get('status')
@@ -138,6 +170,26 @@ def list_listings():
     statuses = None
     if statuses_str:
         statuses = [s.strip() for s in statuses_str.split(',') if s.strip()]
+
+    # Apply per-user suburb scoping. If the caller is a regular user,
+    # intersect their requested suburb_ids (or suburb_id) with the ones
+    # they're allowed to see — they can't widen their scope by passing
+    # arbitrary IDs in the query string.
+    _, allowed = resolve_request_scope()
+    if allowed is not None:
+        if not allowed:
+            return jsonify([])
+        if suburb_ids:
+            suburb_ids = [s for s in suburb_ids if s in allowed]
+            if not suburb_ids:
+                return jsonify([])
+        elif suburb_id:
+            if suburb_id not in allowed:
+                return jsonify([])
+        else:
+            suburb_ids = allowed
+            suburb_id = None
+
     return jsonify(get_listings(suburb_id=suburb_id, suburb_ids=suburb_ids,
                                 status=status, statuses=statuses))
 
@@ -177,7 +229,16 @@ def listings_summary():
 
 @app.route('/api/scrape/<int:suburb_id>', methods=['POST'])
 def start_scrape(suburb_id):
-    """Start scraping a suburb. Runs in background thread."""
+    """Start scraping a suburb. Runs in background thread.
+    Regular users can only scrape their assigned suburbs."""
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
+    if allowed is not None and suburb_id not in allowed:
+        return jsonify({
+            'error': "You can't scrape that suburb — it's not in your "
+                     "assigned list. Ask your admin to assign it to you."
+        }), 403
+
     if suburb_id in scrape_jobs and scrape_jobs[suburb_id].get('status') == 'running':
         return jsonify({'error': 'Scrape already in progress for this suburb'}), 409
 
@@ -410,11 +471,17 @@ def audit_suburbs():
 
 @app.route('/api/scrape/selected', methods=['POST'])
 def scrape_selected():
-    """Scrape only selected suburb IDs."""
+    """Scrape only selected suburb IDs. Regular users can only scrape
+    their assigned suburbs — any IDs they pass that aren't in their
+    allowlist are silently dropped."""
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
     data = request.json
     suburb_ids = data.get('suburb_ids', [])
+    if allowed is not None:
+        suburb_ids = [s for s in suburb_ids if s in allowed]
     if not suburb_ids:
-        return jsonify({'error': 'No suburbs selected'}), 400
+        return jsonify({'error': 'No suburbs selected (or none assigned to you)'}), 400
 
     conn = get_db()
     suburbs_to_scrape = []

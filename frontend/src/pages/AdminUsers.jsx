@@ -1,54 +1,41 @@
-// AgentDeck admin — user management.
-// Admin-only page that lists every user in the allowlist and lets
-// the admin add new ones (which generates an access_key to share)
-// or revoke access (delete row).
+// AgentDeck admin — user management + suburb assignment.
+// Admin-only page that lists every user, lets the admin add/revoke
+// access, and manages which suburbs each user can see and scrape.
+// "Personne vole rien à personne" — a user only sees their assigned
+// patch; admins see everything.
 
 import { useState, useEffect } from 'react'
-
-const ACCESS_KEY_STORAGE = 'agentdeck_access_key'
-
-
-// Centralised fetch wrapper so every admin call carries the X-Access-Key
-// header automatically and surfaces backend error messages clearly.
-async function adminFetch(url, options = {}) {
-  const key = localStorage.getItem(ACCESS_KEY_STORAGE) || ''
-  const headers = {
-    'X-Access-Key': key,
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-    ...(options.headers || {}),
-  }
-  const res = await fetch(url, { ...options, headers })
-  const text = await res.text()
-  let data
-  try { data = text ? JSON.parse(text) : {} } catch { data = { error: text || `HTTP ${res.status}` } }
-  if (!res.ok) {
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-  return data
-}
-
+import { apiJson, getAccessKey, setAccessKey } from '../lib/api'
 
 export default function AdminUsers() {
   const [me, setMe] = useState(null)
   const [users, setUsers] = useState([])
+  const [allSuburbs, setAllSuburbs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   // New-user form
   const [draft, setDraft] = useState({ email: '', first_name: '', last_name: '', phone: '', role: 'user' })
   const [saving, setSaving] = useState(false)
-  // The access_key returned by the API on creation. Surfaced once in a
-  // banner so the admin can copy it before refreshing the page.
   const [newKey, setNewKey] = useState(null)
+
+  // Suburb-assignment modal — keyed by user id
+  const [assigning, setAssigning] = useState(null)  // { user, suburb_ids: Set }
+  const [assignSaving, setAssignSaving] = useState(false)
 
   const refresh = async () => {
     setLoading(true)
     setError('')
     try {
-      const meRes = await adminFetch('/api/admin/me')
+      const meRes = await apiJson('/api/admin/me')
       setMe(meRes.user)
-      const list = await adminFetch('/api/admin/users')
+      const list = await apiJson('/api/admin/users')
       setUsers(list.users)
+      // Suburbs list — admins see everything because they bypass the filter
+      const subRes = await fetch('/api/suburbs', {
+        headers: { 'X-Access-Key': getAccessKey() }
+      }).then(r => r.json())
+      setAllSuburbs(Array.isArray(subRes) ? subRes : [])
     } catch (e) {
       setError(e.message)
     } finally {
@@ -63,7 +50,7 @@ export default function AdminUsers() {
     setSaving(true)
     setError('')
     try {
-      const res = await adminFetch('/api/admin/users', {
+      const res = await apiJson('/api/admin/users', {
         method: 'POST',
         body: JSON.stringify(draft),
       })
@@ -83,7 +70,7 @@ export default function AdminUsers() {
     )
     if (!yes) return
     try {
-      await adminFetch(`/api/admin/users/${u.id}`, { method: 'DELETE' })
+      await apiJson(`/api/admin/users/${u.id}`, { method: 'DELETE' })
       refresh()
     } catch (e) {
       alert(`Could not revoke: ${e.message}`)
@@ -93,7 +80,7 @@ export default function AdminUsers() {
   const toggleRole = async (u) => {
     const newRole = u.role === 'admin' ? 'user' : 'admin'
     try {
-      await adminFetch(`/api/admin/users/${u.id}`, {
+      await apiJson(`/api/admin/users/${u.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ role: newRole }),
       })
@@ -103,12 +90,43 @@ export default function AdminUsers() {
     }
   }
 
-  // Setup hint — the user pastes their access_key into a text field that
-  // lives at the very top of the page when no key is stored, so they can
-  // bootstrap themselves on first visit.
-  const [keyInput, setKeyInput] = useState(localStorage.getItem(ACCESS_KEY_STORAGE) || '')
+  const openAssign = async (u) => {
+    try {
+      const res = await apiJson(`/api/admin/users/${u.id}/suburbs`)
+      setAssigning({ user: u, suburb_ids: new Set(res.suburb_ids) })
+    } catch (e) {
+      alert(`Could not load assignments: ${e.message}`)
+    }
+  }
+
+  const toggleAssignedSuburb = (sid) => {
+    setAssigning(a => {
+      const next = new Set(a.suburb_ids)
+      if (next.has(sid)) next.delete(sid)
+      else next.add(sid)
+      return { ...a, suburb_ids: next }
+    })
+  }
+
+  const saveAssignments = async () => {
+    if (!assigning) return
+    setAssignSaving(true)
+    try {
+      await apiJson(`/api/admin/users/${assigning.user.id}/suburbs`, {
+        method: 'PUT',
+        body: JSON.stringify({ suburb_ids: Array.from(assigning.suburb_ids) }),
+      })
+      setAssigning(null)
+    } catch (e) {
+      alert(`Could not save: ${e.message}`)
+    } finally {
+      setAssignSaving(false)
+    }
+  }
+
+  const [keyInput, setKeyInput] = useState(getAccessKey())
   const saveKey = () => {
-    localStorage.setItem(ACCESS_KEY_STORAGE, keyInput.trim())
+    setAccessKey(keyInput.trim())
     refresh()
   }
 
@@ -152,7 +170,7 @@ export default function AdminUsers() {
             <code className="admin-newkey-code">{newKey.key}</code>
             <button
               className="btn btn-ghost btn-sm"
-              onClick={() => { navigator.clipboard.writeText(newKey.key); }}
+              onClick={() => navigator.clipboard.writeText(newKey.key)}
             >
               Copy
             </button>
@@ -169,30 +187,20 @@ export default function AdminUsers() {
       <form className="admin-form" onSubmit={create}>
         <h3>Add user</h3>
         <div className="admin-form-grid">
-          <input
-            type="email" required placeholder="email@example.com"
+          <input type="email" required placeholder="email@example.com"
             value={draft.email}
-            onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-          />
-          <input
-            placeholder="First name"
+            onChange={(e) => setDraft({ ...draft, email: e.target.value })} />
+          <input placeholder="First name"
             value={draft.first_name}
-            onChange={(e) => setDraft({ ...draft, first_name: e.target.value })}
-          />
-          <input
-            placeholder="Last name"
+            onChange={(e) => setDraft({ ...draft, first_name: e.target.value })} />
+          <input placeholder="Last name"
             value={draft.last_name}
-            onChange={(e) => setDraft({ ...draft, last_name: e.target.value })}
-          />
-          <input
-            placeholder="Phone (optional)"
+            onChange={(e) => setDraft({ ...draft, last_name: e.target.value })} />
+          <input placeholder="Phone (optional)"
             value={draft.phone}
-            onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
-          />
-          <select
-            value={draft.role}
-            onChange={(e) => setDraft({ ...draft, role: e.target.value })}
-          >
+            onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
+          <select value={draft.role}
+            onChange={(e) => setDraft({ ...draft, role: e.target.value })}>
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
@@ -205,13 +213,8 @@ export default function AdminUsers() {
       <table className="admin-users-table">
         <thead>
           <tr>
-            <th>Email</th>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Role</th>
-            <th>Last seen</th>
-            <th>Created</th>
-            <th></th>
+            <th>Email</th><th>Name</th><th>Phone</th>
+            <th>Role</th><th>Last seen</th><th>Created</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -231,7 +234,15 @@ export default function AdminUsers() {
               </td>
               <td>{u.last_seen ? new Date(u.last_seen).toLocaleString() : 'Never'}</td>
               <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}</td>
-              <td>
+              <td className="admin-row-actions">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => openAssign(u)}
+                  disabled={u.role === 'admin'}
+                  title={u.role === 'admin' ? 'Admins see all suburbs automatically' : 'Manage suburb access'}
+                >
+                  Suburbs
+                </button>
                 <button
                   className="btn btn-ghost btn-sm btn-danger"
                   onClick={() => revoke(u)}
@@ -244,14 +255,60 @@ export default function AdminUsers() {
             </tr>
           ))}
           {!users.length && !loading && (
-            <tr>
-              <td colSpan="7" className="empty">
-                No users yet. Add one above.
-              </td>
-            </tr>
+            <tr><td colSpan="7" className="empty">No users yet. Add one above.</td></tr>
           )}
         </tbody>
       </table>
+
+      {assigning && (
+        <div className="note-modal-overlay" onClick={() => setAssigning(null)}>
+          <div className="note-modal admin-assign-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="note-modal-header">
+              <div>
+                <div className="note-modal-title">Assign suburbs</div>
+                <div className="note-modal-sub">{assigning.user.email}</div>
+              </div>
+              <button className="btn-icon" onClick={() => setAssigning(null)} title="Close">×</button>
+            </div>
+            <div className="admin-assign-hint">
+              Tick the suburbs this user can see and scrape. Untick to revoke.
+            </div>
+            <div className="admin-assign-grid">
+              {allSuburbs.map(s => (
+                <label key={s.id} className="admin-assign-row">
+                  <input
+                    type="checkbox"
+                    checked={assigning.suburb_ids.has(s.id)}
+                    onChange={() => toggleAssignedSuburb(s.id)}
+                  />
+                  <span className="admin-assign-name">{s.name}</span>
+                  <span className="admin-assign-count">
+                    {(s.active_count || 0) + (s.under_offer_count || 0)} live
+                  </span>
+                </label>
+              ))}
+              {!allSuburbs.length && (
+                <div className="empty">No suburbs in the system yet.</div>
+              )}
+            </div>
+            <div className="note-modal-footer">
+              <span className="note-hint">{assigning.suburb_ids.size} selected</span>
+              <div className="note-modal-actions">
+                <button className="btn btn-ghost btn-sm" onClick={() => setAssigning(null)} disabled={assignSaving}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveAssignments}
+                  disabled={assignSaving}
+                >
+                  {assignSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

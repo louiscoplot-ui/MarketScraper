@@ -8,7 +8,6 @@ import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
-
 const API = '/api'
 
 function App() {

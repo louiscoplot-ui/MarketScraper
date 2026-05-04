@@ -224,16 +224,33 @@ def remove_suburb(suburb_id):
     conn.close()
 
 
-def get_suburbs():
+def get_suburbs(allowed_ids=None):
+    """List active suburbs with their listing counts.
+
+    `allowed_ids` is the per-user filter: when None (admin or unauthed
+    request) every suburb is returned; when a list is passed we only
+    include those (this is how regular users only see their assigned
+    suburbs). An empty list returns no rows — the user has nothing
+    assigned yet."""
     conn = get_db()
-    rows = conn.execute(
+    base = (
         "SELECT s.*, "
         "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'active') as active_count, "
         "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'under_offer') as under_offer_count, "
         "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'sold') as sold_count, "
         "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'withdrawn') as withdrawn_count "
-        "FROM suburbs s WHERE s.active = 1 ORDER BY s.name"
-    ).fetchall()
+        "FROM suburbs s WHERE s.active = 1"
+    )
+    params = []
+    if allowed_ids is not None:
+        if not allowed_ids:
+            conn.close()
+            return []
+        placeholders = ','.join('?' * len(allowed_ids))
+        base += f" AND s.id IN ({placeholders})"
+        params.extend(allowed_ids)
+    base += " ORDER BY s.name"
+    rows = conn.execute(base, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

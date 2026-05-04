@@ -66,6 +66,29 @@ def get_current_user():
     return dict(row) if row else None
 
 
+def get_user_suburb_ids(user_id):
+    """Return the list of suburb IDs assigned to a user. Used by data
+    routes to filter what the user sees / can scrape."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT suburb_id FROM user_suburbs WHERE user_id = ?",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return [r['suburb_id'] for r in rows]
+
+
+def resolve_request_scope():
+    """Convenience for data routes: returns (user_dict_or_None, suburb_ids).
+    `suburb_ids` is None when the caller is admin / unauthenticated (no
+    filtering applied — admins see all). For regular users it's the list
+    of assigned suburb IDs (possibly empty → they see nothing)."""
+    user = get_current_user()
+    if not user or user.get('role') == 'admin':
+        return user, None
+    return user, get_user_suburb_ids(user['id'])
+
+
 def _require_admin():
     """Returns (user_dict, None) on success, or (None, error_response) to
     short-circuit the route."""
@@ -254,4 +277,53 @@ def register_admin_routes(app):
         conn.close()
         return jsonify({'ok': True})
 
-    logger.info("Admin routes registered: /api/admin/{me,users[,/<id>]}")
+    @app.route('/api/admin/users/<int:user_id>/suburbs', methods=['GET'])
+    def admin_get_user_suburbs(user_id):
+        _, err = _require_admin()
+        if err:
+            return err
+        ids = get_user_suburb_ids(user_id)
+        return jsonify({'suburb_ids': ids})
+
+    @app.route('/api/admin/users/<int:user_id>/suburbs', methods=['PUT'])
+    def admin_set_user_suburbs(user_id):
+        """Replace ALL of this user's suburb assignments with the given
+        list. Atomic: if any insert fails the whole change is rolled back
+        so the assignments never end up in a half-applied state."""
+        _, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        ids = body.get('suburb_ids') or []
+        if not isinstance(ids, list):
+            return jsonify({'error': 'suburb_ids must be a list of integers'}), 400
+        try:
+            ids = [int(x) for x in ids]
+        except (ValueError, TypeError):
+            return jsonify({'error': 'suburb_ids must contain integers only'}), 400
+
+        conn = get_db()
+        try:
+            conn.execute("DELETE FROM user_suburbs WHERE user_id = ?", (user_id,))
+            for sid in ids:
+                # ON CONFLICT DO NOTHING handles dedup if the caller
+                # accidentally sent the same id twice.
+                if USE_POSTGRES:
+                    conn.execute(
+                        "INSERT INTO user_suburbs (user_id, suburb_id) VALUES (?, ?) "
+                        "ON CONFLICT DO NOTHING",
+                        (user_id, sid)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO user_suburbs (user_id, suburb_id) VALUES (?, ?)",
+                        (user_id, sid)
+                    )
+            conn.commit()
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'DB error: {e}'}), 500
+        conn.close()
+        return jsonify({'ok': True, 'count': len(ids)})
+
+    logger.info("Admin routes registered: /api/admin/{me,users[,/<id>[,/suburbs]]}")
