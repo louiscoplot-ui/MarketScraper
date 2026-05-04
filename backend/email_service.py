@@ -16,10 +16,15 @@ Public surface:
 import os
 import json
 import logging
-import urllib.request
-import urllib.error
 
 logger = logging.getLogger(__name__)
+
+# Use the `requests` library for the actual HTTP call. urllib's defaults
+# (Python-urllib/3.x User-Agent, no Accept-Encoding) trigger Cloudflare's
+# bot-protection layer in front of the Resend API and get HTTP 403 with
+# "error code: 1010". `requests` sends a saner header set out of the box,
+# and we override the User-Agent for good measure.
+import requests
 
 RESEND_API_URL = 'https://api.resend.com/emails'
 DEFAULT_FROM = 'SuburbDesk <onboarding@resend.dev>'  # Resend sandbox sender
@@ -52,34 +57,21 @@ def _send(to, subject, html, text=None):
     if text:
         payload['text'] = text
 
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (compatible; SuburbDesk/1.0; +https://suburbdesk.com)',
+    }
     try:
-        # Cloudflare protects the Resend API and rejects requests with the
-        # default urllib User-Agent (Python-urllib/3.x) as "bot traffic"
-        # → returns error 1010. A real-app User-Agent fixes the issue.
-        req = urllib.request.Request(
-            RESEND_API_URL,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={
-                'Authorization': f'Bearer {api_key}',
-                'Content-Type': 'application/json',
-                'User-Agent': 'SuburbDesk/1.0 (+https://suburbdesk.com)',
-                'Accept': 'application/json',
-            },
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode('utf-8') or '{}')
-            logger.info("Email sent to %s, resend_id=%s", to, body.get('id'))
-            return True, None
-    except urllib.error.HTTPError as e:
-        err_body = ''
-        try:
-            err_body = e.read().decode('utf-8')
-        except Exception:
-            pass
-        logger.error("Resend HTTP %s for %s: %s", e.code, to, err_body[:300])
-        return False, f'Resend rejected the email (HTTP {e.code}): {err_body[:200]}'
-    except Exception as e:
+        resp = requests.post(RESEND_API_URL, headers=headers, json=payload, timeout=15)
+        if resp.status_code >= 400:
+            logger.error("Resend HTTP %s for %s: %s", resp.status_code, to, resp.text[:300])
+            return False, f'Resend rejected the email (HTTP {resp.status_code}): {resp.text[:200]}'
+        body = resp.json() if resp.text else {}
+        logger.info("Email sent to %s, resend_id=%s", to, body.get('id'))
+        return True, None
+    except requests.RequestException as e:
         logger.exception("Email send to %s failed", to)
         return False, f'Network error: {e}'
 
