@@ -53,12 +53,17 @@ def _send(to, subject, html, text=None):
         payload['text'] = text
 
     try:
+        # Cloudflare protects the Resend API and rejects requests with the
+        # default urllib User-Agent (Python-urllib/3.x) as "bot traffic"
+        # → returns error 1010. A real-app User-Agent fixes the issue.
         req = urllib.request.Request(
             RESEND_API_URL,
             data=json.dumps(payload).encode('utf-8'),
             headers={
                 'Authorization': f'Bearer {api_key}',
                 'Content-Type': 'application/json',
+                'User-Agent': 'SuburbDesk/1.0 (+https://suburbdesk.com)',
+                'Accept': 'application/json',
             },
             method='POST',
         )
