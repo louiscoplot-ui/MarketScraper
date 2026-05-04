@@ -185,3 +185,90 @@ def send_welcome_email(user, access_key, inviter_name=None):
     html = _welcome_html(user, access_key, inviter_name)
     text = _welcome_text(user, access_key, inviter_name)
     return _send(to, subject, html, text=text)
+
+
+def _login_link(access_key):
+    """One-click login URL. Frontend extracts ?key=, stashes it in
+    localStorage, and clears the URL via history.replaceState so the
+    key isn't visible in the address bar after page load."""
+    return f"{_app_url()}/?key={access_key}"
+
+
+def _login_html(user, access_key):
+    name = (user.get('first_name') or 'there').strip()
+    link = _login_link(access_key)
+    return f"""<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:8px;overflow:hidden;
+                    box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+        <tr><td style="background:#386351;padding:28px 32px;">
+          <h1 style="margin:0;color:#fff;font-size:26px;letter-spacing:3px;
+                     font-weight:700;">SUBURBDESK</h1>
+          <p style="margin:6px 0 0;color:#cfe0d6;font-size:13px;">
+            Log in
+          </p>
+        </td></tr>
+        <tr><td style="padding:32px;">
+          <p style="margin:0 0 14px;font-size:16px;color:#222;">Hi {name},</p>
+          <p style="margin:0 0 24px;color:#444;line-height:1.55;font-size:14px;">
+            Click the button below to log in to SuburbDesk. The link works
+            on any device — once you've clicked it, you stay logged in
+            <strong>forever</strong> on that browser.
+          </p>
+          <p style="margin:0 0 24px;text-align:center;">
+            <a href="{link}" style="display:inline-block;background:#386351;
+               color:#fff;padding:14px 32px;border-radius:6px;
+               text-decoration:none;font-weight:600;font-size:15px;">
+              Log in to SuburbDesk
+            </a>
+          </p>
+          <p style="margin:24px 0 0;color:#888;font-size:12px;line-height:1.5;
+                    word-break:break-all;">
+            Or paste this URL into your browser:<br>
+            <span style="color:#386351;">{link}</span>
+          </p>
+          <p style="margin:24px 0 0;padding:14px 16px;background:#fef9e7;
+                    border-radius:4px;color:#7d6608;font-size:12px;
+                    line-height:1.5;">
+            Didn't request this? Ignore the email — your account stays safe.
+          </p>
+        </td></tr>
+        <tr><td style="background:#fafafa;padding:14px 32px;
+                       border-top:1px solid #eee;text-align:center;">
+          <p style="margin:0;color:#999;font-size:11px;">
+            SuburbDesk · suburbdesk.com
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
+def _login_text(user, access_key):
+    name = (user.get('first_name') or 'there').strip()
+    link = _login_link(access_key)
+    return (
+        f"Hi {name},\n\n"
+        f"Click below to log in to SuburbDesk:\n\n"
+        f"  {link}\n\n"
+        f"Once clicked you stay logged in forever on this browser.\n"
+        f"Didn't request this? Ignore the email.\n\n"
+        f"— SuburbDesk\n"
+    )
+
+
+def send_login_link_email(user, access_key):
+    """Magic-link login email. Same delivery infra as the welcome mail."""
+    to = (user.get('email') or '').strip()
+    if not to or '@' not in to:
+        return False, 'Invalid email address'
+    subject = "Log in to SuburbDesk"
+    html = _login_html(user, access_key)
+    text = _login_text(user, access_key)
+    return _send(to, subject, html, text=text)
