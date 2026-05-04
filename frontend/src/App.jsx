@@ -187,11 +187,23 @@ function App() {
 
   const deleteSuburb = async (id, name) => {
     if (!confirm(`Delete ${name} and all its listings?`)) return
-    await fetch(`${API}/suburbs/${id}`, { method: 'DELETE' })
+    // Optimistic UI: remove the suburb from local state right away so the
+    // user gets instant feedback. Render's free tier cold-starts (~30-60s
+    // after idle) used to make this feel like the click did nothing.
+    const prevSuburbs = suburbs
+    setSuburbs(s => s.filter(x => x.id !== id))
     setSelectedSuburbs(prev => { const n = new Set(prev); n.delete(id); return n })
     setCheckedSuburbs(prev => { const n = new Set(prev); n.delete(id); return n })
-    fetchSuburbs()
-    fetchListings()
+    try {
+      const res = await fetch(`${API}/suburbs/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      // Background re-sync — no await, doesn't block the UI.
+      fetchSuburbs()
+      fetchListings()
+    } catch (e) {
+      alert(`Could not delete ${name}: ${e.message}. Restoring.`)
+      setSuburbs(prevSuburbs)
+    }
   }
 
   const scrapeSuburb = async (id) => {
