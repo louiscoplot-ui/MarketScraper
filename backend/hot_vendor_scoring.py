@@ -1,16 +1,13 @@
 """Hot Vendor Lead Scoring v4 — auto-calibrated pipeline.
 
-Port of the standalone Python script into a callable function. Loads an
-RP Data / Landgate CSV (20/21/22-column variants auto-detected), filters
-non-market transactions, reconstructs one row per property, computes
-latent profit + auto-calibrated weights, scores each property and
-segments via dynamic quantiles.
+Loads an RP Data / Landgate CSV (20/21/22-col variants auto-detected),
+filters non-market transactions, reconstructs one row per property,
+computes latent profit + auto-calibrated weights, scores each property
+and segments via dynamic quantiles.
 
-Entry point: score_csv(file_obj, suburb=None) → dict with
-  scored_properties, profile, weights, thresholds, quantiles, ...
-
-The .xlsx export lives in hot_vendor_excel.py to keep this module focused
-on the maths.
+Heavy property reconstruction (with owner-column detection per format)
+lives in hot_vendor_reconstruct.py. Excel export lives in
+hot_vendor_excel.py. This module owns the maths + the orchestrator.
 """
 
 import io
@@ -20,10 +17,50 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from hot_vendor_reconstruct import reconstruct_properties
+
 logger = logging.getLogger(__name__)
 
 
 CUTOFF_RECENT = date(2023, 1, 1)
+
+
+_MISSING = ('', '-', 'N/A', 'nan', 'None', 'NaN')
+
+
+def _safe_int(v):
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    if s in _MISSING:
+        return None
+    try:
+        return int(float(s.replace(',', '')))
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_float(v):
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    s = str(v).strip()
+    if s in _MISSING:
+        return None
+    try:
+        return float(s.replace(',', ''))
+    except (ValueError, TypeError):
+        return None
+
 
 CSV_COLS_22 = [
     'address', 'suburb', 'state', 'postcode', 'property_type',
@@ -63,7 +100,6 @@ def _looks_like_date(val):
 
 
 def _read_csv_with_format_detection(file_bytes):
-    """Detect 20/21/22-col layouts. Falls back to position-based detection."""
     buf = io.BytesIO(file_bytes)
     sample = pd.read_csv(buf, header=None, nrows=5)
     ncols = sample.shape[1]
@@ -85,7 +121,6 @@ def _read_csv_with_format_detection(file_bytes):
                 continue
 
     if best_cols is None:
-        # Fallback — detect price/date columns by content signature
         logger.warning(f"CSV format not recognised ({ncols} cols), auto-detecting by position")
         generic = [f'col{i}' for i in range(ncols)]
         buf.seek(0)
@@ -123,7 +158,6 @@ def _classify_property_type(t):
 
 
 def _detect_price_thresholds(df):
-    """Premium / mid / standard suburb → different non-market filters."""
     sample_prices = pd.to_numeric(
         df['sale_price'].astype(str).str.replace('[$,]', '', regex=True),
         errors='coerce'
@@ -188,62 +222,6 @@ def _clean_dataframe(file_bytes):
     clean, excluded = _filter_nonmarket(df, thresholds)
     logger.info(f"Cleaning: {len(excluded)} excluded, {len(clean):,} retained ({thresholds['type']} suburb)")
     return clean, excluded, len(df), thresholds
-
-
-def _reconstruct_properties(clean_df, today):
-    clean_df = clean_df.sort_values(['address', 'sale_dt']).reset_index(drop=True)
-    props = []
-    for addr, grp in clean_df.groupby('address'):
-        grp = grp.sort_values('sale_dt').reset_index(drop=True)
-        n = len(grp)
-        last = grp.iloc[-1]
-
-        row = {
-            'address': addr.strip(),
-            'suburb': str(last.get('suburb', '')).strip() if 'suburb' in grp.columns else '',
-            'prop_type': last['prop_type'],
-            'bedrooms': last.get('bedrooms', None),
-            'bathrooms': last.get('bathrooms', None),
-            'land_area': last.get('land_area', None),
-            'n_sales': n,
-            'last_sale_price': last['price'],
-            'last_sale_date': last['sale_dt'].date(),
-            'owner_purchase_price': last['price'],
-            'owner_purchase_date': last['sale_dt'].date(),
-            'holding_yrs': round((today - last['sale_dt'].date()).days / 365.25, 1),
-            'agency': last.get('agency') if str(last.get('agency', '-')) not in ['-', 'nan', ''] else None,
-            'agent': last.get('agent') if str(last.get('agent', '-')) not in ['-', 'nan', ''] else None,
-            'current_owner1': last.get('owner1') if str(last.get('owner1', '-')) not in ['-', 'nan', 'None', ''] else None,
-            'current_owner2': last.get('owner2'),
-            'first_sale_price': grp.iloc[0]['price'],
-            'first_sale_date': grp.iloc[0]['sale_dt'].date(),
-        }
-
-        if n >= 2:
-            prev = grp.iloc[-2]
-            gain_dollar = last['price'] - prev['price']
-            gain_pct = (gain_dollar / prev['price']) * 100 if prev['price'] > 0 else None
-            yrs_between = (last['sale_dt'].date() - prev['sale_dt'].date()).days / 365.25
-            row['owner_gain_dollar'] = round(gain_dollar, 0) if gain_pct is not None else None
-            row['owner_gain_pct'] = round(gain_pct, 1) if gain_pct is not None else None
-            if gain_pct is not None and yrs_between > 0:
-                cagr = ((last['price'] / prev['price']) ** (1 / yrs_between) - 1) * 100
-                row['owner_cagr'] = round(float(np.clip(cagr, -20, 50)), 2)
-            else:
-                row['owner_cagr'] = None
-            row['total_gain_pct'] = round(
-                (last['price'] - grp.iloc[0]['price']) / grp.iloc[0]['price'] * 100, 1
-            ) if grp.iloc[0]['price'] > 0 else None
-        else:
-            row['owner_gain_dollar'] = None
-            row['owner_gain_pct'] = None
-            row['owner_cagr'] = None
-            row['total_gain_pct'] = None
-
-        props.append(row)
-
-    prop_df = pd.DataFrame(props)
-    return prop_df
 
 
 def _add_estimated_value(prop_df, clean_df):
@@ -338,10 +316,6 @@ def _auto_calibrate_weights(profile):
         rationale.append(f"thin history ({profile['pct_1sale']*100:.0f}% single-sale)")
     return weights, rationale
 
-
-# ---------------------------------------------------------------------
-# Per-factor scores
-# ---------------------------------------------------------------------
 
 def _holding_score(yrs, median):
     r = yrs / median if median > 0 else 1
@@ -443,7 +417,6 @@ def _apply_scoring(prop_df, weights, profile):
 
 
 def _date_to_dmy(d):
-    """Format a date / datetime / None as DD/MM/YYYY for JSON + DB."""
     if d is None or pd.isna(d):
         return None
     if hasattr(d, 'strftime'):
@@ -452,60 +425,42 @@ def _date_to_dmy(d):
 
 
 def _serialize_properties(prop_df):
-    """DataFrame → list of dicts ready for JSON / DB insert."""
     rows = []
     for _, r in prop_df.iterrows():
-        def gv(k, default=None):
-            v = r.get(k, default)
-            if pd.isna(v):
-                return None
-            return v
         rows.append({
             'address': r['address'],
-            'suburb': gv('suburb'),
+            'suburb': r.get('suburb') if not pd.isna(r.get('suburb')) else None,
             'type': r['prop_type'],
-            'bedrooms': int(gv('bedrooms')) if gv('bedrooms') not in (None, '') else None,
-            'bathrooms': int(gv('bathrooms')) if gv('bathrooms') not in (None, '') else None,
-            'last_sale_price': int(r['last_sale_price']) if not pd.isna(r['last_sale_price']) else None,
-            'owner_purchase_price': int(r['owner_purchase_price']) if not pd.isna(r['owner_purchase_price']) else None,
+            'bedrooms': _safe_int(r.get('bedrooms')),
+            'bathrooms': _safe_int(r.get('bathrooms')),
+            'last_sale_price': _safe_int(r.get('last_sale_price')),
+            'owner_purchase_price': _safe_int(r.get('owner_purchase_price')),
             'owner_purchase_date': _date_to_dmy(r.get('owner_purchase_date')),
-            'holding_years': float(r['holding_yrs']) if not pd.isna(r['holding_yrs']) else None,
-            'sales_count': int(r['n_sales']),
-            'owner_gain_dollars': int(gv('owner_gain_dollar')) if gv('owner_gain_dollar') is not None else None,
-            'owner_gain_pct': float(gv('owner_gain_pct')) if gv('owner_gain_pct') is not None else None,
-            'cagr': float(gv('owner_cagr')) if gv('owner_cagr') is not None else None,
-            'estimated_value': int(gv('estimated_value')) if gv('estimated_value') is not None else None,
-            'potential_profit': int(gv('potential_profit')) if gv('potential_profit') is not None else None,
-            'potential_profit_pct': float(gv('potential_profit_pct')) if gv('potential_profit_pct') is not None else None,
-            'hold_score': int(r['hold_score']),
-            'type_score': int(r['type_score']),
-            'gain_score': int(r['gain_score']),
-            'cagr_score': int(r['cagr_score']),
-            'freq_score': int(r['freq_score']),
-            'prof_score': int(r['prof_score']),
-            'final_score': float(r['final_score']),
-            'category': r['category'],
-            'rank': int(r['rank']),
-            'current_owner': gv('current_owner1'),
-            'agency': gv('agency'),
-            'agent': gv('agent'),
+            'holding_years': _safe_float(r.get('holding_yrs')),
+            'sales_count': _safe_int(r.get('n_sales')) or 0,
+            'owner_gain_dollars': _safe_int(r.get('owner_gain_dollar')),
+            'owner_gain_pct': _safe_float(r.get('owner_gain_pct')),
+            'cagr': _safe_float(r.get('owner_cagr')),
+            'estimated_value': _safe_int(r.get('estimated_value')),
+            'potential_profit': _safe_int(r.get('potential_profit')),
+            'potential_profit_pct': _safe_float(r.get('potential_profit_pct')),
+            'hold_score': _safe_int(r.get('hold_score')) or 0,
+            'type_score': _safe_int(r.get('type_score')) or 0,
+            'gain_score': _safe_int(r.get('gain_score')) or 0,
+            'cagr_score': _safe_int(r.get('cagr_score')) or 0,
+            'freq_score': _safe_int(r.get('freq_score')) or 0,
+            'prof_score': _safe_int(r.get('prof_score')) or 0,
+            'final_score': _safe_float(r.get('final_score')) or 0.0,
+            'category': r.get('category'),
+            'rank': _safe_int(r.get('rank')) or 0,
+            'current_owner': r.get('current_owner1') if not pd.isna(r.get('current_owner1')) else None,
+            'agency': r.get('agency') if not pd.isna(r.get('agency')) else None,
+            'agent': r.get('agent') if not pd.isna(r.get('agent')) else None,
         })
     return rows
 
 
 def score_csv(file_bytes, suburb=None, today=None):
-    """Run the full v4 pipeline on a CSV uploaded as bytes.
-
-    Returns a dict ready to persist + serialise to JSON:
-      {
-        suburb, today, raw_count, kept_count, excluded_count,
-        thresholds, profile, weights, rationale,
-        median_m2_house, median_m2_apt,
-        q_hot, q_warm, q_medium,
-        excluded: [{reason, count}, ...],
-        properties: [...],
-      }
-    """
     today = today or date.today()
 
     clean_df, excluded, raw_count, thresholds = _clean_dataframe(file_bytes)
@@ -518,7 +473,7 @@ def score_csv(file_bytes, suburb=None, today=None):
             detected_suburb = ''
     detected_suburb = detected_suburb or 'UNKNOWN'
 
-    prop_df = _reconstruct_properties(clean_df, today)
+    prop_df = reconstruct_properties(clean_df, today)
     prop_df, med_house, med_apt = _add_estimated_value(prop_df, clean_df)
     profile = _build_suburb_profile(prop_df)
     weights, rationale = _auto_calibrate_weights(profile)

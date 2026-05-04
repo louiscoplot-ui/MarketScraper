@@ -489,13 +489,24 @@ tr:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
-tr.status-active { border-left: 3px solid var(--active); }
-tr.status-under_offer { border-left: 3px solid var(--under-offer); }
-tr.status-sold { border-left: 3px solid var(--sold); }
-tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
+/* Light row tint per status — matches the filter pill colours above. */
+tr.status-active { background: rgba(34, 197, 94, 0.08); border-left: 3px solid var(--active); }
+tr.status-under_offer { background: rgba(245, 158, 11, 0.09); border-left: 3px solid var(--under-offer); }
+tr.status-sold { background: rgba(59, 130, 246, 0.08); border-left: 3px solid var(--sold); }
+tr.status-withdrawn { background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--withdrawn); }
+
+tr.status-active:hover { background: rgba(34, 197, 94, 0.14); }
+tr.status-under_offer:hover { background: rgba(245, 158, 11, 0.15); }
+tr.status-sold:hover { background: rgba(59, 130, 246, 0.14); }
+tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
+
+/* Tighter density for the main listings table only. */
+.listings-table { font-size: 12.5px; }
+.listings-table th { padding: 7px 9px; font-size: 11px; }
+.listings-table td { padding: 5px 9px; }
 
 .address-cell {
-  max-width: 250px;
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -519,7 +530,13 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
 }
 
 .agency-cell {
-  max-width: 150px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-cell {
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1298,4 +1315,377 @@ tr.status-withdrawn { border-left: 3px solid var(--withdrawn); }
   /* Override the listings-table status border-left so banded category bg
      stays visible without coloured rails on the side. */
   border-left: none !important;
+}
+
+/* Suburb multi-select dropdown */
+.hv-suburb-filter { position: relative; }
+
+.hv-suburb-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  padding: 6px;
+}
+
+.hv-suburb-menu-actions {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.hv-suburb-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hv-suburb-item:hover { background: var(--surface-hover); }
+
+.hv-suburb-item input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* Per-row status select */
+.hv-status-select {
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* Page-level vertical scroll. The horizontal scrollbar lives at the
+   natural bottom of the wrapper; the StickyHScroll component renders
+   a synced floating bar at the viewport bottom so the user never
+   has to scroll the page down to drag it. */
+.hv-table-wrapper {
+  cursor: grab;
+  user-select: text;
+  overflow: auto;
+}
+
+/* Synced horizontal scrollbar at viewport bottom — rendered by
+   <StickyHScroll/>. Only paints when the target table overflows AND
+   its native scrollbar is below the fold. Two-way scroll sync. */
+.sticky-h-scroll {
+  position: fixed;
+  bottom: 0;
+  height: 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+  scrollbar-width: thin;
+}
+
+.sticky-h-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+
+/* Column resize handle (Price column on Listings) — invisible until
+   hover, then shows a faint accent line so the user discovers it. */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.col-resize-handle:hover,
+body.col-resizing .col-resize-handle {
+  background: var(--primary);
+  opacity: 0.5;
+}
+
+th.resizable-cell {
+  position: relative;
+}
+
+td.resizable-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.col-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.col-resizing * {
+  cursor: col-resize !important;
+}
+
+/* Listings Compact mode — same idea as Hot Vendor's compact toggle. */
+.listings-table-wrapper.compact .listings-table { font-size: 11.5px; }
+.listings-table-wrapper.compact .listings-table th { padding: 5px 6px; font-size: 10.5px; }
+.listings-table-wrapper.compact .listings-table td { padding: 3px 6px; }
+.listings-table-wrapper.compact .btn-note { padding: 3px 6px; font-size: 11px; }
+.listings-table-wrapper.compact .status-badge { padding: 1px 5px; font-size: 9.5px; }
+.hv-table-wrapper.dragging { cursor: grabbing; user-select: none; }
+
+/* Saved uploads picker (no-data state) */
+.hv-saved {
+  margin-bottom: 18px;
+}
+
+.hv-saved-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.hv-saved-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.hv-saved-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  transition: all 0.15s;
+}
+
+.hv-saved-card:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--surface-hover);
+}
+
+.hv-saved-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hv-saved-suburb {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.hv-saved-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Hot Vendor table — denser default, ellipsis on long-text cols. */
+.hot-vendor table { font-size: 12.5px; }
+.hot-vendor th { padding: 7px 8px; font-size: 11px; }
+.hot-vendor td { padding: 5px 8px; }
+
+.hv-cell-address { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-cell-owner { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-cell-agency { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-cell-agent { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Compact mode — even tighter, single-letter padding */
+.hot-vendor.compact table { font-size: 11px; }
+.hot-vendor.compact th { padding: 4px 5px; font-size: 10px; }
+.hot-vendor.compact td { padding: 2px 5px; }
+.hot-vendor.compact .hv-cell-address { max-width: 160px; }
+.hot-vendor.compact .hv-cell-owner { max-width: 140px; }
+.hot-vendor.compact .hv-cell-agency { max-width: 110px; }
+.hot-vendor.compact .hv-cell-agent { max-width: 100px; }
+.hot-vendor.compact .hv-badge { padding: 1px 5px; font-size: 9px; }
+.hot-vendor.compact .hv-status-select { padding: 1px 3px; font-size: 9.5px; }
+
+/* Per-listing note column + modal */
+.note-cell {
+  padding: 2px 4px !important;
+  max-width: 220px;
+  min-width: 130px;
+}
+
+.btn-note {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+  padding: 5px 9px;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.15s ease;
+}
+
+.btn-note.empty-note:hover {
+  border-color: var(--primary);
+  border-style: solid;
+  color: var(--primary);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.btn-note.has-note {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid var(--under-offer);
+  color: var(--under-offer);
+  font-weight: 600;
+}
+
+.btn-note.has-note:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+/* Editable text cell (price etc) */
+.editable-text-input,
+.editable-date-input {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.editable-cell {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: inline-block;
+  transition: background 0.1s;
+}
+
+.editable-cell:hover {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.editable-cell-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.note-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.note-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 560px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.note-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.note-modal-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.note-textarea {
+  margin: 14px 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  min-height: 120px;
+}
+
+.note-textarea:focus {
+  border-color: var(--primary);
+}
+
+.note-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 18px 16px;
+  gap: 12px;
+}
+
+.note-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.note-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Error banner — visible above the table when data is loaded. */
+.hv-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--danger);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 12px;
 }

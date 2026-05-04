@@ -1,10 +1,12 @@
 """Hot Vendor Lead Scoring — Excel report generator.
 
-Builds a polished .xlsx from a `score_csv` result dict. Four sheets:
-  1. Summary            (suburb profile, auto-calibrated weights, score distribution)
-  2. All Scored         (full property list with all per-factor scores)
-  3. High Probability   (HOT + WARM filtered + sorted)
-  4. Houses Priority    (Houses only, with full details)
+Builds a polished .xlsx from a `score_csv` result dict. Six sheets:
+  0. Methodology       (in hot_vendor_excel_extras) — formula + per-factor tables
+  1. Summary           — suburb profile, auto-calibrated weights, distribution
+  2. Market Analysis   (in hot_vendor_excel_extras) — full suburb stats blocks
+  3. All Scored        — full property list with all per-factor scores
+  4. High Probability  — HOT + WARM filtered + sorted
+  5. Houses Priority   — Houses only, with full details
 
 Mail-ready and consistent with the v4 scoring methodology.
 """
@@ -16,16 +18,18 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from hot_vendor_excel_extras import build_methodology, build_market_analysis
+
 
 # Palette
 NAVY = '1B2A4A'
 WHITE = 'FFFFFF'
 MID = '2E6DA4'
 ALT = 'EBF5FB'
-HRL = 'FADBD8'   # HOT pale red
-WOL = 'FDEBD0'   # WARM pale orange
-MYL = 'FEF9E7'   # MEDIUM pale yellow
-LGL = 'F2F3F4'   # LOW pale grey
+HRL = 'FADBD8'
+WOL = 'FDEBD0'
+MYL = 'FEF9E7'
+LGL = 'F2F3F4'
 HR_TXT = 'C0392B'
 WO_TXT = 'E67E22'
 MY_TXT = '7D6608'
@@ -33,6 +37,13 @@ LGY_TXT = '95A5A6'
 
 CAT_FILL = {'HOT': HRL, 'WARM': WOL, 'MEDIUM': MYL, 'LOW': LGL}
 CAT_TEXT = {'HOT': HR_TXT, 'WARM': WO_TXT, 'MEDIUM': MY_TXT, 'LOW': LGY_TXT}
+
+# N/A owner placeholder — flagged in amber so the agent verifies on Landgate
+OWNER_NA = 'N/A — verify on Landgate'
+OWNER_NA_FILL = 'FFF8E7'
+OWNER_NA_TEXT = '856404'
+
+OWNER_KEYS = {'current_owner', 'current_owner1', 'current_owner2'}
 
 
 def _font(sz=10, bold=False, color=NAVY):
@@ -220,6 +231,12 @@ def _write_property_row(ws, row, p, cols, bg_override=None):
             c.font = _font(10)
             c.alignment = _ctr() if fmt in ('price', 'pct', 'pct2', 'num', 'int') else _lft(1)
 
+            # Owner placeholder gets an amber italic style so the agent
+            # spots the gap and verifies on Landgate before mailing
+            if key in OWNER_KEYS and v == OWNER_NA:
+                c.fill = _fill(OWNER_NA_FILL)
+                c.font = Font(name='Arial', size=9, italic=True, color=OWNER_NA_TEXT)
+
 
 SCORED_COLS = [
     ('rank', 'int'), ('address', 'str'), ('type', 'str'),
@@ -256,7 +273,8 @@ def _build_data_sheet(wb, name, title, properties, columns, headers, widths):
 
     _title_row(ws, 1, title, len(headers))
     _sub_row(ws, 2, '⚠️  Verify on REIWA / agency CRM before prospecting — '
-                    'Landgate registration lag up to 12 months.',
+                    'Landgate registration lag up to 12 months. '
+                    'Amber owner cells = unrecorded buyer, verify on Landgate.',
              len(headers), bg='FFF3CD', fg='856404')
 
     _header_row(ws, 3, headers)
@@ -272,31 +290,33 @@ def _build_data_sheet(wb, name, title, properties, columns, headers, widths):
 
 
 def build_workbook(result):
-    """Assemble the 4-sheet workbook in memory and return BytesIO."""
+    """Assemble the 6-sheet workbook in memory and return BytesIO."""
     wb = Workbook()
     wb.remove(wb.active)
 
+    build_methodology(wb, result)
     _build_summary(wb, result)
+    build_market_analysis(wb, result)
 
     properties = result['properties']
     suburb = result['suburb']
 
     _build_data_sheet(
-        wb, '2 - All Scored',
+        wb, '3 - All Scored',
         f"📋  ALL SCORED PROPERTIES — {suburb} — {len(properties):,} entries",
         properties, SCORED_COLS, SCORED_HEADERS, SCORED_WIDTHS,
     )
 
     leads = [p for p in properties if p['category'] in ('HOT', 'WARM')]
     _build_data_sheet(
-        wb, '3 - High Probability Leads',
+        wb, '4 - High Probability Leads',
         f"🎯  HIGH PROBABILITY LEADS — {suburb} — {len(leads):,} (HOT+WARM)",
         leads, LEADS_COLS, LEADS_HEADERS, LEADS_WIDTHS,
     )
 
     houses = [p for p in properties if p['type'] == 'House']
     _build_data_sheet(
-        wb, '4 - Houses Priority',
+        wb, '5 - Houses Priority',
         f"🏠  HOUSES PRIORITY — {suburb} — {len(houses):,} houses",
         houses, LEADS_COLS, LEADS_HEADERS, LEADS_WIDTHS,
     )

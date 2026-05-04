@@ -1,18 +1,27 @@
 """Appraisal Pipeline routes — endpoints + helper functions."""
 
 import re
+import json
 import logging
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, date
 from io import BytesIO
 from flask import request, jsonify, send_file
 
 from database import get_db, normalize_address, USE_POSTGRES
+from pipeline_letter import render_letter_docx
 
 logger = logging.getLogger(__name__)
 
 
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
 INSERT_CHUNK = 50
+NEIGHBOUR_MAX_DISTANCE = 30
+NEIGHBOUR_COUNT = 4
+OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
+OVERPASS_TIMEOUT_SECONDS = 18
+OSM_CACHE_TTL_DAYS = 30
 
 
 def _source_limit(days):
@@ -25,6 +34,10 @@ def _parse_address(addr):
     addr = addr.strip()
     if '/' in addr.split()[0]:
         return None
+    # "259 259 Curtin Avenue" → "259 Curtin Avenue" (scrape artefact).
+    parts = addr.split()
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit() and parts[0] == parts[1]:
+        addr = ' '.join([parts[0]] + parts[2:])
     m = _ADDR_RE.match(addr)
     if not m:
         return None
@@ -35,18 +48,220 @@ def _parse_address(addr):
     return num, m.group(2), m.group(3).strip()
 
 
-def _generate_neighbours(addr):
-    parsed = _parse_address(addr)
+def _street_cache_key(street, suburb):
+    return f"{(street or '').strip().lower()}|{(suburb or '').strip().lower()}"
+
+
+def _osm_street_numbers_cached(conn, street, suburb):
+    """Cached lookup; returns list[int] of every house number we've seen
+    on this street (across HV, listings, and OSM). Empty list = miss
+    fresh enough to not retry — TTL handled by caller."""
+    key = _street_cache_key(street, suburb)
+    try:
+        row = conn.execute(
+            "SELECT numbers, fetched_at FROM street_address_cache WHERE street_key = ?",
+            (key,)
+        ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    try:
+        d = dict(row)
+        nums = json.loads(d.get('numbers') or '[]')
+        return [int(n) for n in nums]
+    except Exception:
+        return None
+
+
+def _osm_street_numbers_store(conn, street, suburb, numbers):
+    key = _street_cache_key(street, suburb)
+    payload = json.dumps(sorted(set(int(n) for n in numbers)))
+    try:
+        if USE_POSTGRES:
+            conn.execute(
+                "INSERT INTO street_address_cache (street_key, numbers) "
+                "VALUES (?, ?) "
+                "ON CONFLICT (street_key) DO UPDATE SET "
+                "numbers = EXCLUDED.numbers, fetched_at = CURRENT_TIMESTAMP",
+                (key, payload)
+            )
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO street_address_cache "
+                "(street_key, numbers, fetched_at) VALUES (?, ?, datetime('now'))",
+                (key, payload)
+            )
+        conn.commit()
+    except Exception as e:
+        logger.debug(f"street cache write failed: {e}")
+
+
+def _osm_fetch_street_numbers(street, suburb):
+    """One Overpass query → all house numbers on the street within the
+    suburb's admin area. Returns list of ints, empty on any failure.
+    OSM data is open + free; usage is light (cached 30 days per street).
+    """
+    if not street or not suburb:
+        return []
+    street_clean = street.split(',')[0].strip()
+    suburb_clean = suburb.strip()
+    if not street_clean or not suburb_clean:
+        return []
+
+    # admin_level 7-9 covers Australian suburbs / localities reliably.
+    query = (
+        '[out:json][timeout:15];'
+        f'area["name"~"^{suburb_clean}$",i]["admin_level"~"^[789]$"]->.s;'
+        '('
+        f'node(area.s)["addr:housenumber"]["addr:street"~"^{street_clean}$",i];'
+        f'way(area.s)["addr:housenumber"]["addr:street"~"^{street_clean}$",i];'
+        ');'
+        'out tags;'
+    )
+    try:
+        body = urllib.parse.urlencode({'data': query}).encode('utf-8')
+        req = urllib.request.Request(
+            OVERPASS_URL, data=body,
+            headers={
+                'User-Agent': 'MarketScraper/1.0 (real-estate prospecting; '
+                              'contact: louiscoplot@bellepropertycottesloe.com.au)',
+                'Content-Type': 'application/x-www-form-urlencoded',
+            }
+        )
+        with urllib.request.urlopen(req, timeout=OVERPASS_TIMEOUT_SECONDS) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        logger.info(f"Overpass lookup failed for {street_clean}/{suburb_clean}: {e}")
+        return []
+
+    nums = []
+    for el in payload.get('elements', []):
+        tags = (el.get('tags') or {})
+        raw = (tags.get('addr:housenumber') or '').strip()
+        if not raw:
+            continue
+        # OSM may store '123A', '123-125', '123/4'. Take the leading
+        # integer if it's clean — units & strata not useful for letter mailing.
+        m = re.match(r'^(\d+)\s*$', raw)
+        if not m:
+            continue
+        try:
+            nums.append(int(m.group(1)))
+        except ValueError:
+            continue
+    if nums:
+        logger.info(f"Overpass: {len(set(nums))} numbers on {street_clean}, {suburb_clean}")
+    return sorted(set(nums))
+
+
+def _real_neighbours(conn, source_addr, source_suburb, has_hv,
+                     count=NEIGHBOUR_COUNT, max_distance=NEIGHBOUR_MAX_DISTANCE):
+    """Return real addresses on the same street near the source.
+
+    Pulls candidates from hot_vendor_properties (RP Data — exhaustive
+    ownership records) first, falling back to listings. Filters by:
+      - same street name (case-insensitive)
+      - same parity (odd source → odd targets only, never both sides)
+      - within ±max_distance house numbers
+      - excludes the source itself
+    Returns up to `count` closest matches, sorted by distance then number.
+    Empty list when no real neighbour can be found — the pipeline
+    skips that source rather than mailing a fake address.
+    """
+    parsed = _parse_address(source_addr)
     if not parsed:
         return []
-    num, _suffix, street = parsed
-    out = []
-    for offset in (-2, -1, 1, 2):
-        target = num + offset
-        if target <= 0:
+    src_num, _suffix, street = parsed
+    src_parity = src_num % 2
+    street_lower = street.lower()
+    src_norm = normalize_address(source_addr) or ''
+
+    candidates = {}
+
+    def consider(addr_str):
+        if not addr_str:
+            return
+        a = addr_str.strip()
+        if not a:
+            return
+        n = (normalize_address(a) or '').lower()
+        if not n or n == src_norm or n in candidates:
+            return
+        p = _parse_address(a)
+        if not p:
+            return
+        num_c, _suf, str_c = p
+        if str_c.lower() != street_lower:
+            return
+        if num_c % 2 != src_parity:
+            return
+        d = abs(num_c - src_num)
+        if d == 0 or d > max_distance:
+            return
+        candidates[n] = (d, num_c, a)
+
+    if has_hv:
+        try:
+            rows = conn.execute(
+                "SELECT address FROM hot_vendor_properties "
+                "WHERE LOWER(address) LIKE ? LIMIT 1000",
+                (f"% {street_lower}",)
+            ).fetchall()
+            for r in rows:
+                consider(dict(r).get('address'))
+        except Exception as e:
+            logger.debug(f"hot_vendor neighbour lookup failed: {e}")
+
+    try:
+        rows = conn.execute(
+            "SELECT l.address FROM listings l "
+            "JOIN suburbs s ON l.suburb_id = s.id "
+            "WHERE LOWER(l.address) LIKE ? AND LOWER(s.name) = LOWER(?) "
+            "LIMIT 1000",
+            (f"% {street_lower}", source_suburb or '')
+        ).fetchall()
+        for r in rows:
+            consider(dict(r).get('address'))
+    except Exception as e:
+        logger.debug(f"listings neighbour lookup failed: {e}")
+
+    if candidates:
+        ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
+        return [c[2] for c in ranked[:count]]
+
+    # Fallback: ask OSM for the real house numbers on this street. We
+    # only get here when neither Hot Vendor nor listings have any data
+    # on the source's street — typical when no HV CSV has been uploaded
+    # for the suburb yet. Cached per (street, suburb) to keep load
+    # under Overpass's polite-use limits.
+    cached = _osm_street_numbers_cached(conn, street, source_suburb)
+    if cached is None:
+        nums = _osm_fetch_street_numbers(street, source_suburb)
+        # Persist the result either way (empty included) so we don't
+        # hammer Overpass for unknown streets every request. Caller
+        # logic still handles refresh via the fetched_at TTL if added.
+        _osm_street_numbers_store(conn, street, source_suburb, nums)
+    else:
+        nums = cached
+
+    if not nums:
+        return []
+
+    osm_candidates = []
+    for n in nums:
+        if n == src_num:
             continue
-        out.append(f"{target} {street}")
-    return out
+        if n % 2 != src_parity:
+            continue
+        d = abs(n - src_num)
+        if d == 0 or d > max_distance:
+            continue
+        osm_candidates.append((d, n, f"{n} {street}"))
+    if not osm_candidates:
+        return []
+    osm_candidates.sort(key=lambda c: (c[0], c[1]))
+    return [c[2] for c in osm_candidates[:count]]
 
 
 def _hot_vendors_table_exists(conn):
@@ -83,6 +298,66 @@ def _match_hot_vendor(conn, target_address):
         return d.get('current_owner'), d.get('final_score')
     except Exception:
         return None, None
+
+
+def _enrich_owner_names(conn, suburb=None):
+    """Back-fill pipeline_tracking.target_owner_name from
+    hot_vendor_properties.current_owner whenever the pipeline row
+    has no owner yet. Matches on normalized_address. Idempotent —
+    cheap to call before every read of the pipeline."""
+    if not _hot_vendors_table_exists(conn):
+        return 0
+    try:
+        if suburb:
+            rows = conn.execute(
+                "SELECT id, target_address FROM pipeline_tracking "
+                "WHERE (target_owner_name IS NULL OR target_owner_name = '') "
+                "AND LOWER(source_suburb) = LOWER(?)",
+                (suburb,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, target_address FROM pipeline_tracking "
+                "WHERE target_owner_name IS NULL OR target_owner_name = ''"
+            ).fetchall()
+    except Exception as e:
+        logger.warning(f"enrich_owner_names lookup failed: {e}")
+        return 0
+
+    updated = 0
+    for r in rows:
+        target_addr = r['target_address']
+        if not target_addr:
+            continue
+        norm = normalize_address(target_addr)
+        if not norm:
+            continue
+        try:
+            match = conn.execute(
+                "SELECT current_owner FROM hot_vendor_properties "
+                "WHERE normalized_address = ? AND current_owner IS NOT NULL "
+                "AND current_owner != '' "
+                "ORDER BY final_score DESC LIMIT 1",
+                (norm,)
+            ).fetchone()
+        except Exception:
+            continue
+        if match and match['current_owner']:
+            try:
+                conn.execute(
+                    "UPDATE pipeline_tracking SET target_owner_name = ? WHERE id = ?",
+                    (match['current_owner'], r['id'])
+                )
+                updated += 1
+            except Exception:
+                pass
+    if updated:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+        logger.info(f"Enriched {updated} pipeline owner names from hot_vendor_properties")
+    return updated
 
 
 def _serialize_entries(rows):
@@ -137,306 +412,10 @@ def _bulk_insert_pipeline(conn, rows):
     return inserted
 
 
-# ---------------------------------------------------------------------
-# Letter rendering helpers
-# ---------------------------------------------------------------------
-
-def _format_price(p):
-    if p is None or p == '':
-        return ''
-    try:
-        return f"${int(p):,}"
-    except (TypeError, ValueError):
-        return ''
-
-
-def _format_sources_inline(sources):
-    """Build the human prose listing N source sales."""
-    if not sources:
-        return '', ''
-
-    n = len(sources)
-    addrs = [s['source_address'] for s in sources]
-    prices = [_format_price(s.get('source_price')) for s in sources]
-    has_prices = [bool(p) for p in prices]
-
-    def join_oxford(items):
-        if len(items) == 0:
-            return ''
-        if len(items) == 1:
-            return items[0]
-        if len(items) == 2:
-            return f"{items[0]} and {items[1]}"
-        return ', '.join(items[:-1]) + f", and {items[-1]}"
-
-    if n == 1:
-        addr_phrase = f"your neighbour at {addrs[0]}"
-        if has_prices[0]:
-            sale_phrase = f"recently sold for {prices[0]}"
-        else:
-            sale_phrase = "recently sold"
-    else:
-        addr_phrase = f"your neighbours at {join_oxford(addrs)}"
-        if all(has_prices):
-            sale_phrase = (
-                f"recently sold — for {join_oxford(prices)} respectively"
-            )
-        elif any(has_prices):
-            paired = [
-                f"{a} ({p})" if p else a
-                for a, p in zip(addrs, prices)
-            ]
-            addr_phrase = f"your neighbours at {join_oxford(paired)}"
-            sale_phrase = "recently sold"
-        else:
-            sale_phrase = "recently sold"
-
-    return addr_phrase, sale_phrase
-
-
-BRAND_GREEN = '386351'  # Acton | Belle dark green from official letterhead
-
-
-def _set_cell_shading(cell, hex_color):
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    tc_pr = cell._tc.get_or_add_tcPr()
-    shd = OxmlElement('w:shd')
-    shd.set(qn('w:val'), 'clear')
-    shd.set(qn('w:color'), 'auto')
-    shd.set(qn('w:fill'), hex_color)
-    tc_pr.append(shd)
-
-
-def _set_row_height(row, twips, exact=True):
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    tr_pr = row._tr.get_or_add_trPr()
-    tr_h = OxmlElement('w:trHeight')
-    tr_h.set(qn('w:val'), str(twips))
-    if exact:
-        tr_h.set(qn('w:hRule'), 'exact')
-    tr_pr.append(tr_h)
-
-
-def _set_cell_margins(cell, top_twips=0, bottom_twips=0, left_twips=0, right_twips=0):
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    tc_pr = cell._tc.get_or_add_tcPr()
-    tc_mar = OxmlElement('w:tcMar')
-    for side, val in (('top', top_twips), ('left', left_twips),
-                      ('bottom', bottom_twips), ('right', right_twips)):
-        m = OxmlElement(f'w:{side}')
-        m.set(qn('w:w'), str(val))
-        m.set(qn('w:type'), 'dxa')
-        tc_mar.append(m)
-    tc_pr.append(tc_mar)
-
-
-def _add_top_border(paragraph, color='000000', size=6):
-    """Add a horizontal rule above the paragraph."""
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-    p_pr = paragraph._p.get_or_add_pPr()
-    p_borders = OxmlElement('w:pBdr')
-    top = OxmlElement('w:top')
-    top.set(qn('w:val'), 'single')
-    top.set(qn('w:sz'), str(size))
-    top.set(qn('w:space'), '6')
-    top.set(qn('w:color'), color)
-    p_borders.append(top)
-    p_pr.append(p_borders)
-
-
-def _emu_to_twips(emu):
-    """Word internal: 914400 EMU per inch, 1440 twips per inch."""
-    return int(emu / 914400 * 1440)
-
-
-def _render_letter_docx(target_address, owner_name, source_suburb, sources):
-    """Build an Acton | Belle Property Cottesloe letter matching the official
-    letterhead: dark green band with logo at top, body, footer with company
-    details and a black horizontal rule above."""
-    from docx import Document
-    from docx.shared import Pt, RGBColor, Cm
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
-
-    owner = (owner_name or '').strip() or 'Homeowner'
-    addr_phrase, sale_phrase = _format_sources_inline(sources)
-    multi = len(sources) > 1
-
-    doc = Document()
-
-    section = doc.sections[0]
-    # Body margins. Top is generous to clear the header band, bottom leaves
-    # room for the company footer block.
-    section.top_margin = Cm(5.5)
-    section.bottom_margin = Cm(4.5)
-    section.left_margin = Cm(2.5)
-    section.right_margin = Cm(2.5)
-    section.header_distance = Cm(0)
-    section.footer_distance = Cm(0.8)
-
-    page_width_twips = _emu_to_twips(section.page_width)
-    right_margin_twips = _emu_to_twips(section.right_margin)
-
-    # ---------------- HEADER: right-aligned green band with logo ----------------
-    # The band starts roughly 40% from the left and extends all the way to
-    # the right edge of the page (matches the official Belle template).
-    header = section.header
-    for p in list(header.paragraphs):
-        p._element.getparent().remove(p._element)
-
-    BAND_WIDTH_TWIPS = int(page_width_twips * 0.60)  # 60% of page width
-    band_indent_twips = page_width_twips - BAND_WIDTH_TWIPS - right_margin_twips
-
-    header_tbl = header.add_table(rows=1, cols=1, width=section.page_width)
-    header_tbl.autofit = False
-
-    tbl_pr = header_tbl._element.find(qn('w:tblPr'))
-    if tbl_pr is None:
-        tbl_pr = OxmlElement('w:tblPr')
-        header_tbl._element.insert(0, tbl_pr)
-
-    # Indent so the band starts at ~40% from the left, extends to the
-    # right page edge (the trailing right_margin is bled through).
-    tbl_ind = OxmlElement('w:tblInd')
-    tbl_ind.set(qn('w:w'), str(band_indent_twips))
-    tbl_ind.set(qn('w:type'), 'dxa')
-    tbl_pr.append(tbl_ind)
-
-    tbl_w = OxmlElement('w:tblW')
-    tbl_w.set(qn('w:w'), str(BAND_WIDTH_TWIPS + right_margin_twips))
-    tbl_w.set(qn('w:type'), 'dxa')
-    tbl_pr.append(tbl_w)
-
-    cell = header_tbl.rows[0].cells[0]
-    _set_cell_shading(cell, BRAND_GREEN)
-    _set_row_height(header_tbl.rows[0], 1700)  # ~3.0cm band
-
-    # Vertical-align the logo in the middle of the band
-    tc_pr = cell._tc.get_or_add_tcPr()
-    v_align = OxmlElement('w:vAlign')
-    v_align.set(qn('w:val'), 'center')
-    tc_pr.append(v_align)
-
-    # Push logo in from the page edge (~3cm from left)
-    _set_cell_margins(cell, left_twips=1700, right_twips=1700)
-
-    logo_p = cell.paragraphs[0]
-    logo_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    logo_p.paragraph_format.space_before = Pt(0)
-    logo_p.paragraph_format.space_after = Pt(0)
-
-    def add_logo_run(text, size, bold=False):
-        r = logo_p.add_run(text)
-        r.font.name = 'Arial'
-        r.font.size = Pt(size)
-        r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        r.font.bold = bold
-        return r
-
-    add_logo_run('ACTON', 22, bold=True)
-    add_logo_run('   |   ', 22, bold=False)
-    add_logo_run('belle', 24, bold=False)
-    add_logo_run('  ', 12, bold=False)
-    add_logo_run('PROPERTY', 9, bold=True)
-
-    # ---------------- FOOTER: company info + black rule ----------------
-    footer = section.footer
-    for p in list(footer.paragraphs):
-        p._element.getparent().remove(p._element)
-
-    rule_p = footer.add_paragraph()
-    _add_top_border(rule_p, color='000000', size=6)
-    rule_p.paragraph_format.space_before = Pt(0)
-    rule_p.paragraph_format.space_after = Pt(4)
-
-    footer_lines = [
-        ('ACTON | Belle Property Cottesloe', 9, True, None),
-        ('180 Stirling Hwy, Nedlands WA 6009', 9, False, None),
-        ('08 9388 8255', 9, False, None),
-        ('cottesloe@belleproperty.com', 9, False, None),
-        ('Dalkeith Region Pty Ltd', 9, False, None),
-        ('ABN 26 125 014 997', 9, False, None),
-        ('belleproperty.com/Cottesloe', 8, False, (0x80, 0x80, 0x80)),
-    ]
-    for text, size, bold, color in footer_lines:
-        fp = footer.add_paragraph(text)
-        fp.paragraph_format.space_before = Pt(0)
-        fp.paragraph_format.space_after = Pt(0)
-        for run in fp.runs:
-            run.font.name = 'Arial'
-            run.font.size = Pt(size)
-            run.font.bold = bold
-            if color:
-                run.font.color.rgb = RGBColor(*color)
-
-    # ---------------- BODY ----------------
-    def body_paragraph(text='', size=11, bold=False):
-        p = doc.add_paragraph(text)
-        for run in p.runs:
-            run.font.name = 'Arial'
-            run.font.size = Pt(size)
-            run.font.bold = bold
-        return p
-
-    today = datetime.utcnow().strftime('%d %B %Y')
-    body_paragraph(today)
-    body_paragraph()
-    body_paragraph(f'Dear {owner},')
-    body_paragraph()
-    body_paragraph('I hope this letter finds you well.')
-
-    p = doc.add_paragraph()
-    r = p.add_run(f'I wanted to reach out personally — {addr_phrase} {sale_phrase}')
-    r.font.name = 'Arial'; r.font.size = Pt(11)
-    if source_suburb:
-        tail = (f", reflecting strong recent results across {source_suburb}." if multi
-                else f", one of {source_suburb}'s strongest results this season.")
-    else:
-        tail = '.'
-    r2 = p.add_run(tail)
-    r2.font.name = 'Arial'; r2.font.size = Pt(11)
-
-    p = doc.add_paragraph()
-    intro = ('With this level of activity on your doorstep and buyer demand '
-             'remaining high, this could be the ideal moment to understand '
-             'what your property at ') if multi else \
-            (f'With buyer demand remaining high across {source_suburb}, this '
-             f'could be the ideal moment to understand what your property at ')
-    r = p.add_run(intro); r.font.name = 'Arial'; r.font.size = Pt(11)
-    rb = p.add_run(target_address); rb.bold = True; rb.font.name = 'Arial'; rb.font.size = Pt(11)
-    re_ = p.add_run(" is truly worth in today's market.")
-    re_.font.name = 'Arial'; re_.font.size = Pt(11)
-
-    body_paragraph(
-        'I would love to offer you a complimentary, no-obligation market '
-        'appraisal at a time that suits you — no pressure, just clarity.'
-    )
-    body_paragraph("Please don't hesitate to reach out.")
-    body_paragraph()
-    body_paragraph('Warm regards,')
-    body_paragraph()
-
-    sig = doc.add_paragraph()
-    rs = sig.add_run('Louis Coplot')
-    rs.bold = True; rs.font.name = 'Arial'; rs.font.size = Pt(13)
-
-    body_paragraph('Sales Agent | Belle Property Cottesloe', size=10)
-    body_paragraph('M: 0400 XXX XXX', size=10)
-    body_paragraph('E: louis@belleproperty.com.au', size=10)
-    body_paragraph('W: belleproperty.com.au/cottesloe', size=10)
-
-    return doc
-
-
 def _gather_sources_for_target(conn, target_address, source_suburb):
     """Distinct nearby sales for a target. Dedupes by source_address so
-    duplicate pipeline_tracking rows (different sent_dates, same source)
-    don't make the letter say 'sold for X — for X respectively'."""
+    duplicate pipeline_tracking rows don't make the letter say
+    'sold for X — for X respectively'."""
     rows = conn.execute(
         """
         SELECT source_address, source_price, source_sold_date, target_owner_name
@@ -447,7 +426,6 @@ def _gather_sources_for_target(conn, target_address, source_suburb):
         """,
         (target_address, source_suburb)
     ).fetchall()
-
     seen = set()
     deduped = []
     for r in rows:
@@ -480,7 +458,6 @@ def pipeline_generate():
     src_limit = _source_limit(days)
 
     conn = get_db()
-
     has_hv = _hot_vendors_table_exists(conn)
 
     sold_rows = conn.execute(
@@ -503,13 +480,17 @@ def pipeline_generate():
     sold_count = len(sold_rows)
 
     insert_rows = []
+    skipped_no_neighbour = 0
     for r in sold_rows:
         source_address = r['address']
         source_suburb = r['suburb_name']
         source_price = _price_to_int(r['sold_price'], r['price_text'])
         source_sold_date = r['effective_date']
-
-        for target in _generate_neighbours(source_address):
+        targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
+        if not targets:
+            skipped_no_neighbour += 1
+            continue
+        for target in targets:
             if has_hv:
                 owner, score = _match_hot_vendor(conn, target)
             else:
@@ -539,16 +520,13 @@ def pipeline_generate():
         'sold_count': sold_count,
         'suburb': suburb,
         'cap_applied': sold_count >= src_limit,
+        'skipped_no_neighbour': skipped_no_neighbour,
         'entries': entries,
     })
 
 
 def pipeline_manual_add():
-    """POST /api/pipeline/manual-add — create pipeline entries from a sale
-    the agent knows about that the scraper either missed or hasn't dated
-    correctly yet."""
     data = request.get_json(silent=True) or {}
-
     source_address = (data.get('source_address') or '').strip()
     source_suburb = (data.get('source_suburb') or '').strip()
     if not source_address:
@@ -563,26 +541,25 @@ def pipeline_manual_add():
     explicit_targets = data.get('target_addresses') or []
     if not isinstance(explicit_targets, list):
         return jsonify({'error': 'target_addresses must be a list'}), 400
-    explicit_targets = [
-        t.strip() for t in explicit_targets
-        if isinstance(t, str) and t.strip()
-    ]
+    explicit_targets = [t.strip() for t in explicit_targets
+                        if isinstance(t, str) and t.strip()]
+
+    conn = get_db()
+    has_hv = _hot_vendors_table_exists(conn)
 
     if explicit_targets:
         targets = explicit_targets
     else:
-        targets = _generate_neighbours(source_address)
+        targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
         if not targets:
+            conn.close()
             return jsonify({
                 'error': (
-                    f"Couldn't auto-generate neighbours from '{source_address}' "
-                    "(strata or non-numeric address). Provide target_addresses "
-                    "explicitly."
+                    f"No real neighbours found near '{source_address}' in our "
+                    "data (RP Data + listings). Provide target_addresses "
+                    "explicitly to override."
                 )
             }), 400
-
-    conn = get_db()
-    has_hv = _hot_vendors_table_exists(conn)
 
     insert_rows = []
     for target in targets:
@@ -631,6 +608,7 @@ def pipeline_tracking_list():
     limit = max(1, min(limit, 1000))
 
     conn = get_db()
+    _enrich_owner_names(conn, suburb or None)
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
@@ -641,18 +619,12 @@ def pipeline_tracking_list():
         params.append(status)
     sql += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
-
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return jsonify({'entries': _serialize_entries(rows)})
 
 
 def pipeline_tracking_grouped():
-    """One envelope per target_address. Sources are deduped (same source
-    appearing across multiple sent_dates collapses to one entry) and
-    sorted alphabetically inside each group. Groups themselves are
-    ordered by their primary source's address — so the user can scan
-    the pipeline by the SALES they're targeting, not by neighbour."""
     suburb = (request.args.get('suburb') or '').strip()
     try:
         limit = int(request.args.get('limit') or 200)
@@ -661,13 +633,15 @@ def pipeline_tracking_grouped():
     limit = max(1, min(limit, 1000))
 
     conn = get_db()
+    # Auto-fill owner names from latest hot_vendor_properties data
+    _enrich_owner_names(conn, suburb or None)
+
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
         sql += " AND LOWER(source_suburb) = LOWER(?)"
         params.append(suburb)
     sql += " ORDER BY target_address ASC, created_at DESC"
-
     rows = conn.execute(sql, params).fetchall()
     conn.close()
 
@@ -677,7 +651,8 @@ def pipeline_tracking_grouped():
         for k, v in list(r.items()):
             if isinstance(v, (date, datetime)):
                 r[k] = v.isoformat()
-        key = (r['target_address'].lower().strip(), (r.get('source_suburb') or '').lower().strip())
+        key = (r['target_address'].lower().strip(),
+               (r.get('source_suburb') or '').lower().strip())
         if key not in groups:
             groups[key] = {
                 'target_address': r['target_address'],
@@ -710,12 +685,9 @@ def pipeline_tracking_grouped():
             g['hot_vendor_score'] = r.get('hot_vendor_score')
 
     grouped = list(groups.values())
-    # Sort sources within each group alphabetically
     for g in grouped:
         g['sources'].sort(key=lambda s: (s.get('source_address') or '').lower())
         g.pop('_source_addrs_seen', None)
-    # Sort groups by primary source's address (the one we're targeting via
-    # this letter). Falls back to target_address when sources is empty.
     grouped.sort(key=lambda g: (
         (g['sources'][0].get('source_address') if g['sources'] else g['target_address'] or '').lower()
     ))
@@ -740,7 +712,6 @@ def pipeline_tracking_update(id):
     propagate_owner = 'target_owner_name' in data
 
     conn = get_db()
-
     target_row = conn.execute(
         "SELECT target_address, source_suburb FROM pipeline_tracking WHERE id = ?",
         (id,)
@@ -771,15 +742,12 @@ def pipeline_tracking_update(id):
         )
 
     conn.commit()
-
     row = conn.execute(
         "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
     ).fetchone()
     conn.close()
-
     if not row:
         return jsonify({'error': 'Not found'}), 404
-
     return jsonify(_serialize_entries([row])[0])
 
 
@@ -791,7 +759,6 @@ def pipeline_tracking_clear():
 
     suburb = (request.args.get('suburb') or '').strip()
     status = (request.args.get('status') or '').strip()
-
     if not suburb and not status:
         return jsonify({
             'error': 'At least suburb or status must be provided. '
@@ -807,21 +774,18 @@ def pipeline_tracking_clear():
     if status:
         sql += " AND status = ?"
         params.append(status)
-
     cur = conn.execute(sql, params)
     deleted = cur.rowcount or 0
     conn.commit()
     conn.close()
-
-    return jsonify({
-        'deleted': deleted,
-        'suburb': suburb or None,
-        'status': status or None,
-    })
+    return jsonify({'deleted': deleted, 'suburb': suburb or None, 'status': status or None})
 
 
 def pipeline_letter_download(id):
     conn = get_db()
+    # Make sure the letter uses the freshest owner name from hot_vendor data
+    _enrich_owner_names(conn, None)
+
     row = conn.execute(
         "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
     ).fetchone()
@@ -851,7 +815,7 @@ def pipeline_letter_download(id):
                 owner_name = n
                 break
 
-    doc = _render_letter_docx(target_address, owner_name, source_suburb, sources)
+    doc = render_letter_docx(target_address, owner_name, source_suburb, sources)
 
     buf = BytesIO()
     doc.save(buf)
@@ -859,13 +823,23 @@ def pipeline_letter_download(id):
 
     safe = re.sub(r'[^\w\s-]', '', target_address)[:60].strip().replace(' ', '_')
     filename = f"letter_{safe or 'letter'}.docx"
-
     return send_file(
         buf,
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         as_attachment=True,
         download_name=filename,
     )
+
+
+def pipeline_enrich_owners():
+    """Manual trigger — back-fill owner names across the whole pipeline
+    (or one suburb) from the latest hot_vendor_properties data. Useful
+    right after uploading a fresh RP Data CSV."""
+    suburb = (request.args.get('suburb') or '').strip() or None
+    conn = get_db()
+    updated = _enrich_owner_names(conn, suburb)
+    conn.close()
+    return jsonify({'updated': updated, 'suburb': suburb})
 
 
 # ---------------------------------------------------------------------
@@ -888,6 +862,8 @@ def register_pipeline_routes(app):
     app.add_url_rule('/api/pipeline/letter/<int:id>/download',
                      endpoint='pipeline_letter_download',
                      view_func=pipeline_letter_download, methods=['GET'])
+    app.add_url_rule('/api/pipeline/enrich-owners', endpoint='pipeline_enrich_owners',
+                     view_func=pipeline_enrich_owners, methods=['POST'])
     logger.info(
-        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking[,/grouped,/<id>],letter/<id>/download}"
+        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking,letter/<id>/download,enrich-owners}"
     )

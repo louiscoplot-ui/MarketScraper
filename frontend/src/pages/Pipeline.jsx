@@ -31,6 +31,36 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+
+// Cluster consecutive groups (already sorted by primary source on the
+// backend) that share the same primary source address. Each cluster
+// renders the source cell ONCE with rowSpan covering all its targets.
+function clusterByPrimarySource(groups) {
+  const clusters = []
+  for (const g of groups) {
+    const primary = (g.sources[0]?.source_address || '').toLowerCase().trim()
+    const last = clusters[clusters.length - 1]
+    if (last && last.primaryKey === primary && primary !== '') {
+      last.groups.push(g)
+      // Merge any secondary sources unique to this group into the cluster
+      for (const s of g.sources) {
+        const k = (s.source_address || '').toLowerCase().trim()
+        if (!last.sources.some(ls => (ls.source_address || '').toLowerCase().trim() === k)) {
+          last.sources.push(s)
+        }
+      }
+    } else {
+      clusters.push({
+        primaryKey: primary,
+        sources: [...g.sources],
+        groups: [g],
+      })
+    }
+  }
+  return clusters
+}
+
+
 export default function Pipeline() {
   const [suburb, setSuburb] = useState('Cottesloe')
   const [days, setDays] = useState(7)
@@ -131,6 +161,8 @@ export default function Pipeline() {
   const listed = groups.filter(g => g.status === 'listing_signed').length
   const respRate = groups.length ? Math.round((responded / groups.length) * 100) : 0
 
+  const clusters = clusterByPrimarySource(groups)
+
   return (
     <div style={{ padding: '24px', maxWidth: '1280px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '24px' }}>
@@ -217,7 +249,7 @@ export default function Pipeline() {
             {SUBURBS.map(s => <option key={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: 'auto' }}>
-            {groups.length} envelope{groups.length !== 1 ? 's' : ''}
+            {clusters.length} source{clusters.length !== 1 ? 's' : ''} · {groups.length} target{groups.length !== 1 ? 's' : ''}
           </span>
         </div>
       )}
@@ -259,130 +291,146 @@ export default function Pipeline() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
-                {['Source Sale(s)', 'Target Address', 'Owner Name', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
+                {['Source Sale', 'Target Address', 'Owner Name', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {groups.map(g => (
-                <tr key={g.representative_id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  {/* Source sales — primary column */}
-                  <td style={{ padding: '10px 12px', color: '#374151', maxWidth: '360px' }}>
-                    {g.sources.map((s, i) => (
-                      <div key={s.row_id || i} style={{ fontSize: '12px', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span style={{ fontWeight: '600', color: '#111827' }}>{s.source_address}</span>
-                        <span style={{ color: '#6b7280', marginLeft: '6px' }}>
-                          {formatPrice(s.source_price)}
+              {clusters.flatMap(cluster => cluster.groups.map((g, idx) => {
+                const isFirst = idx === 0
+                const isLast = idx === cluster.groups.length - 1
+                const rowBorder = isLast ? '2px solid #e5e7eb' : '1px solid #f3f4f6'
+                return (
+                  <tr key={g.representative_id} style={{ borderBottom: rowBorder }}>
+                    {/* Source cell — rowSpan covers every target in this cluster */}
+                    {isFirst && (
+                      <td
+                        rowSpan={cluster.groups.length}
+                        style={{
+                          padding: '12px 14px',
+                          color: '#374151',
+                          maxWidth: '320px',
+                          verticalAlign: 'top',
+                          background: '#fafafa',
+                          borderRight: '1px solid #e5e7eb',
+                        }}>
+                        {cluster.sources.map((s, i) => (
+                          <div key={s.row_id || i} style={{ fontSize: '12px', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div style={{ fontWeight: '700', color: '#111827', fontSize: '13px' }}>
+                              {s.source_address}
+                            </div>
+                            <div style={{ color: '#6b7280', fontSize: '11px', marginTop: '1px' }}>
+                              {formatPrice(s.source_price)}
+                              {s.source_sold_date && (
+                                <span style={{ color: '#9ca3af', marginLeft: '6px' }}>
+                                  · sold {formatDate(s.source_sold_date)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        <div style={{ fontSize: '11px', color: '#059669', fontWeight: '600', marginTop: '6px' }}>
+                          {cluster.groups.length} target{cluster.groups.length !== 1 ? 's' : ''}
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Target address */}
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                      <strong>{g.target_address}</strong>
+                      {g.source_suburb && (
+                        <div style={{ fontSize: '11px', color: '#9ca3af' }}>{g.source_suburb}</div>
+                      )}
+                    </td>
+
+                    <td style={{ padding: '10px 12px' }}>
+                      {editingName === g.representative_id ? (
+                        <input
+                          autoFocus
+                          defaultValue={g.target_owner_name || ''}
+                          onBlur={ev => {
+                            patchEntry(g.representative_id, { target_owner_name: ev.target.value })
+                            setEditingName(null)
+                          }}
+                          onKeyDown={ev => { if (ev.key === 'Enter') ev.target.blur() }}
+                          style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '13px', width: '140px' }}
+                        />
+                      ) : (
+                        <span
+                          onClick={() => setEditingName(g.representative_id)}
+                          style={{ cursor: 'pointer', color: g.target_owner_name ? '#111827' : '#9ca3af', borderBottom: '1px dashed #d1d5db' }}>
+                          {g.target_owner_name || '+ add name'}
                         </span>
-                        {s.source_sold_date && (
-                          <span style={{ color: '#9ca3af', marginLeft: '6px', fontSize: '11px' }}>
-                            · sold {formatDate(s.source_sold_date)}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                    {g.sources.length > 1 && (
-                      <div style={{ fontSize: '11px', color: '#059669', fontWeight: '600', marginTop: '2px' }}>
-                        {g.sources.length} nearby sales
-                      </div>
-                    )}
-                  </td>
+                      )}
+                    </td>
 
-                  {/* Target address */}
-                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                    <strong>{g.target_address}</strong>
-                    {g.source_suburb && (
-                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>{g.source_suburb}</div>
-                    )}
-                  </td>
-
-                  <td style={{ padding: '10px 12px' }}>
-                    {editingName === g.representative_id ? (
-                      <input
-                        autoFocus
-                        defaultValue={g.target_owner_name || ''}
-                        onBlur={ev => {
-                          patchEntry(g.representative_id, { target_owner_name: ev.target.value })
-                          setEditingName(null)
-                        }}
-                        onKeyDown={ev => { if (ev.key === 'Enter') ev.target.blur() }}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '13px', width: '140px' }}
-                      />
-                    ) : (
-                      <span
-                        onClick={() => setEditingName(g.representative_id)}
-                        style={{ cursor: 'pointer', color: g.target_owner_name ? '#111827' : '#9ca3af', borderBottom: '1px dashed #d1d5db' }}>
-                        {g.target_owner_name || '+ add name'}
-                      </span>
-                    )}
-                  </td>
-
-                  <td style={{ padding: '10px 12px' }}>
-                    <span style={{
-                      padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '500',
-                      background: STATUS_LABELS[g.status]?.color + '20',
-                      color: STATUS_LABELS[g.status]?.color,
-                    }}>
-                      {STATUS_LABELS[g.status]?.label || g.status}
-                    </span>
-                  </td>
-
-                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: '#6b7280' }}>
-                    {formatDate(g.sent_date)}
-                  </td>
-
-                  <td style={{ padding: '10px 12px', maxWidth: '180px' }}>
-                    {editingNote === g.representative_id ? (
-                      <input
-                        autoFocus
-                        defaultValue={g.notes || ''}
-                        onBlur={ev => {
-                          patchEntry(g.representative_id, { notes: ev.target.value })
-                          setEditingNote(null)
-                        }}
-                        onKeyDown={ev => { if (ev.key === 'Enter') ev.target.blur() }}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '13px', width: '160px' }}
-                      />
-                    ) : (
-                      <span
-                        onClick={() => setEditingNote(g.representative_id)}
-                        style={{ cursor: 'pointer', color: g.notes ? '#111827' : '#9ca3af', borderBottom: '1px dashed #d1d5db' }}>
-                        {g.notes || '+ add note'}
-                      </span>
-                    )}
-                  </td>
-
-                  <td style={{ padding: '10px 12px' }}>
-                    <button
-                      onClick={() => downloadLetter(g.representative_id)}
-                      title="Download a Word doc with all nearby sales mentioned"
-                      style={{
-                        padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db',
-                        background: 'white', cursor: 'pointer', fontSize: '12px',
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{
+                        padding: '3px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: '500',
+                        background: STATUS_LABELS[g.status]?.color + '20',
+                        color: STATUS_LABELS[g.status]?.color,
                       }}>
-                      📄 Word
-                    </button>
-                  </td>
+                        {STATUS_LABELS[g.status]?.label || g.status}
+                      </span>
+                    </td>
 
-                  <td style={{ padding: '10px 12px' }}>
-                    <select
-                      value=""
-                      onChange={ev => {
-                        if (!ev.target.value) return
-                        setActionModal({ id: g.representative_id, status: ev.target.value })
-                        ev.target.value = ""
-                      }}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '12px', cursor: 'pointer' }}>
-                      <option value="">Update...</option>
-                      <option value="responded">Responded</option>
-                      <option value="appraisal_booked">Appraisal Booked</option>
-                      <option value="listing_signed">Listing Signed</option>
-                      <option value="no_response">No Response</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
+                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: '#6b7280' }}>
+                      {formatDate(g.sent_date)}
+                    </td>
+
+                    <td style={{ padding: '10px 12px', maxWidth: '180px' }}>
+                      {editingNote === g.representative_id ? (
+                        <input
+                          autoFocus
+                          defaultValue={g.notes || ''}
+                          onBlur={ev => {
+                            patchEntry(g.representative_id, { notes: ev.target.value })
+                            setEditingNote(null)
+                          }}
+                          onKeyDown={ev => { if (ev.key === 'Enter') ev.target.blur() }}
+                          style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '13px', width: '160px' }}
+                        />
+                      ) : (
+                        <span
+                          onClick={() => setEditingNote(g.representative_id)}
+                          style={{ cursor: 'pointer', color: g.notes ? '#111827' : '#9ca3af', borderBottom: '1px dashed #d1d5db' }}>
+                          {g.notes || '+ add note'}
+                        </span>
+                      )}
+                    </td>
+
+                    <td style={{ padding: '10px 12px' }}>
+                      <button
+                        onClick={() => downloadLetter(g.representative_id)}
+                        title="Download a Word doc with all nearby sales mentioned"
+                        style={{
+                          padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db',
+                          background: 'white', cursor: 'pointer', fontSize: '12px',
+                        }}>
+                        📄 Word
+                      </button>
+                    </td>
+
+                    <td style={{ padding: '10px 12px' }}>
+                      <select
+                        value=""
+                        onChange={ev => {
+                          if (!ev.target.value) return
+                          setActionModal({ id: g.representative_id, status: ev.target.value })
+                          ev.target.value = ""
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', fontSize: '12px', cursor: 'pointer' }}>
+                        <option value="">Update...</option>
+                        <option value="responded">Responded</option>
+                        <option value="appraisal_booked">Appraisal Booked</option>
+                        <option value="listing_signed">Listing Signed</option>
+                        <option value="no_response">No Response</option>
+                      </select>
+                    </td>
+                  </tr>
+                )
+              }))}
             </tbody>
           </table>
         </div>

@@ -1,140 +1,22 @@
-// Hot Vendor Scoring — drag-drop a CoreLogic / PriceFinder transaction
-// export, get a per-property motivation score with HOT/WARM/MEDIUM/LOW
-// buckets, browse and re-export to Excel.
-//
-// Everything runs client-side: the file never leaves the browser.
+// Hot Vendor Scoring — drop a CSV / xlsx, the backend's v4 pipeline does
+// the heavy lifting (auto-calibrated weights per suburb, latent profit,
+// quantile-based segmentation) and returns the full scored list. The
+// .xlsx report is regenerated on demand from the persisted data.
 
-import { useMemo, useRef, useState } from 'react'
-import * as XLSX from 'xlsx'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import StickyHScroll from './components/StickyHScroll'
 
-// --- Column matching (case-insensitive, fuzzy) ---------------------------
-
-const COLUMN_ALIASES = {
-  address: ['address', 'property address', 'street address', 'full address'],
-  type: ['property type', 'type', 'dwelling type', 'asset type'],
-  beds: ['bedrooms', 'beds', 'bedroom', 'bed'],
-  baths: ['bathrooms', 'baths', 'bathroom', 'bath'],
-  price: ['sale price', 'price', 'sold price', 'sale amount', 'amount'],
-  date: ['sale date', 'date', 'sold date', 'settlement date', 'transaction date'],
-  owner: ['current owner', 'owner', 'owner name', 'vendor'],
-  agency: ['agency', 'agency name', 'office'],
-  agent: ['agent', 'agent name', 'sales agent'],
-}
-
-function buildColumnMap(headerRow) {
-  const map = {}
-  const norm = (s) => String(s || '').trim().toLowerCase()
-  const headers = headerRow.map(norm)
-  for (const key of Object.keys(COLUMN_ALIASES)) {
-    for (const alias of COLUMN_ALIASES[key]) {
-      const idx = headers.indexOf(alias)
-      if (idx >= 0) { map[key] = idx; break }
-    }
-  }
-  return map
-}
-
-// --- Date parsing --------------------------------------------------------
-
-function parseDate(raw) {
-  if (raw == null || raw === '') return null
-  // Excel serial date (number)
-  if (typeof raw === 'number') {
-    const ms = (raw - 25569) * 86400 * 1000
-    const d = new Date(ms)
-    return isNaN(d.getTime()) ? null : d
-  }
-  const s = String(raw).trim()
-  // dd/mm/yyyy or dd-mm-yyyy
-  let m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/)
-  if (m) {
-    let [_, d, mo, y] = m
-    if (y.length === 2) y = (parseInt(y) > 50 ? '19' : '20') + y
-    const dt = new Date(parseInt(y), parseInt(mo) - 1, parseInt(d))
-    return isNaN(dt.getTime()) ? null : dt
-  }
-  // ISO yyyy-mm-dd
-  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (m) {
-    const dt = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]))
-    return isNaN(dt.getTime()) ? null : dt
-  }
-  const dt = new Date(s)
-  return isNaN(dt.getTime()) ? null : dt
-}
-
-function parsePrice(raw) {
-  if (raw == null || raw === '') return null
-  if (typeof raw === 'number') return raw
-  const cleaned = String(raw).replace(/[^\d.]/g, '')
-  if (!cleaned) return null
-  const n = parseFloat(cleaned)
-  return isNaN(n) ? null : n
-}
-
-// --- Type normalization --------------------------------------------------
-
-function normalizeType(raw) {
-  const s = String(raw || '').toLowerCase().trim()
-  if (!s) return 'Unknown'
-  if (/house|townhouse|terrace|villa|duplex|semi/.test(s)) return 'House'
-  if (/apartment|unit|flat|studio/.test(s)) return 'Apartment'
-  return 'Other'
-}
-
-// --- Cleaning rules ------------------------------------------------------
-
-function isValidSale(price, dateObj, prevValidPrice) {
-  if (price == null || price < 1000) return false
-  const year = dateObj ? dateObj.getFullYear() : null
-  if (year && price < 50_000 && year > 1995) return false
-  if (year && price < 100_000 && year > 2000) return false
-  if (year && price < 200_000 && year > 2005) return false
-  // 85%+ drop vs prior valid sale = partial transfer
-  if (prevValidPrice != null && price < prevValidPrice * 0.15) return false
-  return true
-}
-
-// --- Scoring tables ------------------------------------------------------
-
-function holdScore(holdYrs, medianYrs) {
-  if (medianYrs <= 0) return 50
-  const ratio = holdYrs / medianYrs
-  if (ratio < 0.4) return 10
-  if (ratio < 0.6) return 25
-  if (ratio < 0.8) return 40
-  if (ratio < 1.0) return 55
-  if (ratio < 1.2) return 70
-  if (ratio < 1.5) return 85
-  return 100
-}
-
-function typeScore(type) {
-  return type === 'House' ? 100 : 60
-}
-
-function gainScore(gainPct, numSales) {
-  if (numSales < 2 || gainPct == null) return 40 // unknown
-  if (gainPct < 0) return 15
-  if (gainPct < 15) return 28
-  if (gainPct < 30) return 42
-  if (gainPct < 50) return 55
-  if (gainPct < 75) return 68
-  if (gainPct < 100) return 80
-  if (gainPct < 200) return 90
-  return 100
-}
-
-function typeMultiplier(type) {
-  return type === 'House' ? 1.3 : 0.9
-}
-
-function categoryFor(score) {
-  if (score >= 82) return 'HOT'
-  if (score >= 62) return 'WARM'
-  if (score >= 44) return 'MEDIUM'
-  return 'LOW'
-}
+// Vercel proxy has a ~25s edge timeout that includes upload buffering.
+// For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
+// Vercel and POST directly to Render. CORS is wide-open on the backend
+// (`CORS(app)` in app.py) so cross-origin POST works. Polling stays on
+// the proxy because each poll is tiny + low-latency.
+const API = ''
+const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
+const ACTIVE_JOB_KEY = 'agentdeck_hv_active_job'
+// Bumped at every push that touches the upload flow — visible in the
+// header so we can tell at a glance which frontend bundle is live.
+const BUILD_TAG = 'upload-direct-v3'
 
 const CATEGORY_COLORS = {
   HOT: '#FFD7D7',
@@ -150,229 +32,250 @@ const CATEGORY_BADGE = {
   LOW: { bg: '#9ca3af', label: '⚪ LOW' },
 }
 
-// --- Main pipeline -------------------------------------------------------
+// User-controlled per-row flags. Tints override the category colour.
+const STATUS_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'listed', label: '✓ Listed / Appraised' },
+  { value: 'pending', label: '… Considering / Pending' },
+  { value: 'declined', label: '✗ Not interested' },
+]
 
-function processWorkbook(workbook) {
-  const sheetName = workbook.SheetNames[0]
-  const sheet = workbook.Sheets[sheetName]
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-  if (!rows.length) throw new Error('Empty sheet')
-
-  const colMap = buildColumnMap(rows[0])
-  if (colMap.address == null || colMap.price == null || colMap.date == null) {
-    throw new Error(
-      'Missing required columns. Need at least: Address, Sale Price, Sale Date.'
-    )
-  }
-
-  // Parse every transaction row
-  const transactions = []
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i]
-    const address = String(r[colMap.address] || '').trim()
-    if (!address) continue
-    transactions.push({
-      address,
-      type: r[colMap.type],
-      beds: r[colMap.beds],
-      baths: r[colMap.baths],
-      price: parsePrice(r[colMap.price]),
-      date: parseDate(r[colMap.date]),
-      owner: r[colMap.owner],
-      agency: r[colMap.agency],
-      agent: r[colMap.agent],
-    })
-  }
-
-  // Group by address, sort each group chronologically, then apply cleaning
-  const byAddress = new Map()
-  for (const t of transactions) {
-    if (!byAddress.has(t.address)) byAddress.set(t.address, [])
-    byAddress.get(t.address).push(t)
-  }
-
-  const properties = []
-  for (const [address, sales] of byAddress.entries()) {
-    sales.sort((a, b) => (a.date || 0) - (b.date || 0))
-    const valid = []
-    let prevPrice = null
-    for (const s of sales) {
-      if (isValidSale(s.price, s.date, prevPrice)) {
-        valid.push(s)
-        prevPrice = s.price
-      }
-    }
-    if (!valid.length) continue
-
-    const last = valid[valid.length - 1]
-    const prev = valid.length >= 2 ? valid[valid.length - 2] : null
-    const holdYrs = last.date
-      ? Math.max(0, (Date.now() - last.date.getTime()) / (365.25 * 24 * 3600 * 1000))
-      : 0
-    let gainPct = null, gainDollars = null, cagr = null
-    if (prev && prev.price > 0) {
-      gainDollars = last.price - prev.price
-      gainPct = (gainDollars / prev.price) * 100
-      const yrsBetween = (last.date - prev.date) / (365.25 * 24 * 3600 * 1000)
-      if (yrsBetween > 0) {
-        cagr = (Math.pow(last.price / prev.price, 1 / yrsBetween) - 1) * 100
-      }
-    }
-
-    properties.push({
-      address,
-      type: normalizeType(last.type),
-      beds: parsePrice(last.beds),
-      baths: parsePrice(last.baths),
-      lastSalePrice: last.price,
-      ownerPurchaseDate: last.date,
-      ownerPurchasePrice: last.price,
-      previousSalePrice: prev ? prev.price : null,
-      holdYrs,
-      numSales: valid.length,
-      gainPct,
-      gainDollars,
-      cagr,
-      owner: last.owner,
-      agency: last.agency,
-      agent: last.agent,
-    })
-  }
-
-  if (!properties.length) throw new Error('No valid properties after cleaning')
-
-  // Median holding across the whole dataset
-  const sortedHolds = [...properties].map(p => p.holdYrs).sort((a, b) => a - b)
-  const medianHolding = sortedHolds[Math.floor(sortedHolds.length / 2)]
-
-  // Compute scores
-  for (const p of properties) {
-    p.holdScoreVal = holdScore(p.holdYrs, medianHolding)
-    p.typeScoreVal = typeScore(p.type)
-    p.gainScoreVal = gainScore(p.gainPct, p.numSales)
-    p.rawScore = p.holdScoreVal * 0.5 + p.typeScoreVal * 0.2 + p.gainScoreVal * 0.3
-    p.adjustedScore = p.rawScore * typeMultiplier(p.type)
-  }
-
-  // Normalise 0-100 across the dataset
-  const adj = properties.map(p => p.adjustedScore)
-  const minA = Math.min(...adj)
-  const maxA = Math.max(...adj)
-  const range = maxA - minA || 1
-  for (const p of properties) {
-    p.finalScore = ((p.adjustedScore - minA) / range) * 100
-    p.category = categoryFor(p.finalScore)
-  }
-
-  properties.sort((a, b) => b.finalScore - a.finalScore)
-  properties.forEach((p, i) => { p.rank = i + 1 })
-
-  return { properties, medianHolding }
+const STATUS_TINT = {
+  listed: '#bbf7d0',
+  pending: '#fde68a',
+  declined: '#fecaca',
 }
 
-// --- Excel export --------------------------------------------------------
 
-function exportExcel(properties) {
-  const buildRow = (p) => ({
-    Rank: p.rank,
-    Address: p.address,
-    Type: p.type,
-    Beds: p.beds ?? '',
-    Baths: p.baths ?? '',
-    'Last Sale Price': p.lastSalePrice,
-    'Owner Purchase Price': p.ownerPurchasePrice,
-    'Owner Purchase Date': p.ownerPurchaseDate
-      ? p.ownerPurchaseDate.toLocaleDateString('en-AU')
-      : '',
-    'Holding (yrs)': Number(p.holdYrs.toFixed(2)),
-    'Owner Gain ($)': p.gainDollars ?? '',
-    'Owner Gain (%)': p.gainPct != null ? Number(p.gainPct.toFixed(1)) : '',
-    'CAGR (%/yr)': p.cagr != null ? Number(p.cagr.toFixed(2)) : '',
-    '# Sales': p.numSales,
-    'Hold Score': Number(p.holdScoreVal.toFixed(0)),
-    'Type Score': Number(p.typeScoreVal.toFixed(0)),
-    'Gain Score': Number(p.gainScoreVal.toFixed(0)),
-    'Final Score': Number(p.finalScore.toFixed(1)),
-    Category: p.category,
-    'Current Owner': p.owner ?? '',
-    Agency: p.agency ?? '',
-    Agent: p.agent ?? '',
-  })
-
-  const wb = XLSX.utils.book_new()
-
-  const tintRows = (sheet, rows) => {
-    // SheetJS community edition doesn't write cell fills; we still emit the
-    // sheet without colour but keep the rich Category column so the reader
-    // can spot the buckets at a glance. (The web UI shows the colours.)
-    return sheet
-  }
-
-  const all = properties.map(buildRow)
-  const sheet1 = XLSX.utils.json_to_sheet(all)
-  XLSX.utils.book_append_sheet(wb, tintRows(sheet1, all), 'Scored Properties')
-
-  const priority = properties.filter(p => p.finalScore >= 62).map(buildRow)
-  const sheet2 = XLSX.utils.json_to_sheet(priority)
-  XLSX.utils.book_append_sheet(wb, tintRows(sheet2, priority), 'High Priority Leads')
-
-  const houses = properties.filter(p => p.type === 'House').map(buildRow)
-  const sheet3 = XLSX.utils.json_to_sheet(houses)
-  XLSX.utils.book_append_sheet(wb, tintRows(sheet3, houses), 'Houses Priority List')
-
-  const ts = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `HotVendors_${ts}.xlsx`)
+function fmtMoney(n) {
+  if (n == null || n === '') return '-'
+  return '$' + Math.round(n).toLocaleString('en-AU')
 }
 
-// --- React component -----------------------------------------------------
+function fmtPct(n, d = 1) {
+  if (n == null || n === '' || isNaN(n)) return '-'
+  return `${Number(n).toFixed(d)}%`
+}
 
-const fmtMoney = (n) => n == null ? '-' :
-  '$' + Math.round(n).toLocaleString('en-AU')
-const fmtPct = (n) => n == null ? '-' : `${n.toFixed(1)}%`
-const fmtYrs = (n) => n == null ? '-' : n.toFixed(1)
+function fmtNum(n, d = 1) {
+  if (n == null || n === '' || isNaN(n)) return '-'
+  return Number(n).toFixed(d)
+}
+
+function getSuburb(p) {
+  if (p.suburb) return String(p.suburb).trim()
+  const m = (p.address || '').match(/,\s*([A-Za-z][A-Za-z\s'-]+?)(?:\s+\d{4})?$/)
+  return m ? m[1].trim() : null
+}
+
 
 const SORT_FIELDS = {
-  rank: (a, b) => a.rank - b.rank,
-  address: (a, b) => a.address.localeCompare(b.address),
-  type: (a, b) => a.type.localeCompare(b.type),
-  beds: (a, b) => (a.beds ?? -1) - (b.beds ?? -1),
-  lastSalePrice: (a, b) => (a.lastSalePrice ?? 0) - (b.lastSalePrice ?? 0),
-  holdYrs: (a, b) => a.holdYrs - b.holdYrs,
-  gainPct: (a, b) => (a.gainPct ?? -Infinity) - (b.gainPct ?? -Infinity),
+  rank: (a, b) => (a.rank ?? 0) - (b.rank ?? 0),
+  address: (a, b) => (a.address || '').localeCompare(b.address || ''),
+  type: (a, b) => (a.type || '').localeCompare(b.type || ''),
+  bedrooms: (a, b) => (a.bedrooms ?? -1) - (b.bedrooms ?? -1),
+  last_sale_price: (a, b) => (a.last_sale_price ?? 0) - (b.last_sale_price ?? 0),
+  holding_years: (a, b) => (a.holding_years ?? 0) - (b.holding_years ?? 0),
+  owner_gain_pct: (a, b) => (a.owner_gain_pct ?? -Infinity) - (b.owner_gain_pct ?? -Infinity),
   cagr: (a, b) => (a.cagr ?? -Infinity) - (b.cagr ?? -Infinity),
-  numSales: (a, b) => a.numSales - b.numSales,
-  finalScore: (a, b) => a.finalScore - b.finalScore,
+  potential_profit: (a, b) => (a.potential_profit ?? -Infinity) - (b.potential_profit ?? -Infinity),
+  sales_count: (a, b) => (a.sales_count ?? 0) - (b.sales_count ?? 0),
+  final_score: (a, b) => (a.final_score ?? 0) - (b.final_score ?? 0),
 }
 
+
 export default function HotVendorScoring() {
-  const [state, setState] = useState({ properties: [], medianHolding: 0 })
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('ALL')
   const [typeFilter, setTypeFilter] = useState('ALL')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState({ field: 'rank', dir: 'asc' })
+  const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
+  // Compact mode defaults ON for first-time visitors. Toggle persists.
+  const [compact, setCompact] = useState(() => {
+    try {
+      const v = localStorage.getItem('hv_compact')
+      return v === null ? true : v === '1'
+    } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('hv_compact', compact ? '1' : '0') } catch {}
+  }, [compact])
+  const [statuses, setStatuses] = useState({})
+  const [notes, setNotes] = useState({})
+  const [noteEditing, setNoteEditing] = useState(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
+  const [suburbDropdownOpen, setSuburbDropdownOpen] = useState(false)
   const fileInputRef = useRef(null)
   const [dragActive, setDragActive] = useState(false)
+  const wrapperRef = useRef(null)
+  const suburbDropdownRef = useRef(null)
+  const [savedUploads, setSavedUploads] = useState([])
+  const [savedLoading, setSavedLoading] = useState(true)
 
-  const handleFile = async (file) => {
+  // Load past uploads on mount so a returning user lands on a list of
+  // previously-scored suburbs (latest per suburb) instead of a blank
+  // dropzone. UPSERT keeps re-uploads from duplicating rows.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`${API}/api/hot-vendors/uploads`)
+        if (!res.ok) throw new Error('list failed')
+        const j = await res.json()
+        if (!cancelled) setSavedUploads(j.uploads || [])
+      } catch (e) {
+        console.warn('Could not load past uploads:', e)
+      } finally {
+        if (!cancelled) setSavedLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const loadSavedUpload = async (uploadId) => {
     setError('')
     setLoading(true)
     try {
-      const buf = await file.arrayBuffer()
-      const workbook = XLSX.read(buf, { type: 'array', cellDates: true })
-      // Yield to the event loop so the spinner has time to render before the
-      // synchronous CPU-bound processing kicks in.
-      await new Promise(r => setTimeout(r, 0))
-      const result = processWorkbook(workbook)
-      setState(result)
+      const res = await fetch(`${API}/api/hot-vendors/uploads/${uploadId}`)
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || `Load failed (${res.status})`)
+      setData(result)
     } catch (e) {
       console.error(e)
-      setError(e.message || 'Failed to process file')
+      setError(e.message || 'Failed to load saved upload')
     } finally {
       setLoading(false)
     }
   }
+
+  const refreshSavedUploads = async () => {
+    try {
+      const res = await fetch(`${API}/api/hot-vendors/uploads`)
+      if (res.ok) {
+        const j = await res.json()
+        setSavedUploads(j.uploads || [])
+      }
+    } catch {}
+  }
+
+  const [loadingStage, setLoadingStage] = useState('')
+
+  // Polls a backend job until it's done / errored / timed out.
+  // Extracted so we can resume polling on mount when localStorage has
+  // an active job (user navigated away and came back).
+  const pollJob = async (jobId, opts = {}) => {
+    const { onResult, signal } = opts
+    const POLL_MS = 2500
+    const MAX_MS = 30 * 60 * 1000  // 30 min hard cap.
+    const start = Date.now()
+    while (true) {
+      if (signal?.aborted) return
+      await new Promise(r => setTimeout(r, POLL_MS))
+      let sJson = {}
+      let sRes
+      try {
+        sRes = await fetch(`${API}/api/hot-vendors/score-csv/job/${jobId}`)
+        sJson = await sRes.json().catch(() => ({}))
+      } catch (netErr) {
+        // Transient network blip — keep polling, the job is still on
+        // the server. Log so we see it in DevTools.
+        console.warn('[poll] network blip, retrying:', netErr.message)
+        continue
+      }
+      console.log(`[poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
+      if (sJson.stage) setLoadingStage(sJson.stage)
+      if (sJson.status === 'done' && sJson.result) {
+        onResult?.(sJson.result)
+        return sJson.result
+      }
+      if (sJson.status === 'error' || sJson.status === 'lost' || !sRes.ok) {
+        throw new Error(sJson.error || `Job failed (${sRes?.status})`)
+      }
+      if (Date.now() - start > MAX_MS) {
+        throw new Error('Job exceeded 30 minutes — server likely stuck')
+      }
+    }
+  }
+
+  const handleFile = async (file) => {
+    setError('')
+    setLoading(true)
+    setLoadingStage(`Uploading ${(file.size / (1024 * 1024)).toFixed(1)} MB…`)
+    console.log(`[upload] ${file.name} — ${(file.size / (1024 * 1024)).toFixed(2)} MB`)
+    const t0 = Date.now()
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      // Direct to Render — Vercel proxy edge timeout (~25s) would kill
+      // big uploads while it's still buffering the multipart body.
+      const startRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/score-csv`, {
+        method: 'POST',
+        body: fd,
+      })
+      console.log(`[upload] POST took ${Date.now() - t0} ms, status=${startRes.status}`)
+      const startJson = await startRes.json()
+      if (!startRes.ok || !startJson.job_id) {
+        throw new Error(startJson.error || `Upload rejected (${startRes.status})`)
+      }
+      const jobId = startJson.job_id
+      // Persist so we can resume polling after a page change / reload.
+      try {
+        localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({
+          job_id: jobId, filename: file.name, started_at: Date.now(),
+        }))
+      } catch {}
+      console.log(`[upload] queued job ${jobId} — polling every 2.5s`)
+
+      const result = await pollJob(jobId)
+      console.log(`[upload] job ${jobId} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
+      setData(result)
+      refreshSavedUploads()
+      try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
+    } catch (e) {
+      console.error('[upload] failed:', e)
+      setError(e.message || 'Failed to process file')
+      try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
+    } finally {
+      setLoading(false)
+      setLoadingStage('')
+    }
+  }
+
+  // Resume polling on mount if a job was in-flight when the user
+  // navigated away. The backend thread keeps running independently of
+  // the frontend, so the result is already (or about to be) in DB.
+  useEffect(() => {
+    let cancelled = false
+    let stored
+    try { stored = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || 'null') } catch { stored = null }
+    if (!stored?.job_id) return
+    console.log(`[resume] picking up job ${stored.job_id} from localStorage`)
+    setLoading(true)
+    setLoadingStage('Resuming…')
+    ;(async () => {
+      try {
+        const result = await pollJob(stored.job_id, { signal: { get aborted() { return cancelled } } })
+        if (cancelled) return
+        setData(result)
+        refreshSavedUploads()
+      } catch (e) {
+        if (cancelled) return
+        console.warn('[resume] job lost or failed:', e.message)
+        setError(`Previous upload (${stored.filename}) — ${e.message}`)
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+          setLoadingStage('')
+          try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const onDrop = (e) => {
     e.preventDefault()
@@ -381,20 +284,139 @@ export default function HotVendorScoring() {
     if (file) handleFile(file)
   }
 
+  const [excelLoading, setExcelLoading] = useState(false)
+  const [excelStage, setExcelStage] = useState('')
+  const [excelFallbackUrl, setExcelFallbackUrl] = useState(null)
+  const [excelFallbackName, setExcelFallbackName] = useState('')
+
+  const downloadExcel = async () => {
+    const id = data?.upload_id ?? data?.id ?? data?.uploadId
+    console.log('[Excel] Download clicked. data keys =', data && Object.keys(data),
+                ' upload_id =', id, ' suburb =', data?.suburb)
+    if (!id) {
+      setError(
+        'No upload_id on this report. The backend may not have finished ' +
+        'persisting yet, or the saved upload predates this version. ' +
+        'Try re-uploading the CSV (UPSERT — won\'t duplicate rows).'
+      )
+      return
+    }
+    setError('')
+    setExcelFallbackUrl(null)
+    setExcelLoading(true)
+    setExcelStage('Starting…')
+    const t0 = Date.now()
+    try {
+      // Async pattern: POST starts a background build job, we poll the
+      // status, then fetch the file once ready. Avoids 502s on big
+      // suburbs that take >2 min to serialise.
+      const startRes = await fetch(
+        `${BACKEND_DIRECT}/api/hot-vendors/uploads/${id}/excel-job`,
+        { method: 'POST' }
+      )
+      const startJson = await startRes.json()
+      if (!startRes.ok || !startJson.job_id) {
+        throw new Error(startJson.error || `Could not start Excel job (${startRes.status})`)
+      }
+      const jobId = startJson.job_id
+      console.log(`[Excel] queued job ${jobId} — polling`)
+
+      const POLL_MS = 1500
+      const MAX_MS = 10 * 60 * 1000
+      while (true) {
+        await new Promise(r => setTimeout(r, POLL_MS))
+        const sRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}`)
+        const sJson = await sRes.json().catch(() => ({}))
+        if (sJson.stage) setExcelStage(sJson.stage)
+        console.log(`[Excel poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
+        if (sJson.status === 'done' && sJson.has_file) {
+          console.log(`[Excel] ready in ${((Date.now() - t0) / 1000).toFixed(1)}s — fetching file`)
+          const fileRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}/file`)
+          if (!fileRes.ok) throw new Error(`File fetch failed (${fileRes.status})`)
+          const blob = await fileRes.blob()
+          if (!blob.size) throw new Error('Empty file from backend')
+          const dlUrl = URL.createObjectURL(blob)
+          const fname = sJson.filename || `hot-vendors-${data.suburb || 'report'}.xlsx`
+          const a = document.createElement('a')
+          a.href = dlUrl
+          a.download = fname
+          a.style.display = 'none'
+          document.body.appendChild(a)
+          a.click()
+          setTimeout(() => { a.remove() }, 1000)
+          setExcelFallbackUrl(dlUrl)
+          setExcelFallbackName(fname)
+          return
+        }
+        if (sJson.status === 'error') throw new Error(sJson.error || 'Excel build failed')
+        if (sJson.status === 'lost' || !sRes.ok) throw new Error(sJson.error || 'Job lost')
+        if (Date.now() - t0 > MAX_MS) throw new Error('Excel job took >10 min')
+      }
+    } catch (e) {
+      console.error('[Excel] Failed:', e)
+      setError(e.message || 'Excel download failed')
+    } finally {
+      setExcelLoading(false)
+      setExcelStage('')
+    }
+  }
+
+  const properties = data?.properties || []
+
+  // Hydrate per-row status + note from the score-csv payload (server-
+  // side join against hot_vendor_property_status). Re-runs on new
+  // uploads; notes survive across re-uploads keyed on normalized address.
+  useEffect(() => {
+    if (!data) { setStatuses({}); setNotes({}); setSelectedSuburbs(new Set()); return }
+    const nextS = {}
+    const nextN = {}
+    for (const p of data.properties || []) {
+      if (p.user_status) nextS[p.address] = p.user_status
+      if (p.user_note) nextN[p.address] = p.user_note
+    }
+    setStatuses(nextS)
+    setNotes(nextN)
+    setSelectedSuburbs(new Set())
+  }, [data])
+
+  const uniqueSuburbs = useMemo(() => {
+    const set = new Set()
+    for (const p of properties) {
+      const s = getSuburb(p)
+      if (s) set.add(s)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [properties])
+
+  // Close the suburb dropdown when clicking outside it.
+  useEffect(() => {
+    if (!suburbDropdownOpen) return
+    const onDocClick = (e) => {
+      if (!suburbDropdownRef.current?.contains(e.target)) setSuburbDropdownOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [suburbDropdownOpen])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return state.properties.filter(p => {
+    const subFilter = selectedSuburbs.size > 0
+    return properties.filter(p => {
       if (filter !== 'ALL' && p.category !== filter) return false
       if (typeFilter === 'HOUSE' && p.type !== 'House') return false
       if (typeFilter === 'APARTMENT' && p.type !== 'Apartment') return false
+      if (subFilter) {
+        const s = getSuburb(p)
+        if (!s || !selectedSuburbs.has(s)) return false
+      }
       if (q) {
-        const addr = p.address.toLowerCase()
-        const owner = String(p.owner || '').toLowerCase()
+        const addr = (p.address || '').toLowerCase()
+        const owner = String(p.current_owner || '').toLowerCase()
         if (!addr.includes(q) && !owner.includes(q)) return false
       }
       return true
     })
-  }, [state.properties, filter, typeFilter, search])
+  }, [properties, filter, typeFilter, search, selectedSuburbs])
 
   const sorted = useMemo(() => {
     const cmp = SORT_FIELDS[sort.field] || SORT_FIELDS.rank
@@ -405,82 +427,270 @@ export default function HotVendorScoring() {
 
   const counts = useMemo(() => {
     const c = { HOT: 0, WARM: 0, MEDIUM: 0, LOW: 0 }
-    for (const p of state.properties) c[p.category]++
+    for (const p of properties) {
+      if (c[p.category] !== undefined) c[p.category]++
+    }
     return c
-  }, [state.properties])
+  }, [properties])
 
-  const avgScore = state.properties.length
-    ? state.properties.reduce((s, p) => s + p.finalScore, 0) / state.properties.length
+  const avgScore = properties.length
+    ? properties.reduce((s, p) => s + (p.final_score || 0), 0) / properties.length
     : 0
 
   const toggleSort = (field) => {
     setSort(prev => prev.field === field
       ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-      : { field, dir: field === 'finalScore' || field === 'holdYrs' || field === 'gainPct' ? 'desc' : 'asc' })
+      : { field, dir: ['final_score', 'holding_years', 'owner_gain_pct', 'cagr', 'potential_profit'].includes(field) ? 'desc' : 'asc' })
   }
 
   const sortIndicator = (field) =>
     sort.field === field ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''
 
-  const hasData = state.properties.length > 0
+  const toggleSuburb = (s) => {
+    setSelectedSuburbs(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+
+  const setStatus = async (address, status) => {
+    setStatuses(prev => {
+      const next = { ...prev }
+      if (status) next[address] = status; else delete next[address]
+      return next
+    })
+    try {
+      await fetch(`${API}/api/hot-vendors/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, status }),
+      })
+    } catch (e) {
+      console.error('Failed to save status', e)
+    }
+  }
+
+  const openNote = (p) => {
+    setNoteEditing(p)
+    setNoteDraft(notes[p.address] || '')
+  }
+  const closeNote = () => {
+    setNoteEditing(null)
+    setNoteDraft('')
+    setNoteSaving(false)
+  }
+  const saveNote = async () => {
+    if (!noteEditing) return
+    setNoteSaving(true)
+    try {
+      const res = await fetch(`${API}/api/hot-vendors/note`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: noteEditing.address, note: noteDraft }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'Save failed')
+      }
+      const trimmed = noteDraft.trim()
+      setNotes(prev => {
+        const next = { ...prev }
+        if (trimmed) next[noteEditing.address] = trimmed
+        else delete next[noteEditing.address]
+        return next
+      })
+      closeNote()
+    } catch (e) {
+      alert(`Could not save note: ${e.message}`)
+      setNoteSaving(false)
+    }
+  }
+
+  // Drag the table sideways with the mouse — REIWA scraper has the same
+  // affordance via overflow scroll. Skip when the drag starts on an
+  // interactive element so click/select still work.
+  const onTableMouseDown = (e) => {
+    if (e.target.closest('select, button, input, a, th')) return
+    const w = wrapperRef.current
+    if (!w) return
+    const startX = e.pageX - w.offsetLeft
+    const startScroll = w.scrollLeft
+    let moved = false
+    const onMove = (ev) => {
+      const dx = ev.pageX - w.offsetLeft - startX
+      if (Math.abs(dx) > 3) {
+        moved = true
+        w.classList.add('dragging')
+      }
+      w.scrollLeft = startScroll - dx
+      if (moved) ev.preventDefault()
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      w.classList.remove('dragging')
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  const hasData = properties.length > 0
+  const profile = data?.profile || {}
+  const weights = data?.weights || {}
+  const suburbBtnLabel = selectedSuburbs.size === 0
+    ? `All suburbs${uniqueSuburbs.length > 1 ? ` (${uniqueSuburbs.length})` : ''}`
+    : selectedSuburbs.size === 1
+      ? Array.from(selectedSuburbs)[0]
+      : `${selectedSuburbs.size} suburbs`
 
   return (
-    <div className="hot-vendor">
+    <div className={`hot-vendor ${compact ? 'compact' : ''}`}>
       <div className="hot-vendor-header">
         <div>
-          <h2>Hot Vendor Scoring</h2>
+          <h2>Hot Vendor Scoring <span style={{
+            fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)',
+            marginLeft: 8, padding: '2px 6px', border: '1px solid var(--border)',
+            borderRadius: 4, fontFamily: 'monospace',
+          }}>{BUILD_TAG}</span></h2>
           <p className="hot-vendor-sub">
-            Drop a CoreLogic / PriceFinder transaction export. Files never leave
-            your browser. Properties are scored on holding length, gain, and
-            type to surface likely-to-sell vendors.
+            Drop an RP Data / CoreLogic / Landgate CSV (or xlsx). The backend
+            v4 pipeline auto-calibrates scoring weights against the suburb's
+            profile (mature/dynamic, premium/standard, high-gain) and returns
+            HOT / WARM / MEDIUM / LOW leads.
           </p>
         </div>
         {hasData && (
-          <button className="btn btn-primary" onClick={() => exportExcel(state.properties)}>
-            Export Excel
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn btn-primary"
+              onClick={downloadExcel}
+              disabled={excelLoading}
+            >
+              {excelLoading
+                ? `⏳ ${excelStage || 'Generating…'}`
+                : '⬇ Download Excel report'}
+            </button>
+            {excelFallbackUrl && (
+              <a
+                href={excelFallbackUrl}
+                download={excelFallbackName}
+                className="btn btn-ghost btn-sm"
+                style={{ textDecoration: 'none' }}
+              >
+                ⬇ Click here if it didn't download
+              </a>
+            )}
+          </div>
         )}
       </div>
 
       {!hasData && (
-        <div
-          className={`drop-zone ${dragActive ? 'active' : ''}`}
-          onDragEnter={(e) => { e.preventDefault(); setDragActive(true) }}
-          onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={onDrop}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            style={{ display: 'none' }}
-            onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
-          />
-          <div className="drop-icon">⬇</div>
-          <div className="drop-title">
-            {loading ? 'Processing…' : 'Drop your .xlsx here, or click to browse'}
+        <>
+          {!savedLoading && savedUploads.length > 0 && (
+            <div className="hv-saved">
+              <div className="hv-saved-title">Recent reports</div>
+              <div className="hv-saved-grid">
+                {savedUploads.map(u => (
+                  <button
+                    key={u.id}
+                    className="hv-saved-card"
+                    onClick={() => loadSavedUpload(u.id)}
+                    disabled={loading}
+                  >
+                    <div className="hv-saved-suburb">{u.suburb}</div>
+                    <div className="hv-saved-meta">
+                      {u.row_count} properties
+                      {u.uploaded_at && ` · ${(u.uploaded_at || '').slice(0, 10)}`}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div
+            className={`drop-zone ${dragActive ? 'active' : ''}`}
+            onDragEnter={(e) => { e.preventDefault(); setDragActive(true) }}
+            onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={onDrop}
+            onClick={() => !loading && fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              style={{ display: 'none' }}
+              onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
+            />
+            <div className="drop-icon">⬇</div>
+            <div className="drop-title">
+              {loading
+                ? (loadingStage || 'Working on it…')
+                : savedUploads.length > 0
+                  ? 'Or drop a new CSV / xlsx here to score another suburb'
+                  : 'Drop your CSV or xlsx here, or click to browse'}
+            </div>
+            {loading && (
+              <div className="drop-hint">
+                Big suburbs (Ellenbrook, Mandurah) can take 1-5 min.
+                You can leave this page open in another tab.
+              </div>
+            )}
+            <div className="drop-hint">
+              RP Data exports detected automatically (20 / 21 / 22-column
+              layouts). Backend handles cleaning, latent profit, and
+              quantile-based segmentation.
+            </div>
+            {error && <div className="drop-error">{error}</div>}
           </div>
-          <div className="drop-hint">
-            Required columns: Address, Sale Price, Sale Date.
-            Optional: Property Type, Beds, Baths, Owner, Agency, Agent.
-          </div>
-          {error && <div className="drop-error">{error}</div>}
-        </div>
+        </>
       )}
 
       {hasData && (
         <>
+          {error && (
+            <div className="hv-error-banner">
+              ⚠ {error}
+              <button className="btn-link" onClick={() => setError('')}>dismiss</button>
+            </div>
+          )}
+          {/* Suburb profile + auto-calibrated weights banner */}
+          <div style={{
+            background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px',
+            padding: '14px 18px', marginBottom: '14px', fontSize: '13px',
+          }}>
+            <div style={{ fontWeight: '700', marginBottom: '6px', color: '#0c4a6e' }}>
+              {data.suburb} — {profile.is_mature ? 'Mature' : 'Dynamic'} ·{' '}
+              {profile.is_premium ? 'Premium' : 'Standard'} ·{' '}
+              {profile.is_high_gain ? 'High-gain' : 'Moderate-gain'}
+            </div>
+            <div style={{ color: '#075985' }}>
+              <strong>Auto-calibrated weights:</strong>{' '}
+              Hold {Math.round((weights.hold || 0) * 100)}% ·{' '}
+              Type {Math.round((weights.type || 0) * 100)}% ·{' '}
+              Gain% {((weights.gain || 0) * 100).toFixed(1)}% ·{' '}
+              CAGR {((weights.cagr || 0) * 100).toFixed(1)}% ·{' '}
+              Freq {Math.round((weights.freq || 0) * 100)}% ·{' '}
+              Profit {Math.round((weights.profit || 0) * 100)}%
+            </div>
+            {data.rationale?.length > 0 && (
+              <div style={{ color: '#0369a1', marginTop: '4px', fontSize: '12px' }}>
+                Why: {data.rationale.join(', ')}
+              </div>
+            )}
+          </div>
+
           <div className="hv-stats">
-            <div className="hv-stat"><span className="hv-stat-num">{state.properties.length}</span><span>Properties</span></div>
+            <div className="hv-stat"><span className="hv-stat-num">{properties.length}</span><span>Properties</span></div>
             <div className="hv-stat hv-hot"><span className="hv-stat-num">{counts.HOT}</span><span>🔴 HOT</span></div>
             <div className="hv-stat hv-warm"><span className="hv-stat-num">{counts.WARM}</span><span>🟠 WARM</span></div>
             <div className="hv-stat hv-medium"><span className="hv-stat-num">{counts.MEDIUM}</span><span>🟡 MEDIUM</span></div>
             <div className="hv-stat"><span className="hv-stat-num">{avgScore.toFixed(1)}</span><span>Avg score</span></div>
-            <div className="hv-stat"><span className="hv-stat-num">{state.medianHolding.toFixed(1)} yr</span><span>Median holding</span></div>
+            <div className="hv-stat"><span className="hv-stat-num">{(profile.median_hold ?? 0).toFixed(1)} yr</span><span>Median holding</span></div>
             <div style={{ marginLeft: 'auto' }}>
-              <button className="btn btn-secondary btn-small" onClick={() => setState({ properties: [], medianHolding: 0 })}>
+              <button className="btn btn-secondary btn-small" onClick={() => setData(null)}>
                 Load another file
               </button>
             </div>
@@ -497,6 +707,44 @@ export default function HotVendorScoring() {
                 {c === 'ALL' ? 'ALL' : CATEGORY_BADGE[c].label}
               </button>
             ))}
+
+            {uniqueSuburbs.length > 1 && (
+              <div className="hv-suburb-filter" ref={suburbDropdownRef}>
+                <button
+                  className={`hv-pill ${selectedSuburbs.size > 0 ? 'active' : ''}`}
+                  onClick={() => setSuburbDropdownOpen(o => !o)}
+                >
+                  📍 {suburbBtnLabel} ▾
+                </button>
+                {suburbDropdownOpen && (
+                  <div className="hv-suburb-menu">
+                    <div className="hv-suburb-menu-actions">
+                      <button className="btn-link" onClick={() => setSelectedSuburbs(new Set())}>Clear</button>
+                      <button className="btn-link" onClick={() => setSelectedSuburbs(new Set(uniqueSuburbs))}>All</button>
+                    </div>
+                    {uniqueSuburbs.map(s => (
+                      <label key={s} className="hv-suburb-item">
+                        <input
+                          type="checkbox"
+                          checked={selectedSuburbs.has(s)}
+                          onChange={() => toggleSuburb(s)}
+                        />
+                        {s}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              className={`hv-pill ${compact ? 'active' : ''}`}
+              onClick={() => setCompact(c => !c)}
+              title="Toggle compact column widths"
+            >
+              {compact ? '⊟ Compact' : '⊞ Compact'}
+            </button>
+
             <div className="hv-spacer" />
             <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
               <option value="ALL">All Types</option>
@@ -511,7 +759,11 @@ export default function HotVendorScoring() {
             />
           </div>
 
-          <div className="table-wrapper">
+          <div
+            className="table-wrapper hv-table-wrapper"
+            ref={wrapperRef}
+            onMouseDown={onTableMouseDown}
+          >
             <table>
               <thead>
                 <tr>
@@ -519,13 +771,14 @@ export default function HotVendorScoring() {
                     ['rank', '#'],
                     ['address', 'Address'],
                     ['type', 'Type'],
-                    ['beds', 'Beds'],
-                    ['lastSalePrice', 'Last Sale'],
-                    ['holdYrs', 'Hold (yrs)'],
-                    ['gainPct', 'Gain %'],
+                    ['bedrooms', 'Beds'],
+                    ['last_sale_price', 'Last Sale'],
+                    ['holding_years', 'Hold (yrs)'],
+                    ['owner_gain_pct', 'Gain %'],
                     ['cagr', 'CAGR'],
-                    ['numSales', '# Sales'],
-                    ['finalScore', 'Score'],
+                    ['potential_profit', 'Latent Profit'],
+                    ['sales_count', '# Sales'],
+                    ['final_score', 'Score'],
                   ].map(([f, label]) => (
                     <th key={f} onClick={() => toggleSort(f)} className="sortable">
                       {label}{sortIndicator(f)}
@@ -535,38 +788,116 @@ export default function HotVendorScoring() {
                   <th>Owner</th>
                   <th>Agency</th>
                   <th>Agent</th>
+                  <th>Status</th>
+                  <th>📝 Note</th>
                 </tr>
               </thead>
               <tbody>
-                {sorted.map(p => (
-                  <tr key={p.rank} style={{ background: CATEGORY_COLORS[p.category] || undefined }}>
-                    <td className="num">{p.rank}</td>
-                    <td>{p.address}</td>
-                    <td>{p.type}</td>
-                    <td className="num">{p.beds ?? '-'}</td>
-                    <td className="num">{fmtMoney(p.lastSalePrice)}</td>
-                    <td className="num">{fmtYrs(p.holdYrs)}</td>
-                    <td className="num">{fmtPct(p.gainPct)}</td>
-                    <td className="num">{p.cagr != null ? fmtPct(p.cagr) : '-'}</td>
-                    <td className="num">{p.numSales}</td>
-                    <td className="num"><strong>{p.finalScore.toFixed(1)}</strong></td>
-                    <td>
-                      <span className="hv-badge" style={{ background: CATEGORY_BADGE[p.category].bg }}>
-                        {CATEGORY_BADGE[p.category].label}
-                      </span>
-                    </td>
-                    <td>{p.owner || '-'}</td>
-                    <td>{p.agency || '-'}</td>
-                    <td>{p.agent || '-'}</td>
-                  </tr>
-                ))}
+                {sorted.map(p => {
+                  const userStatus = statuses[p.address] || ''
+                  const tint = userStatus ? STATUS_TINT[userStatus] : CATEGORY_COLORS[p.category]
+                  return (
+                    <tr key={p.rank} style={{ background: tint || undefined }}>
+                      <td className="num">{p.rank}</td>
+                      <td className="hv-cell-address" title={p.address}>{p.address}</td>
+                      <td>{p.type}</td>
+                      <td className="num">{p.bedrooms ?? '-'}</td>
+                      <td className="num">{fmtMoney(p.last_sale_price)}</td>
+                      <td className="num">{fmtNum(p.holding_years)}</td>
+                      <td className="num">{fmtPct(p.owner_gain_pct)}</td>
+                      <td className="num">{fmtPct(p.cagr, 2)}</td>
+                      <td className="num">{fmtMoney(p.potential_profit)}</td>
+                      <td className="num">{p.sales_count}</td>
+                      <td className="num"><strong>{fmtNum(p.final_score)}</strong></td>
+                      <td>
+                        <span className="hv-badge" style={{ background: CATEGORY_BADGE[p.category]?.bg }}>
+                          {CATEGORY_BADGE[p.category]?.label || p.category}
+                        </span>
+                      </td>
+                      <td className="hv-cell-owner" title={p.current_owner || ''}>{p.current_owner || '-'}</td>
+                      <td className="hv-cell-agency" title={p.agency || ''}>{p.agency || '-'}</td>
+                      <td className="hv-cell-agent" title={p.agent || ''}>{p.agent || '-'}</td>
+                      <td>
+                        <select
+                          className="hv-status-select"
+                          value={userStatus}
+                          onChange={(e) => setStatus(p.address, e.target.value)}
+                        >
+                          {STATUS_OPTIONS.map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="note-cell">
+                        {(() => {
+                          const text = (notes[p.address] || '').trim()
+                          const has = !!text
+                          const preview = has
+                            ? (text.length > 30 ? text.slice(0, 30) + '…' : text)
+                            : null
+                          return (
+                            <button
+                              className={`btn-note ${has ? 'has-note' : 'empty-note'}`}
+                              title={has ? text : 'Click to add a note'}
+                              onClick={() => openNote(p)}
+                            >
+                              {has ? <>📝&nbsp;{preview}</> : <>＋&nbsp;Add</>}
+                            </button>
+                          )
+                        })()}
+                      </td>
+                    </tr>
+                  )
+                })}
                 {!sorted.length && (
-                  <tr><td colSpan="14" className="empty">No properties match the current filters</td></tr>
+                  <tr><td colSpan="17" className="empty">No properties match the current filters</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+          <StickyHScroll targetRef={wrapperRef} />
         </>
+      )}
+
+      {noteEditing && (
+        <div className="note-modal-overlay" onClick={closeNote}>
+          <div className="note-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="note-modal-header">
+              <div>
+                <div className="note-modal-title">Note</div>
+                <div className="note-modal-sub">{noteEditing.address}</div>
+              </div>
+              <button className="btn-icon" onClick={closeNote} title="Close">×</button>
+            </div>
+            <textarea
+              className="note-textarea"
+              autoFocus
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="Spoke with the owner, considering selling next quarter…"
+              rows={6}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote()
+                if (e.key === 'Escape') closeNote()
+              }}
+            />
+            <div className="note-modal-footer">
+              <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+              <div className="note-modal-actions">
+                <button className="btn btn-ghost btn-sm" onClick={closeNote} disabled={noteSaving}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveNote}
+                  disabled={noteSaving}
+                >
+                  {noteSaving ? 'Saving…' : 'Save note'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

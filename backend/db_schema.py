@@ -5,7 +5,7 @@ existing callers don't need to change their imports.
 
 
 def init_db():
-    from database import get_db, normalize_address
+    from database import get_db, normalize_address, USE_POSTGRES
 
     conn = get_db()
     conn.executescript("""
@@ -201,6 +201,8 @@ def init_db():
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS potential_profit INTEGER",
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS potential_profit_pct REAL",
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS rank INTEGER",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS first_seen_at TEXT",
+        "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS last_updated_at TEXT",
     ]:
         try:
             conn.execute(col_sql)
@@ -209,6 +211,117 @@ def init_db():
                 conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
             except Exception:
                 conn.commit()
+
+    # User-facing status flag per property, keyed by normalized_address so it
+    # survives re-uploads of the same suburb. 4 buckets (matches the UI):
+    #   'listed'     — appraised / listed (green)
+    #   'pending'    — waiting for response / considering (yellow)
+    #   'declined'   — not interested (red)
+    #   NULL / empty — never contacted (default, no tint)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS hot_vendor_property_status (
+            normalized_address TEXT PRIMARY KEY,
+            status TEXT,
+            note TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_hv_status_value
+            ON hot_vendor_property_status(status);
+    """)
+
+    # Re-upload behaviour: on the next score-csv we want UPSERT instead of
+    # plain INSERT (no duplicate rows when the same suburb is re-uploaded
+    # 6 / 12 months later — only the mutable fields refresh: sale_date,
+    # owner, agency, agent, all the recalculated scores).
+    #
+    # Step 1: dedupe any existing duplicates from previous INSERT-only
+    # uploads — keep the row with the highest id (most recent score).
+    # Step 2: add UNIQUE INDEX on normalized_address, which the UPSERT
+    # in hot_vendors_api._insert_property_rows targets via ON CONFLICT.
+    try:
+        if USE_POSTGRES:
+            conn.execute("""
+                DELETE FROM hot_vendor_properties a
+                USING hot_vendor_properties b
+                WHERE a.normalized_address = b.normalized_address
+                  AND a.normalized_address IS NOT NULL
+                  AND a.normalized_address <> ''
+                  AND a.id < b.id
+            """)
+        else:
+            conn.execute("""
+                DELETE FROM hot_vendor_properties
+                WHERE id NOT IN (
+                    SELECT MAX(id) FROM hot_vendor_properties
+                    WHERE normalized_address IS NOT NULL
+                      AND normalized_address <> ''
+                    GROUP BY normalized_address
+                )
+                AND normalized_address IS NOT NULL
+                AND normalized_address <> ''
+            """)
+        conn.commit()
+    except Exception:
+        conn.commit()
+
+    # Postgres ON CONFLICT (normalized_address) requires a NON-PARTIAL
+    # unique index — partial indexes only match when the INSERT repeats
+    # the WHERE predicate, which our _insert_property_rows doesn't.
+    # 1. Coerce empty-string normalized_address rows to NULL (NULLs are
+    #    distinct in unique indexes by default, so multiple bad-address
+    #    rows still co-exist).
+    # 2. Drop any pre-existing partial index from older migrations.
+    # 3. Create a clean non-partial unique index.
+    try:
+        conn.execute(
+            "UPDATE hot_vendor_properties SET normalized_address = NULL "
+            "WHERE normalized_address = ''"
+        )
+        conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception: pass
+
+    try:
+        conn.execute("DROP INDEX IF EXISTS uq_hv_props_normaddr")
+        conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception: pass
+
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_normaddr "
+            "ON hot_vendor_properties(normalized_address)"
+        )
+        conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception: pass
+
+    # Cache for OSM Overpass street lookups — pipeline neighbour generation
+    # falls back to OSM when we have no Hot Vendor / listings data on a
+    # street, so we never propose fake house numbers. One Overpass query
+    # per street; cache for 30 days.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS street_address_cache (
+            street_key TEXT PRIMARY KEY,
+            numbers TEXT NOT NULL,
+            fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
+    # Per-listing free-text notes — keyed on normalized_address so the
+    # note survives re-scrapes, re-listings, and agency switches. The
+    # listings.id renews when REIWA reposts a withdrawn property; the
+    # normalised address is the stable identifier.
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS listing_notes (
+            normalized_address TEXT PRIMARY KEY,
+            note TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
 
     conn.commit()
     conn.close()

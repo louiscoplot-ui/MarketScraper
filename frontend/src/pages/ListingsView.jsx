@@ -2,7 +2,10 @@
 // under the MCP push size limit. State stays in App.jsx; this is a
 // presentational component that takes everything via props.
 
+import { useState, useRef, useEffect } from 'react'
 import EditableDateCell from '../components/EditableDateCell'
+import EditableTextCell from '../components/EditableTextCell'
+import StickyHScroll from '../components/StickyHScroll'
 
 
 // HTML5 date input emits YYYY-MM-DD. listing_date in the DB is
@@ -21,11 +24,224 @@ export default function ListingsView({
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing,
 }) {
+  // Note editor state — `editing` holds the listing whose note we're
+  // editing (or null). PATCH writes to listing_notes keyed on the
+  // normalised address so the note follows the property across re-
+  // listings (REIWA reposting a withdrawn property → new id, same address).
+  const [noteEditing, setNoteEditing] = useState(null)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
+  const wrapperRef = useRef(null)
+  // Compact mode defaults ON for first-time visitors (denser table fits
+  // more on a laptop screen). User toggles persist after that.
+  const [compact, setCompact] = useState(() => {
+    try {
+      const v = localStorage.getItem('listings_compact')
+      return v === null ? true : v === '1'
+    } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('listings_compact', compact ? '1' : '0') } catch {}
+  }, [compact])
+
+  // Resizable Price column — default tight, drag the right edge of the
+  // header to widen when reading a long price string. Persisted across
+  // reloads so the agent's preferred width sticks.
+  const [priceWidth, setPriceWidth] = useState(() => {
+    try {
+      const saved = parseInt(localStorage.getItem('listings_price_width') || '100', 10)
+      return Number.isFinite(saved) && saved > 40 ? saved : 100
+    } catch { return 100 }
+  })
+  const priceWidthRef = useRef(priceWidth)
+  useEffect(() => { priceWidthRef.current = priceWidth }, [priceWidth])
+
+  const startPriceResize = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = priceWidthRef.current
+    const onMove = (ev) => {
+      const next = Math.max(60, Math.min(600, startW + (ev.clientX - startX)))
+      setPriceWidth(next)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.classList.remove('col-resizing')
+      try { localStorage.setItem('listings_price_width', String(priceWidthRef.current)) } catch {}
+    }
+    document.body.classList.add('col-resizing')
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  const openNote = (l) => {
+    setNoteEditing(l)
+    setNoteDraft(l.note || '')
+  }
+  const closeNote = () => {
+    setNoteEditing(null)
+    setNoteDraft('')
+    setNoteSaving(false)
+  }
+  const saveNote = async () => {
+    if (!noteEditing) return
+    setNoteSaving(true)
+    try {
+      const res = await fetch('/api/listings/note', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: noteEditing.address, note: noteDraft }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'Save failed')
+      }
+      // Mirror to local state — the JOIN will surface it on next refetch.
+      updateListing(noteEditing.id, { note: noteDraft.trim() || null })
+      closeNote()
+    } catch (e) {
+      alert(`Could not save note: ${e.message}`)
+      setNoteSaving(false)
+    }
+  }
+
+  // Hide Suburb when the filter is on a single suburb — every row
+  // would carry the same value, the column adds clutter without info.
+  // Internal size and Type stay always-visible: the agent uses them
+  // to spot land vs house vs apartment differences at a glance.
+  const showSuburb = filteredListings.length > 0
+    && !filteredListings.every(l => l.suburb_name === filteredListings[0].suburb_name)
+
+  // Smart column visibility — hide a date column when BOTH:
+  //   (a) the filter excludes its status (e.g. Withdrawn off), AND
+  //   (b) no row in the current filtered set has that date
+  //       (so a stray sold_date on an Under Offer row still shows).
+  // ALL = empty filter = show every column that has data.
+  const filterAll = selectedStatuses.size === 0
+  const anyListing = filteredListings.some(l => l.listing_date)
+  const anySold = filteredListings.some(l => l.sold_date)
+  const anyWithdrawn = filteredListings.some(l => l.withdrawn_date)
+
+  const showListed = anyListing || selectedStatuses.has('active') || selectedStatuses.has('under_offer')
+  const showDom = showListed
+  const showSold = anySold || selectedStatuses.has('sold')
+  const showWithdrawn = anyWithdrawn || selectedStatuses.has('withdrawn')
+
+  // Column definitions — header + body render from the same list.
+  // `cell(row)` returns the cell content; the <td> wrapper is added
+  // here so the key + className stay in one place.
+  const columns = [
+    { field: 'address', label: 'Address', sortable: true, className: 'address-cell',
+      cell: (l) => l.reiwa_url
+        ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
+        : l.address },
+    { field: '__note', label: '📝 Note', sortable: false, className: 'note-cell',
+      cell: (l) => {
+        const text = (l.note || '').trim()
+        const has = !!text
+        const preview = has
+          ? (text.length > 40 ? text.slice(0, 40) + '…' : text)
+          : null
+        return (
+          <button
+            className={`btn-note ${has ? 'has-note' : 'empty-note'}`}
+            title={has ? text : 'Click to add a note about this listing'}
+            onClick={() => openNote(l)}
+          >
+            {has ? <>📝&nbsp;{preview}</> : <>＋&nbsp;Add&nbsp;note</>}
+          </button>
+        )
+      } },
+    showSuburb && { field: 'suburb_name', label: 'Suburb', sortable: true,
+      cell: (l) => l.suburb_name },
+    { field: 'price_text', label: 'Price', sortable: true, className: 'price-cell resizable-cell',
+      style: { width: priceWidth, minWidth: priceWidth, maxWidth: priceWidth },
+      headerExtra: (
+        <span
+          className="col-resize-handle"
+          onMouseDown={startPriceResize}
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to resize"
+        />
+      ),
+      cell: (l) => (
+        <EditableTextCell
+          value={l.price_text}
+          placeholder="+ add price"
+          onSave={(val) => updateListing(l.id, { price_text: val })}
+        />
+      ) },
+    { field: 'bedrooms', label: 'Bed', sortable: true, className: 'num',
+      cell: (l) => l.bedrooms ?? '-' },
+    { field: 'bathrooms', label: 'Bath', sortable: true, className: 'num',
+      cell: (l) => l.bathrooms ?? '-' },
+    { field: 'parking', label: 'Car', sortable: true, className: 'num',
+      cell: (l) => l.parking ?? '-' },
+    { field: 'land_size', label: 'Land', sortable: true,
+      cell: (l) => l.land_size || '-' },
+    { field: 'internal_size', label: 'Internal', sortable: true,
+      cell: (l) => l.internal_size || '-' },
+    { field: 'agency', label: 'Agency', sortable: true, className: 'agency-cell',
+      cell: (l) => l.agency || '-' },
+    { field: 'agent', label: 'Agent', sortable: true, className: 'agent-cell',
+      cell: (l) => l.agent || '-' },
+    showListed && { field: 'listing_date', label: 'Listed', sortable: true, className: 'date-cell',
+      cell: (l) => (
+        <EditableDateCell
+          value={l.listing_date}
+          onSave={(iso) => updateListing(l.id, { listing_date: isoToDmy(iso) })}
+        />
+      ) },
+    showDom && { field: 'dom', label: 'DOM', sortable: true,
+      cellClass: (l) => `num ${(calcDOM(l) ?? 0) >= 60 ? 'stale' : ''}`,
+      cell: (l) => {
+        const d = calcDOM(l)
+        return (
+          <>
+            {d != null ? d : '-'}
+            {(d ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
+          </>
+        )
+      } },
+    showWithdrawn && { field: 'withdrawn_date', label: 'Withdrawn', sortable: true, className: 'date-cell',
+      cell: (l) => (
+        <EditableDateCell
+          value={l.withdrawn_date}
+          onSave={(iso) => updateListing(l.id, { withdrawn_date: iso })}
+        />
+      ) },
+    showSold && { field: 'sold_date', label: 'Sold', sortable: true, className: 'date-cell',
+      cell: (l) => (
+        <EditableDateCell
+          value={l.sold_date}
+          onSave={(iso) => updateListing(l.id, { sold_date: iso })}
+        />
+      ) },
+    { field: 'status', label: 'Status', sortable: true,
+      cell: (l) => (
+        <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
+          {l.status?.replace('_', ' ')}
+        </span>
+      ) },
+    { field: 'listing_type', label: 'Type', sortable: true,
+      cell: (l) => l.listing_type || '-' },
+    { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
+      cell: (l) => l.reiwa_url
+        ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
+        : '-' },
+    { field: '__del', label: '', sortable: false, className: 'link-cell',
+      cell: (l) => (
+        <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>×</button>
+      ) },
+  ].filter(Boolean)
+
   return (
     <>
       <div className="filters">
         <button
-          className={`filter-btn ${selectedStatuses.size === 0 ? 'active' : ''}`}
+          className={`filter-btn ${filterAll ? 'active' : ''}`}
           onClick={() => toggleStatus(null)}
         >
           ALL
@@ -54,6 +270,14 @@ export default function ListingsView({
           {uniqueAgents.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
 
+        <button
+          className={`filter-btn ${compact ? 'active' : ''}`}
+          onClick={() => setCompact(c => !c)}
+          title="Toggle compact density"
+        >
+          {compact ? '⊟ Compact' : '⊞ Compact'}
+        </button>
+
         <span className="listing-count">
           {filteredListings.length} listing{filteredListings.length !== 1 ? 's' : ''}
           {checkedSuburbs.size > 0 && checkedSuburbs.size < suburbs.length && ` (${checkedSuburbs.size} suburb${checkedSuburbs.size > 1 ? 's' : ''})`}
@@ -62,91 +286,40 @@ export default function ListingsView({
         </span>
       </div>
 
-      <div className="table-wrapper">
-        <table>
+      <div className={`table-wrapper listings-table-wrapper ${compact ? 'compact' : ''}`} ref={wrapperRef}>
+        <table className="listings-table">
           <thead>
             <tr>
-              {[
-                ['address', 'Address'],
-                ['suburb_name', 'Suburb'],
-                ['price_text', 'Price'],
-                ['bedrooms', 'Bed'],
-                ['bathrooms', 'Bath'],
-                ['parking', 'Car'],
-                ['land_size', 'Land'],
-                ['internal_size', 'Internal'],
-                ['agency', 'Agency'],
-                ['agent', 'Agent'],
-                ['listing_date', 'Listed'],
-                ['dom', 'DOM'],
-                ['withdrawn_date', 'Withdrawn'],
-                ['sold_date', 'Sold'],
-                ['status', 'Status'],
-                ['listing_type', 'Type'],
-              ].map(([field, label]) => (
-                <th key={field} onClick={() => toggleSort(field)} className="sortable">
-                  {label}
-                  {sortField === field && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+              {columns.map(c => (
+                <th
+                  key={c.field}
+                  onClick={c.sortable ? () => toggleSort(c.field) : undefined}
+                  className={c.sortable ? 'sortable' : undefined}
+                  style={c.style}
+                >
+                  {c.label}
+                  {c.sortable && sortField === c.field && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  {c.headerExtra}
                 </th>
               ))}
-              <th>Link</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
             {filteredListings.map((l, i) => (
               <tr key={l.id || i} className={`status-${l.status}`}>
-                <td className="address-cell">
-                  {l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a> : l.address}
-                </td>
-                <td>{l.suburb_name}</td>
-                <td className="price-cell">{l.price_text || '-'}</td>
-                <td className="num">{l.bedrooms ?? '-'}</td>
-                <td className="num">{l.bathrooms ?? '-'}</td>
-                <td className="num">{l.parking ?? '-'}</td>
-                <td>{l.land_size || '-'}</td>
-                <td>{l.internal_size || '-'}</td>
-                <td className="agency-cell">{l.agency || '-'}</td>
-                <td>{l.agent || '-'}</td>
-                <td className="date-cell">
-                  <EditableDateCell
-                    value={l.listing_date}
-                    onSave={(iso) => updateListing(l.id, { listing_date: isoToDmy(iso) })}
-                  />
-                </td>
-                <td className={`num ${(calcDOM(l) ?? 0) >= 60 ? 'stale' : ''}`}>
-                  {calcDOM(l) != null ? calcDOM(l) : '-'}
-                  {(calcDOM(l) ?? 0) >= 60 && <span className="stale-flag" title="60+ days on market — potential lead">!</span>}
-                </td>
-                <td className="date-cell">
-                  <EditableDateCell
-                    value={l.withdrawn_date}
-                    onSave={(iso) => updateListing(l.id, { withdrawn_date: iso })}
-                  />
-                </td>
-                <td className="date-cell">
-                  <EditableDateCell
-                    value={l.sold_date}
-                    onSave={(iso) => updateListing(l.id, { sold_date: iso })}
-                  />
-                </td>
-                <td>
-                  <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
-                    {l.status?.replace('_', ' ')}
-                  </span>
-                </td>
-                <td>{l.listing_type || '-'}</td>
-                <td className="link-cell">
-                  {l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a> : '-'}
-                </td>
-                <td className="link-cell">
-                  <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>×</button>
-                </td>
+                {columns.map(c => {
+                  const cls = c.cellClass ? c.cellClass(l) : c.className
+                  return (
+                    <td key={c.field} className={cls} style={c.style}>
+                      {c.cell(l)}
+                    </td>
+                  )
+                })}
               </tr>
             ))}
             {filteredListings.length === 0 && (
               <tr>
-                <td colSpan="17" className="empty">
+                <td colSpan={columns.length} className="empty">
                   {suburbs.length === 0
                     ? 'Add a suburb to get started'
                     : 'No listings yet. Click "Scrape" to fetch data.'}
@@ -156,6 +329,48 @@ export default function ListingsView({
           </tbody>
         </table>
       </div>
+      <StickyHScroll targetRef={wrapperRef} />
+
+      {noteEditing && (
+        <div className="note-modal-overlay" onClick={closeNote}>
+          <div className="note-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="note-modal-header">
+              <div>
+                <div className="note-modal-title">Note</div>
+                <div className="note-modal-sub">{noteEditing.address}</div>
+              </div>
+              <button className="btn-icon" onClick={closeNote} title="Close">×</button>
+            </div>
+            <textarea
+              className="note-textarea"
+              autoFocus
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="Spoke with the owner, considering selling next quarter…"
+              rows={6}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote()
+                if (e.key === 'Escape') closeNote()
+              }}
+            />
+            <div className="note-modal-footer">
+              <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+              <div className="note-modal-actions">
+                <button className="btn btn-ghost btn-sm" onClick={closeNote} disabled={noteSaving}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveNote}
+                  disabled={noteSaving}
+                >
+                  {noteSaving ? 'Saving…' : 'Save note'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

@@ -40,7 +40,23 @@ register_export_routes(app)
 
 @app.route('/api/ping', methods=['GET'])
 def ping():
-    return jsonify({'status': 'ok', 'app': 'market-scraper'})
+    """Health + diagnostic. The `db` field is the only quick way to
+    catch a Render env regression where DATABASE_URL drops off and the
+    app silently falls back to ephemeral SQLite."""
+    from database import USE_POSTGRES
+    info = {
+        'status': 'ok',
+        'app': 'market-scraper',
+        'db': 'postgres' if USE_POSTGRES else 'sqlite-ephemeral',
+    }
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT COUNT(*) AS n FROM suburbs").fetchone()
+        info['suburbs'] = (dict(row).get('n') if row else 0)
+        conn.close()
+    except Exception as e:
+        info['db_error'] = str(e)[:200]
+    return jsonify(info)
 
 
 # --- SUBURB AUTOCOMPLETE ---
