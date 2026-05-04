@@ -51,7 +51,7 @@ def ping():
     from database import USE_POSTGRES
     info = {
         'status': 'ok',
-        'app': 'agentdeck',
+        'app': 'suburbdesk',
         'db': 'postgres' if USE_POSTGRES else 'sqlite-ephemeral',
     }
     try:

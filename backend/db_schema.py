@@ -323,7 +323,7 @@ def init_db():
         );
     """)
 
-    # AgentDeck users — admin-managed allowlist. Each user gets an
+    # SuburbDesk users — admin-managed allowlist. Each user gets an
     # access_key (32-char hex) that they paste into the login screen.
     # `role` is 'admin' or 'user'. The first admin is seeded via the
     # ADMIN_EMAIL env var on app startup so the allowlist is never

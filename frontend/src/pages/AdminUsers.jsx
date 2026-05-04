@@ -1,4 +1,4 @@
-// AgentDeck admin — user management + suburb assignment.
+// SuburbDesk admin — user management + suburb assignment.
 // Admin-only page that lists every user, lets the admin add/revoke
 // access, and manages which suburbs each user can see and scrape.
 // "Personne vole rien à personne" — a user only sees their assigned

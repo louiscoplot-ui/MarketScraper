@@ -1,4 +1,4 @@
-"""AgentDeck admin API — user management.
+"""SuburbDesk admin API — user management.
 
 Endpoints (all admin-gated via X-Access-Key header):
   GET    /api/admin/me                    current user info
@@ -144,7 +144,7 @@ def seed_admin_if_needed():
         "═══════════════════════════════════════════════════════════════\n"
         f"  Seeded admin: {admin_email} (id={new_id})\n"
         f"  ACCESS KEY:  {key}\n"
-        f"  Paste this into the AgentDeck login screen.\n"
+        f"  Paste this into the SuburbDesk login screen.\n"
         "═══════════════════════════════════════════════════════════════"
     )
 

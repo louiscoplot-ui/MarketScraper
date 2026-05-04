@@ -47,7 +47,7 @@ export default function Header({
         {/* Logo slot — left empty intentionally. When you have an
             approved logo asset, drop an <img src=... /> in here. */}
         <div className="logo-slot" aria-label="Logo" />
-        <span className="brand-text">AgentDeck</span>
+        <span className="brand-text">SuburbDesk</span>
       </div>
 
       <nav className="tabs" aria-label="Primary">
