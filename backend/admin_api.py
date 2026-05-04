@@ -45,7 +45,12 @@ def _row_to_dict(row):
 
 def get_current_user():
     """Resolve the request's access_key → user row. Returns None if missing
-    or invalid. Bumps last_seen on every successful lookup."""
+    or invalid. Bumps last_seen on every successful lookup.
+
+    The user whose email matches ADMIN_EMAIL is ALWAYS returned with
+    role='admin', even if the DB row says otherwise. This protects the
+    seeded admin from accidentally demoting themselves via the UI's role
+    toggle — only direct DB editing or env-var change can lock them out."""
     key = request.headers.get('X-Access-Key') or request.args.get('access_key')
     if not key:
         return None
@@ -63,7 +68,13 @@ def get_current_user():
         except Exception:
             pass
     conn.close()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    user = dict(row)
+    seed_email = os.environ.get('ADMIN_EMAIL', '').strip().lower()
+    if seed_email and (user.get('email') or '').strip().lower() == seed_email:
+        user['role'] = 'admin'
+    return user
 
 
 def get_user_suburb_ids(user_id):

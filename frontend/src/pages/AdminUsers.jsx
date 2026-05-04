@@ -83,6 +83,10 @@ export default function AdminUsers() {
   }
 
   const toggleRole = async (u) => {
+    // Defence against accidental self-demote — also enforced server-side
+    // for the seeded admin (ADMIN_EMAIL is always promoted back), but we
+    // block it in the UI too so the user never sees their role flicker.
+    if (me && me.id === u.id) return
     const newRole = u.role === 'admin' ? 'user' : 'admin'
     try {
       await apiJson(`/api/admin/users/${u.id}`, {
@@ -245,7 +249,10 @@ export default function AdminUsers() {
                 <button
                   className={`role-pill role-${u.role}`}
                   onClick={() => toggleRole(u)}
-                  title="Click to toggle role"
+                  disabled={me && me.id === u.id}
+                  title={me && me.id === u.id
+                    ? "You can't change your own role"
+                    : "Click to toggle role"}
                 >
                   {u.role}
                 </button>
