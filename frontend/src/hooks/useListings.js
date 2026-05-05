@@ -51,16 +51,26 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
 
+  // Server-side filter by the statuses the user actually wants to see.
+  // Default UI selection is just active+under_offer — no point shipping
+  // sold/withdrawn rows over the wire on every page load (often 50%+
+  // of the table). Refetch when the toggle changes.
+  const statusesParam = useMemo(() => {
+    if (!selectedStatuses || selectedStatuses.size === 0) return ''
+    return [...selectedStatuses].join(',')
+  }, [selectedStatuses])
+
   const fetchListings = useCallback(async () => {
-    // Direct to Render + retry-with-backoff so a cold-starting dyno
-    // doesn't leave the table empty. Vercel proxy would 504 after 25s.
+    const url = statusesParam
+      ? `${BOOT_LISTINGS}?statuses=${encodeURIComponent(statusesParam)}`
+      : BOOT_LISTINGS
     try {
-      const res = await fetchWithRetry(BOOT_LISTINGS, {}, 4)
+      const res = await fetchWithRetry(url, {}, 4)
       if (res.ok) setListings(await res.json())
     } catch (e) {
       console.warn('fetchListings failed after retries:', e)
     }
-  }, [])
+  }, [statusesParam])
 
   useEffect(() => { fetchListings() }, [fetchListings])
 
