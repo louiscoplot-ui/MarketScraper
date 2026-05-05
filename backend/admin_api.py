@@ -179,8 +179,28 @@ def register_admin_routes(app):
             "SELECT id, email, first_name, last_name, phone, role, last_seen, created_at "
             "FROM users ORDER BY created_at DESC"
         ).fetchall()
+        # Pull every assignment in one query and group by user, so the
+        # admin table can show suburbs at a glance without an extra
+        # round-trip per row.
+        assignments = conn.execute(
+            "SELECT us.user_id, s.id AS suburb_id, s.name AS suburb_name "
+            "FROM user_suburbs us "
+            "JOIN suburbs s ON s.id = us.suburb_id "
+            "ORDER BY s.name"
+        ).fetchall()
         conn.close()
-        return jsonify({'users': [dict(r) for r in rows]})
+        by_user = {}
+        for a in assignments:
+            d = dict(a)
+            by_user.setdefault(d['user_id'], []).append(
+                {'id': d['suburb_id'], 'name': d['suburb_name']}
+            )
+        users = []
+        for r in rows:
+            d = dict(r)
+            d['suburbs'] = by_user.get(d['id'], [])
+            users.append(d)
+        return jsonify({'users': users})
 
     @app.route('/api/admin/users', methods=['POST'])
     def admin_create_user():

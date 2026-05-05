@@ -280,7 +280,7 @@ export default function AdminUsers() {
         <thead>
           <tr>
             <th>Email</th><th>Name</th><th>Phone</th>
-            <th>Role</th><th>Last seen</th><th>Created</th><th></th>
+            <th>Role</th><th>Suburbs</th><th>Last seen</th><th>Created</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -310,6 +310,33 @@ export default function AdminUsers() {
                   {u.role}
                 </button>
               </td>
+              <td className="admin-suburbs-cell">
+                {u.role === 'admin' ? (
+                  <span className="admin-suburbs-all" title="Admins see every suburb automatically">All suburbs</span>
+                ) : (u.suburbs && u.suburbs.length > 0) ? (
+                  <button
+                    type="button"
+                    className="admin-suburbs-chips"
+                    onClick={() => openAssign(u)}
+                    title={u.suburbs.map(s => s.name).join(', ')}
+                  >
+                    {u.suburbs.slice(0, 3).map(s => (
+                      <span key={s.id} className="admin-suburb-chip">{s.name}</span>
+                    ))}
+                    {u.suburbs.length > 3 && (
+                      <span className="admin-suburb-more">+{u.suburbs.length - 3}</span>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="admin-suburbs-empty"
+                    onClick={() => openAssign(u)}
+                  >
+                    None — click to assign
+                  </button>
+                )}
+              </td>
               <td>{u.last_seen ? new Date(u.last_seen).toLocaleString() : 'Never'}</td>
               <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}</td>
               <td className="admin-row-actions">
@@ -333,7 +360,7 @@ export default function AdminUsers() {
             </tr>
           ))}
           {!users.length && !loading && (
-            <tr><td colSpan="7" className="empty">No users yet. Add one above.</td></tr>
+            <tr><td colSpan="8" className="empty">No users yet. Add one above.</td></tr>
           )}
         </tbody>
       </table>
