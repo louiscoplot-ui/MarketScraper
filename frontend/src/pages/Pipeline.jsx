@@ -59,6 +59,7 @@ export default function Pipeline() {
   // `suburb` to the first allowed entry so a user who's only assigned
   // Ellenbrook doesn't see Cottesloe pre-selected.
   const [allowedSuburbs, setAllowedSuburbs] = useState([])
+  const [suburbsLoaded, setSuburbsLoaded] = useState(false)
   const [suburb, setSuburb] = useState('')
   const [days, setDays] = useState(7)
   const [loading, setLoading] = useState(false)
@@ -69,6 +70,10 @@ export default function Pipeline() {
   const [editingNote, setEditingNote] = useState(null)
   const [actionModal, setActionModal] = useState(null)
   const [showManualForm, setShowManualForm] = useState(false)
+  // Default the filter to the first allowed suburb (same as the
+  // generator dropdown) so the user lands on a focused view of their
+  // own suburb, not 'All my suburbs' which surfaces old entries from
+  // every suburb they've ever generated for.
   const [filterSuburb, setFilterSuburb] = useState('')
 
   useEffect(() => {
@@ -81,11 +86,20 @@ export default function Pipeline() {
           .sort((a, b) => a.localeCompare(b))
         setAllowedSuburbs(names)
         setSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
+        setFilterSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
+        setSuburbsLoaded(true)
       })
-      .catch(() => {})
+      .catch(() => { setSuburbsLoaded(true) })
   }, [])
 
-  useEffect(() => { loadTracking() }, [filterSuburb])
+  // Wait for suburbs to load before firing tracking — otherwise we
+  // briefly hit /tracking/grouped with no suburb (= "All my suburbs")
+  // and flash unrelated old entries (e.g. Cottesloe rows for a
+  // Claremont user) before the proper filtered fetch lands.
+  useEffect(() => {
+    if (!suburbsLoaded) return
+    loadTracking()
+  }, [filterSuburb, suburbsLoaded])
 
   async function loadTracking() {
     setLoading(true)
@@ -193,9 +207,11 @@ export default function Pipeline() {
             onChange={e => setSuburb(e.target.value)}
             disabled={allowedSuburbs.length === 0}
             style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px' }}>
-            {allowedSuburbs.length === 0
-              ? <option value="">No suburbs assigned — ask your admin</option>
-              : allowedSuburbs.map(s => <option key={s}>{s}</option>)}
+            {!suburbsLoaded
+              ? <option value="">Loading suburbs…</option>
+              : allowedSuburbs.length === 0
+                ? <option value="">No suburbs assigned — ask your admin</option>
+                : allowedSuburbs.map(s => <option key={s}>{s}</option>)}
           </select>
 
           <div style={{ display: 'flex', gap: '6px' }}>
