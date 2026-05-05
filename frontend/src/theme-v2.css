@@ -142,10 +142,45 @@
 }
 [data-theme="v2"] .suburb-item {
   border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 [data-theme="v2"] .suburb-item.selected {
   background: var(--brand-soft);
   color: var(--ink);
+}
+[data-theme="v2"] .suburb-item .suburb-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+[data-theme="v2"] .suburb-item .suburb-count {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Tiny meta chip next to the name, e.g. '(15)' suburb count on the
+ * All-Suburbs row so the operator can see at a glance how many they
+ * have without doing math on the listings number next to it. */
+[data-theme="v2"] .suburb-name-meta {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 4px;
+}
+/* The 'listings' word next to the count — a small label that makes
+ * the bare number meaningful at a glance ('466 listings' reads
+ * instantly, '466' alone needs context). */
+[data-theme="v2"] .suburb-count-label {
+  color: var(--faint);
+  font-weight: 400;
+  margin-left: 2px;
+}
+/* Hide the listings label on the per-suburb rows where the trio of
+ * stat dots already lives — would be redundant noise. Keep it on the
+ * All-Suburbs aggregate row only. */
+[data-theme="v2"] .suburb-item:not(.suburb-item-all) .suburb-count-label {
+  display: none;
 }
 
 /* Status as dot+text (replaces filled pills everywhere except the

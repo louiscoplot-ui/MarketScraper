@@ -396,12 +396,15 @@ function App() {
             )}
             {suburbs.length > 0 && (
               <div
-                className={`suburb-item ${selectedSuburbs.size === 0 ? 'selected' : ''}`}
+                className={`suburb-item suburb-item-all ${selectedSuburbs.size === 0 ? 'selected' : ''}`}
                 onClick={() => setSelectedSuburbs(new Set())}
               >
-                <span className="suburb-name">All Suburbs</span>
+                <span className="suburb-name">
+                  All suburbs <span className="suburb-name-meta">({suburbs.length})</span>
+                </span>
                 <span className="suburb-count">
                   {suburbs.reduce((s, x) => s + (x.active_count || 0) + (x.under_offer_count || 0), 0)}
+                  <span className="suburb-count-label"> listings</span>
                 </span>
               </div>
             )}
