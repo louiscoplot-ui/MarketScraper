@@ -414,11 +414,18 @@ function App() {
         </aside>
 
         <main className="content">
+          {/* Hot Vendors stays mounted across navigation so a running
+              CSV-scoring or Excel-build job (background polling) keeps
+              going while the user works in Listings/Pipeline. When
+              they come back the state is exactly as they left it —
+              no reload, no progress lost. Other tabs are cheap to
+              re-render so they stay in the ternary below. */}
+          <div style={{ display: view === 'hot-vendors' ? 'block' : 'none' }}>
+            <HotVendorScoring />
+          </div>
           {view === 'pipeline' ? (
             <Pipeline />
-          ) : view === 'hot-vendors' ? (
-            <HotVendorScoring />
-          ) : view === 'admin' ? (
+          ) : view === 'hot-vendors' ? null : view === 'admin' ? (
             <AdminUsers />
           ) : view === 'report' && report ? (
             <Report
