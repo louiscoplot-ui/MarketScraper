@@ -318,6 +318,18 @@
   background: #386351;
 }
 
+/* Hot Vendors recent-reports cards — active state in brand. -------- */
+[data-theme="v2"] .hv-saved-card.active {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--brand);
+}
+[data-theme="v2"] .hv-saved-card.active .hv-saved-suburb {
+  color: var(--brand);
+  font-weight: 600;
+}
+
 /* Sidebar: scrape spinner + progress bar slot --------------------- */
 [data-theme="v2"] .suburb-scraping-bar {
   position: absolute;

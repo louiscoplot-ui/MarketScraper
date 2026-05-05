@@ -149,19 +149,26 @@ export default function HotVendorScoring() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Sequence counter so the latest click always wins. If the user
+  // clicks Cottesloe while Ellenbrook is mid-load, we don't want
+  // Ellenbrook's response to clobber Cottesloe's after they switched.
+  const loadSeqRef = useRef(0)
   const loadSavedUpload = async (uploadId) => {
+    const seq = ++loadSeqRef.current
     setError('')
     setLoading(true)
     try {
       const res = await fetch(`${API}/api/hot-vendors/uploads/${uploadId}`)
       const result = await res.json()
+      if (seq !== loadSeqRef.current) return  // a newer click is in flight
       if (!res.ok) throw new Error(result.error || `Load failed (${res.status})`)
       setData(result)
     } catch (e) {
+      if (seq !== loadSeqRef.current) return
       console.error(e)
       setError(e.message || 'Failed to load saved upload')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }
 
@@ -598,30 +605,40 @@ export default function HotVendorScoring() {
         )}
       </div>
 
+      {/* Recent reports — always visible (not gated on !hasData) so the
+          user can switch between suburb sheets in one click. The
+          currently-loaded suburb gets the .active class. Clicking any
+          card while another is mid-load is allowed (race-handled via
+          loadSeqRef inside loadSavedUpload). */}
+      {!savedLoading && savedUploads.length > 0 && (
+        <div className="hv-saved">
+          <div className="hv-saved-title">Recent reports</div>
+          <div className="hv-saved-grid">
+            {savedUploads.map(u => {
+              const isActive = data && (
+                (data.upload_id && data.upload_id === u.id) ||
+                (data.suburb && data.suburb.toLowerCase() === (u.suburb || '').toLowerCase())
+              )
+              return (
+                <button
+                  key={u.id}
+                  className={`hv-saved-card${isActive ? ' active' : ''}`}
+                  onClick={() => loadSavedUpload(u.id)}
+                >
+                  <div className="hv-saved-suburb">{u.suburb}</div>
+                  <div className="hv-saved-meta">
+                    {u.row_count} properties
+                    {u.uploaded_at && ` · ${(u.uploaded_at || '').slice(0, 10)}`}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {!hasData && (
         <>
-          {!savedLoading && savedUploads.length > 0 && (
-            <div className="hv-saved">
-              <div className="hv-saved-title">Recent reports</div>
-              <div className="hv-saved-grid">
-                {savedUploads.map(u => (
-                  <button
-                    key={u.id}
-                    className="hv-saved-card"
-                    onClick={() => loadSavedUpload(u.id)}
-                    disabled={loading}
-                  >
-                    <div className="hv-saved-suburb">{u.suburb}</div>
-                    <div className="hv-saved-meta">
-                      {u.row_count} properties
-                      {u.uploaded_at && ` · ${(u.uploaded_at || '').slice(0, 10)}`}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           <div
             className={`drop-zone ${dragActive ? 'active' : ''}`}
             onDragEnter={(e) => { e.preventDefault(); setDragActive(true) }}
