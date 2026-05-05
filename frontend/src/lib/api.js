@@ -41,3 +41,27 @@ export async function apiJson(url, options = {}) {
   }
   return data
 }
+
+// Retry a fetch up to `tries` times with exponential backoff. Used for
+// bootstrap calls (suburbs, listings) where Render's free-tier cold
+// start can take 30-60s and Vercel's edge proxy kills the request at
+// 25s — the second attempt usually lands once Render is warm.
+//
+// Retries on: network errors, 5xx, 502 (bad gateway from Vercel after
+// the proxy timeout). Does NOT retry on 4xx (client error / auth).
+export async function fetchWithRetry(url, options = {}, tries = 4) {
+  const delays = [0, 2000, 4000, 8000]
+  let lastErr
+  for (let i = 0; i < tries; i++) {
+    if (delays[i]) await new Promise(r => setTimeout(r, delays[i]))
+    try {
+      const res = await fetch(url, options)
+      if (res.ok) return res
+      if (res.status < 500 && res.status !== 0) return res  // 4xx — don't retry
+      lastErr = new Error(`HTTP ${res.status}`)
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr || new Error('fetchWithRetry: out of attempts')
+}

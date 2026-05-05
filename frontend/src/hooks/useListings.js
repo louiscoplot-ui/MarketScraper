@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { fetchWithRetry } from '../lib/api'
 
 const API = '/api'
 
@@ -47,8 +48,15 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   const [sortDir, setSortDir] = useState('desc')
 
   const fetchListings = useCallback(async () => {
-    const res = await fetch(`${API}/listings`)
-    if (res.ok) setListings(await res.json())
+    // Retry on cold-start failures (Vercel proxy kills the request at
+    // 25s while Render warms up). Without this, an empty table sticks
+    // until the user manually refreshes.
+    try {
+      const res = await fetchWithRetry(`${API}/listings`, {}, 4)
+      if (res.ok) setListings(await res.json())
+    } catch (e) {
+      console.warn('fetchListings failed after retries:', e)
+    }
   }, [])
 
   useEffect(() => { fetchListings() }, [fetchListings])

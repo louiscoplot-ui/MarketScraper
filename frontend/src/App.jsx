@@ -8,10 +8,12 @@ import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
+import { fetchWithRetry } from './lib/api'
 const API = '/api'
 
 function App() {
   const [suburbs, setSuburbs] = useState([])
+  const [suburbsLoading, setSuburbsLoading] = useState(true)
   const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
   const [checkedSuburbs, setCheckedSuburbs] = useState(new Set())
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(['active', 'under_offer']))
@@ -60,7 +62,17 @@ function App() {
   const scrapeStartRef = useRef(null)
 
   const fetchSuburbs = useCallback(async () => {
-    const res = await fetch(`${API}/suburbs`)
+    // Retry on cold-start failures so the sidebar doesn't stay empty
+    // for a minute while Render warms up (and Vercel's 25s edge timeout
+    // kills the first attempt).
+    let res
+    try {
+      res = await fetchWithRetry(`${API}/suburbs`, {}, 4)
+    } catch (e) {
+      console.warn('fetchSuburbs failed after retries:', e)
+      setSuburbsLoading(false)
+      return
+    }
     if (res.ok) {
       const data = await res.json()
       setSuburbs(data)
@@ -69,6 +81,7 @@ function App() {
         return prev
       })
     }
+    setSuburbsLoading(false)
   }, [])
 
   const fetchScrapeStatus = useCallback(async () => {
@@ -363,15 +376,31 @@ function App() {
           )}
 
           <div className="suburb-list">
-            <div
-              className={`suburb-item ${selectedSuburbs.size === 0 ? 'selected' : ''}`}
-              onClick={() => setSelectedSuburbs(new Set())}
-            >
-              <span className="suburb-name">All Suburbs</span>
-              <span className="suburb-count">
-                {suburbs.reduce((s, x) => s + (x.active_count || 0) + (x.under_offer_count || 0), 0)}
-              </span>
-            </div>
+            {suburbsLoading && suburbs.length === 0 && (
+              <div className="suburb-item suburb-loading">
+                <span className="suburb-name" style={{ color: '#888', fontStyle: 'italic' }}>
+                  Loading your suburbs…
+                </span>
+              </div>
+            )}
+            {!suburbsLoading && suburbs.length === 0 && (
+              <div className="suburb-item suburb-loading">
+                <span className="suburb-name" style={{ color: '#b91c1c', fontStyle: 'italic', fontSize: 13 }}>
+                  No suburbs assigned. Ask your admin.
+                </span>
+              </div>
+            )}
+            {suburbs.length > 0 && (
+              <div
+                className={`suburb-item ${selectedSuburbs.size === 0 ? 'selected' : ''}`}
+                onClick={() => setSelectedSuburbs(new Set())}
+              >
+                <span className="suburb-name">All Suburbs</span>
+                <span className="suburb-count">
+                  {suburbs.reduce((s, x) => s + (x.active_count || 0) + (x.under_offer_count || 0), 0)}
+                </span>
+              </div>
+            )}
 
             {suburbs.map(s => {
               const job = scrapeStatus[s.id]
