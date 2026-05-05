@@ -7,6 +7,41 @@
 import { useState, useEffect } from 'react'
 import { apiJson, getAccessKey, setAccessKey } from '../lib/api'
 
+// Backend stores timestamps as naive UTC (datetime.utcnow().isoformat()
+// or SQLite datetime('now')). JS new Date() treats a naive ISO string
+// as *local* time, which is why "Last seen 2:46 AM" looked random for
+// a Perth user — the value was actually 2:46 AM UTC = 10:46 AM Perth.
+// Always force-interpret as UTC, then render in Perth time.
+const PERTH_TZ = 'Australia/Perth'
+
+function toUtcDate(s) {
+  if (!s) return null
+  let iso = s.includes('T') ? s : s.replace(' ', 'T')
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)
+  if (!hasTz) iso += 'Z'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function fmtPerthDateTime(s) {
+  const d = toUtcDate(s)
+  if (!d) return ''
+  return d.toLocaleString('en-AU', {
+    timeZone: PERTH_TZ,
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtPerthDate(s) {
+  const d = toUtcDate(s)
+  if (!d) return ''
+  return d.toLocaleDateString('en-AU', {
+    timeZone: PERTH_TZ,
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  })
+}
+
 export default function AdminUsers() {
   const [me, setMe] = useState(null)
   const [users, setUsers] = useState([])
@@ -337,8 +372,8 @@ export default function AdminUsers() {
                   </button>
                 )}
               </td>
-              <td>{u.last_seen ? new Date(u.last_seen).toLocaleString() : 'Never'}</td>
-              <td>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}</td>
+              <td>{u.last_seen ? fmtPerthDateTime(u.last_seen) : 'Never'}</td>
+              <td>{u.created_at ? fmtPerthDate(u.created_at) : '-'}</td>
               <td className="admin-row-actions">
                 <button
                   className="btn btn-ghost btn-sm"
