@@ -5,6 +5,7 @@ import json
 import logging
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from io import BytesIO
 from flask import request, jsonify, send_file
@@ -21,7 +22,11 @@ INSERT_CHUNK = 50
 NEIGHBOUR_MAX_DISTANCE = 30
 NEIGHBOUR_COUNT = 4
 OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
-OVERPASS_TIMEOUT_SECONDS = 18
+# 8s is enough for Overpass to respond in the common case; 18s used to
+# stack into multi-minute generations whenever one street happened to
+# be slow. We also pre-warm the cache in parallel below so a single
+# slow street can't bottleneck the rest.
+OVERPASS_TIMEOUT_SECONDS = 8
 OSM_CACHE_TTL_DAYS = 30
 
 
@@ -202,54 +207,19 @@ def _real_neighbours(conn, source_addr, source_suburb, has_hv,
             return
         candidates[n] = (d, num_c, a)
 
-    if has_hv:
-        try:
-            rows = conn.execute(
-                "SELECT address FROM hot_vendor_properties "
-                "WHERE LOWER(address) LIKE ? LIMIT 1000",
-                (f"% {street_lower}",)
-            ).fetchall()
-            for r in rows:
-                consider(dict(r).get('address'))
-        except Exception as e:
-            logger.debug(f"hot_vendor neighbour lookup failed: {e}")
-
-    try:
-        rows = conn.execute(
-            "SELECT l.address FROM listings l "
-            "JOIN suburbs s ON l.suburb_id = s.id "
-            "WHERE LOWER(l.address) LIKE ? AND LOWER(s.name) = LOWER(?) "
-            "LIMIT 1000",
-            (f"% {street_lower}", source_suburb or '')
-        ).fetchall()
-        for r in rows:
-            consider(dict(r).get('address'))
-    except Exception as e:
-        logger.debug(f"listings neighbour lookup failed: {e}")
-
-    if candidates:
-        ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
-        return [c[2] for c in ranked[:count]]
-
-    # Fallback: ask OSM for the real house numbers on this street. We
-    # only get here when neither Hot Vendor nor listings have any data
-    # on the source's street — typical when no HV CSV has been uploaded
-    # for the suburb yet. Cached per (street, suburb) to keep load
-    # under Overpass's polite-use limits.
+    # OSM is the source of truth for "what house numbers exist on this
+    # street" — agents got 18A and 40B suggested for 26 Mengler Avenue
+    # because HV/listings happened to have those two but not the actual
+    # nearest neighbours (24, 28). Use OSM first to get the real numbers,
+    # then enrich with HV/listings (so the letter has the owner name)
+    # only as a secondary signal. Cache means subsequent runs are fast.
     cached = _osm_street_numbers_cached(conn, street, source_suburb)
     if cached is None:
         nums = _osm_fetch_street_numbers(street, source_suburb)
-        # Persist the result either way (empty included) so we don't
-        # hammer Overpass for unknown streets every request. Caller
-        # logic still handles refresh via the fetched_at TTL if added.
         _osm_street_numbers_store(conn, street, source_suburb, nums)
     else:
         nums = cached
 
-    if not nums:
-        return []
-
-    osm_candidates = []
     for n in nums:
         if n == src_num:
             continue
@@ -258,11 +228,43 @@ def _real_neighbours(conn, source_addr, source_suburb, has_hv,
         d = abs(n - src_num)
         if d == 0 or d > max_distance:
             continue
-        osm_candidates.append((d, n, f"{n} {street}"))
-    if not osm_candidates:
+        addr = f"{n} {street}"
+        norm = (normalize_address(addr) or '').lower()
+        if norm and norm not in candidates:
+            candidates[norm] = (d, n, addr)
+
+    # Fall back to HV / listings only when OSM had nothing for this
+    # street (unknown / not mapped). Even there, we still apply the
+    # parity + distance filter so we don't surface a far-away outlier.
+    if not candidates:
+        if has_hv:
+            try:
+                rows = conn.execute(
+                    "SELECT address FROM hot_vendor_properties "
+                    "WHERE LOWER(address) LIKE ? LIMIT 1000",
+                    (f"% {street_lower}",)
+                ).fetchall()
+                for r in rows:
+                    consider(dict(r).get('address'))
+            except Exception as e:
+                logger.debug(f"hot_vendor neighbour lookup failed: {e}")
+        try:
+            rows = conn.execute(
+                "SELECT l.address FROM listings l "
+                "JOIN suburbs s ON l.suburb_id = s.id "
+                "WHERE LOWER(l.address) LIKE ? AND LOWER(s.name) = LOWER(?) "
+                "LIMIT 1000",
+                (f"% {street_lower}", source_suburb or '')
+            ).fetchall()
+            for r in rows:
+                consider(dict(r).get('address'))
+        except Exception as e:
+            logger.debug(f"listings neighbour lookup failed: {e}")
+
+    if not candidates:
         return []
-    osm_candidates.sort(key=lambda c: (c[0], c[1]))
-    return [c[2] for c in osm_candidates[:count]]
+    ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
+    return [c[2] for c in ranked[:count]]
 
 
 def _hot_vendors_table_exists(conn):
@@ -481,6 +483,40 @@ def pipeline_generate():
     ).fetchall()
 
     sold_count = len(sold_rows)
+
+    # Pre-warm the OSM number cache for every (street, suburb) we're
+    # about to look up — in parallel. Sequentially this used to dominate
+    # generation time (one Overpass call per uncached street, up to
+    # OVERPASS_TIMEOUT_SECONDS each). With a thread pool, total wait is
+    # ~max(individual call) instead of sum, and uncached streets only
+    # cost the timeout once each forever (the empty result is cached).
+    streets_to_fetch = []
+    seen = set()
+    for r in sold_rows:
+        parsed = _parse_address(r['address'])
+        if not parsed:
+            continue
+        _, _, street = parsed
+        key = (street.lower(), (r['suburb_name'] or '').lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        if _osm_street_numbers_cached(conn, street, r['suburb_name']) is None:
+            streets_to_fetch.append((street, r['suburb_name']))
+    if streets_to_fetch:
+        logger.info(f"[pipeline] pre-warming OSM cache for {len(streets_to_fetch)} streets in parallel")
+        def _warm(pair):
+            street, sub = pair
+            try:
+                nums = _osm_fetch_street_numbers(street, sub)
+            except Exception:
+                nums = []
+            return (street, sub, nums)
+        # 6 workers is plenty — Overpass throttles aggressive clients,
+        # so we stay polite while still cutting the wall-clock cost.
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for street, sub, nums in ex.map(_warm, streets_to_fetch):
+                _osm_street_numbers_store(conn, street, sub, nums)
 
     insert_rows = []
     skipped_no_neighbour = 0

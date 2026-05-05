@@ -103,6 +103,11 @@ export default function Pipeline() {
   async function handleGenerate() {
     setGenerating(true)
     setGenerateMsg(null)
+    // Switch the filter to the suburb being generated *immediately*
+    // so the user isn't staring at unrelated entries from a previous
+    // session while generation runs. loadTracking re-fires from the
+    // useEffect dependency on filterSuburb.
+    setFilterSuburb(suburb)
     try {
       const res = await fetch(
         `${API}/api/pipeline/generate?suburb=${encodeURIComponent(suburb)}&days=${days}`
