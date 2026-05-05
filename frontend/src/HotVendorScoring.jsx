@@ -119,6 +119,11 @@ export default function HotVendorScoring() {
   // Load past uploads on mount so a returning user lands on a list of
   // previously-scored suburbs (latest per suburb) instead of a blank
   // dropzone. UPSERT keeps re-uploads from duplicating rows.
+  //
+  // Auto-load the most recent upload as soon as the list arrives so
+  // the operator never has to re-upload an Excel that's already in the
+  // database — they pick up exactly where they left off, including
+  // status flags / notes the side-tables persist.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -126,7 +131,12 @@ export default function HotVendorScoring() {
         const res = await fetch(`${API}/api/hot-vendors/uploads`)
         if (!res.ok) throw new Error('list failed')
         const j = await res.json()
-        if (!cancelled) setSavedUploads(j.uploads || [])
+        if (cancelled) return
+        const uploads = j.uploads || []
+        setSavedUploads(uploads)
+        if (uploads.length > 0 && !data) {
+          loadSavedUpload(uploads[0].id)
+        }
       } catch (e) {
         console.warn('Could not load past uploads:', e)
       } finally {
@@ -134,6 +144,9 @@ export default function HotVendorScoring() {
       }
     })()
     return () => { cancelled = true }
+    // Intentionally only on mount — `data` is checked inside so the
+    // auto-load is skipped if the user has already loaded something.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadSavedUpload = async (uploadId) => {
