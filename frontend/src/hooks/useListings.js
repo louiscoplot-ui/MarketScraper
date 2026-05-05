@@ -51,26 +51,37 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
 
-  // Server-side filter by the statuses the user actually wants to see.
-  // Default UI selection is just active+under_offer — no point shipping
-  // sold/withdrawn rows over the wire on every page load (often 50%+
-  // of the table). Refetch when the toggle changes.
-  const statusesParam = useMemo(() => {
-    if (!selectedStatuses || selectedStatuses.size === 0) return ''
-    return [...selectedStatuses].join(',')
-  }, [selectedStatuses])
-
+  // Progressive load — fetch the two priority statuses (the ones the
+  // UI defaults to: active + under_offer) FIRST so the table is
+  // populated within ~0.5-1s, then fetch sold + withdrawn in the
+  // background and merge them in. Nothing is hidden — every status is
+  // loaded eventually — but the user sees content immediately instead
+  // of staring at a spinner while a 5000-row payload streams.
   const fetchListings = useCallback(async () => {
-    const url = statusesParam
-      ? `${BOOT_LISTINGS}?statuses=${encodeURIComponent(statusesParam)}`
-      : BOOT_LISTINGS
-    try {
+    const fetchSet = async (statuses) => {
+      const url = statuses
+        ? `${BOOT_LISTINGS}?statuses=${encodeURIComponent(statuses)}`
+        : BOOT_LISTINGS
       const res = await fetchWithRetry(url, {}, 4)
-      if (res.ok) setListings(await res.json())
-    } catch (e) {
-      console.warn('fetchListings failed after retries:', e)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return res.json()
     }
-  }, [statusesParam])
+    try {
+      const priority = await fetchSet('active,under_offer')
+      setListings(priority)
+      // Kick the rest off without blocking; merge by id when it lands.
+      fetchSet('sold,withdrawn').then((rest) => {
+        setListings((prev) => {
+          const seen = new Set(prev.map((l) => l.id))
+          const merged = prev.slice()
+          for (const r of rest) if (!seen.has(r.id)) merged.push(r)
+          return merged
+        })
+      }).catch((e) => console.warn('background fetch (sold/withdrawn) failed:', e))
+    } catch (e) {
+      console.warn('priority fetchListings failed after retries:', e)
+    }
+  }, [])
 
   useEffect(() => { fetchListings() }, [fetchListings])
 
