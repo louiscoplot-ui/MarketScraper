@@ -8,8 +8,12 @@ import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
-import { fetchWithRetry } from './lib/api'
+import { fetchWithRetry, BACKEND_DIRECT } from './lib/api'
 const API = '/api'
+// Bootstrap fetches go direct to Render to bypass Vercel's 25s edge
+// timeout — without this, a cold Render dyno (30-60s wake) returns
+// 504 to the browser and the sidebar stays blank.
+const BOOT_API = `${BACKEND_DIRECT}/api`
 
 function App() {
   const [suburbs, setSuburbs] = useState([])
@@ -62,12 +66,12 @@ function App() {
   const scrapeStartRef = useRef(null)
 
   const fetchSuburbs = useCallback(async () => {
-    // Retry on cold-start failures so the sidebar doesn't stay empty
-    // for a minute while Render warms up (and Vercel's 25s edge timeout
-    // kills the first attempt).
+    // Hit Render directly to bypass Vercel's 25s edge timeout during
+    // a cold start. Retry on transient failures so the sidebar lands
+    // automatically once the dyno is warm.
     let res
     try {
-      res = await fetchWithRetry(`${API}/suburbs`, {}, 4)
+      res = await fetchWithRetry(`${BOOT_API}/suburbs`, {}, 4)
     } catch (e) {
       console.warn('fetchSuburbs failed after retries:', e)
       setSuburbsLoading(false)

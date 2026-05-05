@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
 import Login from './pages/Login'
-import { getAccessKey, setAccessKey, ACCESS_KEY_STORAGE } from './lib/api'
+import { getAccessKey, setAccessKey, ACCESS_KEY_STORAGE, BACKEND_DIRECT } from './lib/api'
 
-// Fire a /api/ping the moment this module loads (before React even
-// mounts) so Render's free-tier cold start (~30-60s) overlaps with
-// the React boot + auth-gate decision instead of blocking the user's
-// first real fetch. The result is discarded — we just want to wake
-// the dyno. Safe to call from anywhere because /api/ping is exempt
-// from the auth gate.
+// Fire a ping the moment this module loads (before React even mounts)
+// so Render's free-tier cold start (~30-60s) overlaps with the React
+// boot + auth-gate decision instead of blocking the user's first real
+// fetch. Hit Render directly so Vercel's 25s edge timeout doesn't kill
+// it mid-wakeup. /api/ping is exempt from the auth gate.
 try {
-  fetch('/api/ping').catch(() => {})
+  fetch(`${BACKEND_DIRECT}/api/ping`).catch(() => {})
 } catch {}
 
 // Wraps the app in a global auth gate.

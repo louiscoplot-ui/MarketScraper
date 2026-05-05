@@ -7,6 +7,13 @@
 
 export const ACCESS_KEY_STORAGE = 'agentdeck_access_key'
 
+// Direct Render URL — bypasses Vercel's 25-second edge proxy timeout.
+// Use for any call that may legitimately take longer than 25s (Render
+// free-tier cold-start, big CSV uploads, slow Excel builds). The
+// global fetch interceptor in main.jsx still injects X-Access-Key for
+// these calls, and CORS(app) in the backend allows the origin.
+export const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
+
 export function getAccessKey() {
   try { return localStorage.getItem(ACCESS_KEY_STORAGE) || '' }
   catch { return '' }

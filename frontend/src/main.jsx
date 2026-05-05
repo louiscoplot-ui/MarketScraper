@@ -8,14 +8,19 @@ import './index.css'
 import './components/header.css'
 import './components/listings.css'
 
-// Global fetch interceptor — every /api/* call automatically carries
-// the user's access_key in the X-Access-Key header. Lets the backend
-// scope listings/suburbs per user without touching every component.
-// External URLs (Vercel assets, third-party APIs) are left alone.
+// Global fetch interceptor — every API call automatically carries the
+// user's access_key in the X-Access-Key header. Matches both the Vercel
+// proxy form (/api/...) and the direct Render form
+// (https://marketscraper-backend.onrender.com/api/...) — the second
+// form is used to bypass Vercel's 25s edge timeout when Render is
+// cold-starting (would otherwise 504 before the response lands).
+const BACKEND_HOST = 'marketscraper-backend.onrender.com'
 const _originalFetch = window.fetch.bind(window)
 window.fetch = (input, init = {}) => {
   const url = typeof input === 'string' ? input : (input && input.url) || ''
-  if (url.startsWith('/api/')) {
+  const isLocalApi = url.startsWith('/api/')
+  const isDirectApi = url.includes(`${BACKEND_HOST}/api/`)
+  if (isLocalApi || isDirectApi) {
     const key = getAccessKey()
     if (key) {
       init.headers = { ...(init.headers || {}), 'X-Access-Key': key }

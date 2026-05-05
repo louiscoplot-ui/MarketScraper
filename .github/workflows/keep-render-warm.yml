@@ -1,0 +1,35 @@
+name: Keep Render warm
+
+# Render's free-tier dyno spins down after 15 minutes of inactivity.
+# A cold start takes 30-60 seconds — long enough that Vercel's edge
+# proxy kills the response with a 504 before it returns. Pinging
+# /api/ping every 14 minutes keeps the dyno hot 24/7 so the user
+# never lands on a cold start during business hours.
+#
+# /api/ping is exempt from the auth gate, so this works without a key.
+# Each run takes ~5 seconds of GitHub Actions time. Total budget:
+# ~24h * 60min / 14 ≈ 103 runs/day * 5s ≈ 8.6 min/day = ~260 min/mo
+# (well under the free 2000 min/month for private repos).
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping backend
+        run: |
+          for i in 1 2 3; do
+            if curl -sSf -m 90 https://marketscraper-backend.onrender.com/api/ping > /dev/null; then
+              echo "ping ok (attempt $i)"
+              exit 0
+            fi
+            echo "ping attempt $i failed"
+            sleep 5
+          done
+          echo "all pings failed"
+          exit 1

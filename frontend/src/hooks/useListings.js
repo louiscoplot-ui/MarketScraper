@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { fetchWithRetry } from '../lib/api'
+import { fetchWithRetry, BACKEND_DIRECT } from '../lib/api'
 
 const API = '/api'
+// GET /api/listings is the heaviest bootstrap call (full table for the
+// user's allowed suburbs). Go direct to Render so a cold start doesn't
+// 504 through Vercel's 25s edge proxy.
+const BOOT_LISTINGS = `${BACKEND_DIRECT}/api/listings`
 
 
 function parseDateToSortable(dateStr) {
@@ -48,11 +52,10 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   const [sortDir, setSortDir] = useState('desc')
 
   const fetchListings = useCallback(async () => {
-    // Retry on cold-start failures (Vercel proxy kills the request at
-    // 25s while Render warms up). Without this, an empty table sticks
-    // until the user manually refreshes.
+    // Direct to Render + retry-with-backoff so a cold-starting dyno
+    // doesn't leave the table empty. Vercel proxy would 504 after 25s.
     try {
-      const res = await fetchWithRetry(`${API}/listings`, {}, 4)
+      const res = await fetchWithRetry(BOOT_LISTINGS, {}, 4)
       if (res.ok) setListings(await res.json())
     } catch (e) {
       console.warn('fetchListings failed after retries:', e)
