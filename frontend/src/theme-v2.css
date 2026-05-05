@@ -186,6 +186,30 @@
 [data-theme="v2"] .status-badge.status-withdrawn { color: var(--faint) !important; }
 [data-theme="v2"] .status-badge.status-withdrawn::before { background: var(--faint); }
 
+/* Tint the address cell with the row's status colour so the eye picks
+ * up sold / under-offer / withdrawn at a glance, not just the Status
+ * column. Anchor inherits so the link stays the same colour, with an
+ * underline on hover. Withdrawn intentionally muted. */
+[data-theme="v2"] tr.status-active .address-cell,
+[data-theme="v2"] tr.status-active .address-cell a {
+  color: var(--green);
+}
+[data-theme="v2"] tr.status-under_offer .address-cell,
+[data-theme="v2"] tr.status-under_offer .address-cell a {
+  color: var(--amber);
+}
+[data-theme="v2"] tr.status-sold .address-cell,
+[data-theme="v2"] tr.status-sold .address-cell a {
+  color: var(--red);
+}
+[data-theme="v2"] tr.status-withdrawn .address-cell,
+[data-theme="v2"] tr.status-withdrawn .address-cell a {
+  color: var(--faint);
+}
+[data-theme="v2"] tr[class*="status-"] .address-cell a:hover {
+  text-decoration: underline;
+}
+
 /* Filled pill reserved for the Type column. */
 [data-theme="v2"] .type-pill {
   display: inline-block;
