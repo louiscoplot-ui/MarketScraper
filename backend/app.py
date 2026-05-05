@@ -118,17 +118,33 @@ def list_suburbs():
 
 @app.route('/api/suburbs', methods=['POST'])
 def create_suburb():
-    """Add a suburb. Auto-assigns the new suburb to the calling user so
-    they see it immediately (admins keep their global view). The daily
-    scrape picks it up automatically on the next run."""
+    """Add a suburb. Auto-assigns it to the calling user so they see it
+    immediately (admins keep their global view). The daily scrape picks
+    it up automatically on the next run.
+
+    If the suburb already exists in the global table (another agent on
+    the team created it earlier), we DON'T 409 — we look it up and
+    assign it to the caller so they can subscribe to a shared suburb."""
     from admin_api import get_current_user
     data = request.json
     name = data.get('name', '').strip()
     if not name:
         return jsonify({'error': 'Name is required'}), 400
     suburb = add_suburb(name)
+    status = 201
     if suburb is None:
-        return jsonify({'error': 'Suburb already exists'}), 409
+        # Already exists globally — fetch it so we can still assign it
+        # to the caller.
+        slug = name.lower().replace(' ', '-')
+        conn = get_db()
+        row = conn.execute(
+            "SELECT * FROM suburbs WHERE slug = ?", (slug,)
+        ).fetchone()
+        conn.close()
+        if row is None:
+            return jsonify({'error': 'Suburb already exists'}), 409
+        suburb = dict(row)
+        status = 200
     user = get_current_user()
     if user and user.get('role') != 'admin':
         try:
@@ -140,8 +156,8 @@ def create_suburb():
             conn.commit()
             conn.close()
         except Exception:
-            pass  # FK error / dup — non-fatal, suburb still created
-    return jsonify(suburb), 201
+            pass  # already assigned (PK / unique violation) — non-fatal
+    return jsonify(suburb), status
 
 
 @app.route('/api/suburbs/<int:suburb_id>', methods=['DELETE'])
