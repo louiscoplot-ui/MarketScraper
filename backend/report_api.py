@@ -12,15 +12,41 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_price(price_text):
+    """Best-effort dollar amount from a free-text REIWA price string.
+
+    Handles the common shapes agents type:
+      "$1,100,000"     → 1100000
+      "low $1m"        → 1000000   (used to read as $1)
+      "mid $1.5m"      → 1500000
+      "from $775k"     → 775000
+      "$2.05M"         → 2050000
+      "Offers from $1,250,000"   → 1250000
+
+    The previous version matched `\$([\\d,]+)` which dropped the "m"/"k"
+    suffix, so "low $1m" was read as $1 and reported as a 100% drop
+    against an "Offers from $1,100,000" listing.
+    """
     if not price_text:
         return None
-    m = _re.search(r'\$([\d,]+)', price_text.replace(' ', ''))
-    if m:
-        try:
-            return int(m.group(1).replace(',', ''))
-        except ValueError:
-            return None
-    return None
+    s = price_text.lower().replace(',', '')
+    m = _re.search(
+        r'\$?\s*(\d+(?:\.\d+)?)\s*(m(?:il(?:lion)?)?|k|thousand)?\b',
+        s,
+    )
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    suffix = (m.group(2) or '')
+    if suffix.startswith('m'):
+        val *= 1_000_000
+    elif suffix.startswith('k') or suffix == 'thousand':
+        val *= 1_000
+    # round, not int(), to avoid float-precision truncation:
+    # 2.05 * 1_000_000 == 2049999.9999... → would truncate to 2049999.
+    return int(round(val))
 
 
 def _calc_dom(l):
