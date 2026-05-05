@@ -10,6 +10,7 @@ from io import BytesIO
 from flask import request, jsonify, send_file
 
 from database import get_db, normalize_address, USE_POSTGRES
+from admin_api import get_user_allowed_suburb_names, user_can_access_suburb
 from pipeline_letter import render_letter_docx
 
 logger = logging.getLogger(__name__)
@@ -447,6 +448,8 @@ def pipeline_generate():
     suburb = (request.args.get('suburb') or '').strip()
     if not suburb:
         return jsonify({'error': 'suburb is required'}), 400
+    if not user_can_access_suburb(suburb):
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
 
     try:
         days = int(request.args.get('days') or 7)
@@ -533,6 +536,8 @@ def pipeline_manual_add():
         return jsonify({'error': 'source_address is required'}), 400
     if not source_suburb:
         return jsonify({'error': 'source_suburb is required'}), 400
+    if not user_can_access_suburb(source_suburb):
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
 
     source_price = _price_to_int(data.get('source_price'))
     source_sold_date = (data.get('source_sold_date') or '').strip() or \
@@ -607,6 +612,10 @@ def pipeline_tracking_list():
         limit = 100
     limit = max(1, min(limit, 1000))
 
+    _, allowed_names = get_user_allowed_suburb_names()
+    if suburb and allowed_names is not None and suburb.lower() not in allowed_names:
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+
     conn = get_db()
     _enrich_owner_names(conn, suburb or None)
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
@@ -614,6 +623,13 @@ def pipeline_tracking_list():
     if suburb:
         sql += " AND LOWER(source_suburb) = LOWER(?)"
         params.append(suburb)
+    elif allowed_names is not None:
+        if not allowed_names:
+            conn.close()
+            return jsonify({'entries': []})
+        placeholders = ','.join(['?'] * len(allowed_names))
+        sql += f" AND LOWER(source_suburb) IN ({placeholders})"
+        params.extend(allowed_names)
     if status:
         sql += " AND status = ?"
         params.append(status)
@@ -632,6 +648,10 @@ def pipeline_tracking_grouped():
         limit = 200
     limit = max(1, min(limit, 1000))
 
+    _, allowed_names = get_user_allowed_suburb_names()
+    if suburb and allowed_names is not None and suburb.lower() not in allowed_names:
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+
     conn = get_db()
     # Auto-fill owner names from latest hot_vendor_properties data
     _enrich_owner_names(conn, suburb or None)
@@ -641,6 +661,13 @@ def pipeline_tracking_grouped():
     if suburb:
         sql += " AND LOWER(source_suburb) = LOWER(?)"
         params.append(suburb)
+    elif allowed_names is not None:
+        if not allowed_names:
+            conn.close()
+            return jsonify({'groups': []})
+        placeholders = ','.join(['?'] * len(allowed_names))
+        sql += f" AND LOWER(source_suburb) IN ({placeholders})"
+        params.extend(allowed_names)
     sql += " ORDER BY target_address ASC, created_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
@@ -720,6 +747,10 @@ def pipeline_tracking_update(id):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
 
+    if not user_can_access_suburb(target_row['source_suburb']):
+        conn.close()
+        return jsonify({'error': 'Not authorised for that suburb'}), 403
+
     if propagate_owner:
         conn.execute(
             "UPDATE pipeline_tracking SET target_owner_name = ? "
@@ -765,12 +796,25 @@ def pipeline_tracking_clear():
                      'Refusing to wipe the entire table.'
         }), 400
 
+    _, allowed_names = get_user_allowed_suburb_names()
+    if suburb and allowed_names is not None and suburb.lower() not in allowed_names:
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+
     conn = get_db()
     sql = "DELETE FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
         sql += " AND LOWER(source_suburb) = LOWER(?)"
         params.append(suburb)
+    elif allowed_names is not None:
+        # Status-only delete from a non-admin user must stay scoped to
+        # their suburbs — otherwise they could nuke everyone's pipeline.
+        if not allowed_names:
+            conn.close()
+            return jsonify({'deleted': 0, 'suburb': None, 'status': status or None})
+        placeholders = ','.join(['?'] * len(allowed_names))
+        sql += f" AND LOWER(source_suburb) IN ({placeholders})"
+        params.extend(allowed_names)
     if status:
         sql += " AND status = ?"
         params.append(status)
@@ -796,6 +840,10 @@ def pipeline_letter_download(id):
     entry = dict(row)
     target_address = entry.get('target_address') or ''
     source_suburb = entry.get('source_suburb') or ''
+
+    if not user_can_access_suburb(source_suburb):
+        conn.close()
+        return jsonify({'error': 'Not authorised for that suburb'}), 403
 
     sources = _gather_sources_for_target(conn, target_address, source_suburb)
     conn.close()

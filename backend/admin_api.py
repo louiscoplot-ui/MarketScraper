@@ -100,6 +100,40 @@ def resolve_request_scope():
     return user, get_user_suburb_ids(user['id'])
 
 
+def get_user_allowed_suburb_names():
+    """Like resolve_request_scope() but returns lowercased suburb NAMES
+    (a set), since the pipeline_tracking and hot_vendor_uploads tables
+    store the suburb as a free-text column rather than an FK.
+
+    Returns (user, names_or_None). None means no filter (admin).
+    Empty set means the user has no suburbs assigned → see nothing."""
+    user, allowed_ids = resolve_request_scope()
+    if allowed_ids is None:
+        return user, None
+    if not allowed_ids:
+        return user, set()
+    conn = get_db()
+    placeholders = ','.join(['?'] * len(allowed_ids))
+    rows = conn.execute(
+        f"SELECT name FROM suburbs WHERE id IN ({placeholders})",
+        allowed_ids
+    ).fetchall()
+    conn.close()
+    return user, {dict(r)['name'].strip().lower() for r in rows}
+
+
+def user_can_access_suburb(name):
+    """True if the calling user is allowed to read/write data for the
+    named suburb. Admins always pass; unauthenticated users (which are
+    blocked by the global gate anyway) get False."""
+    user, allowed = get_user_allowed_suburb_names()
+    if user is None:
+        return False
+    if allowed is None:
+        return True  # admin
+    return (name or '').strip().lower() in allowed
+
+
 def _require_admin():
     """Returns (user_dict, None) on success, or (None, error_response) to
     short-circuit the route."""

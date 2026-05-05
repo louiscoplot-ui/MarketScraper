@@ -18,6 +18,7 @@ import uuid
 from flask import jsonify, request, send_file
 
 from database import get_db, normalize_address, USE_POSTGRES
+from admin_api import get_user_allowed_suburb_names, user_can_access_suburb
 
 logger = logging.getLogger(__name__)
 
@@ -449,6 +450,9 @@ def register_hot_vendors_routes(app):
         agency = (request.form.get('agency') or '').strip() or None
         uploaded_by = (request.form.get('uploaded_by') or '').strip() or None
 
+        if suburb_override and not user_can_access_suburb(suburb_override):
+            return jsonify({'error': 'Suburb not in your allowed list'}), 403
+
         _hv_jobs_purge_expired()
         job_id = uuid.uuid4().hex[:12]
         _hv_job_set(job_id, status='running', stage='Queued', filename=filename)
@@ -618,6 +622,7 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/uploads', methods=['GET'])
     def list_uploads():
+        _, allowed_names = get_user_allowed_suburb_names()
         conn = get_db()
         if USE_POSTGRES:
             rows = conn.execute("""
@@ -645,6 +650,9 @@ def register_hot_vendors_routes(app):
         out = []
         for r in rows:
             d = dict(r)
+            sub = (d.get('suburb') or '').strip().lower()
+            if allowed_names is not None and sub not in allowed_names:
+                continue
             out.append({
                 'id': d.get('id'),
                 'suburb': d.get('suburb'),
@@ -671,6 +679,8 @@ def register_hot_vendors_routes(app):
             conn.close()
         if not payload:
             return jsonify({'error': 'Upload not found'}), 404
+        if not user_can_access_suburb(payload.get('suburb')):
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
         return jsonify(payload)
 
 
@@ -842,6 +852,12 @@ def register_hot_vendors_routes(app):
     @app.route('/api/hot-vendors/uploads/<int:upload_id>', methods=['DELETE'])
     def delete_upload(upload_id):
         conn = get_db()
+        row = conn.execute(
+            "SELECT suburb FROM hot_vendor_uploads WHERE id = ?", (upload_id,)
+        ).fetchone()
+        if row and not user_can_access_suburb(dict(row).get('suburb')):
+            conn.close()
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
         conn.execute("DELETE FROM hot_vendor_uploads WHERE id = ?", (upload_id,))
         conn.commit()
         conn.close()
