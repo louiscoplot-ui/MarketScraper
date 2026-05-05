@@ -243,6 +243,7 @@ export default function Pipeline() {
       {showManualForm && (
         <ManualAddForm
           defaultSuburb={suburb}
+          allowedSuburbs={allowedSuburbs}
           onSuccess={(msg) => {
             setGenerateMsg({ type: 'success', text: msg })
             setShowManualForm(false)
@@ -468,9 +469,9 @@ export default function Pipeline() {
   )
 }
 
-function ManualAddForm({ defaultSuburb, onSuccess, onError }) {
+function ManualAddForm({ defaultSuburb, allowedSuburbs, onSuccess, onError }) {
   const [sourceAddress, setSourceAddress] = useState('')
-  const [sourceSuburb, setSourceSuburb] = useState(defaultSuburb || 'Cottesloe')
+  const [sourceSuburb, setSourceSuburb] = useState(defaultSuburb || '')
   const [sourcePrice, setSourcePrice] = useState('')
   const [soldDate, setSoldDate] = useState(new Date().toISOString().slice(0, 10))
   const [explicitTargets, setExplicitTargets] = useState('')
@@ -535,13 +536,22 @@ function ManualAddForm({ defaultSuburb, onSuccess, onError }) {
           onChange={e => setSourceAddress(e.target.value)}
           style={{ padding: '8px 10px', borderRadius: '6px', border: '1px solid #fcd34d', fontSize: '13px' }}
         />
-        <input
+        <select
           required
-          placeholder="Suburb"
           value={sourceSuburb}
           onChange={e => setSourceSuburb(e.target.value)}
-          style={{ padding: '8px 10px', borderRadius: '6px', border: '1px solid #fcd34d', fontSize: '13px' }}
-        />
+          disabled={!allowedSuburbs || allowedSuburbs.length === 0}
+          style={{ padding: '8px 10px', borderRadius: '6px', border: '1px solid #fcd34d', fontSize: '13px', background: '#fff' }}
+        >
+          {(!allowedSuburbs || allowedSuburbs.length === 0) ? (
+            <option value="">No suburbs assigned</option>
+          ) : (
+            <>
+              <option value="" disabled>Select a suburb…</option>
+              {allowedSuburbs.map(s => <option key={s} value={s}>{s}</option>)}
+            </>
+          )}
+        </select>
         <input
           placeholder="Price (optional)"
           value={sourcePrice}
