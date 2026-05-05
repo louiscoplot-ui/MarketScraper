@@ -2,6 +2,46 @@
 // the MCP push size limit. All state still lives in App.jsx; this
 // component is purely presentational.
 
+const PERTH_TZ = 'Australia/Perth'
+
+// Backend stores changed_at as naive UTC (datetime('now') / utcnow().
+// isoformat()). Force-interpret as UTC so JS doesn't read it as local.
+function _toUtcDate(s) {
+  if (!s) return null
+  let iso = String(s).includes('T') ? String(s) : String(s).replace(' ', 'T')
+  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)) iso += 'Z'
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function fmtPerthFull(s) {
+  const d = _toUtcDate(s)
+  if (!d) return ''
+  return d.toLocaleString('en-AU', {
+    timeZone: PERTH_TZ,
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+// Compact "when" cell — relative for recent events, absolute date
+// after a week so the agent can scan the table at a glance.
+function fmtRelative(s) {
+  const d = _toUtcDate(s)
+  if (!d) return ''
+  const ms = Date.now() - d.getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return d.toLocaleDateString('en-AU', {
+    timeZone: PERTH_TZ, day: '2-digit', month: 'short',
+  })
+}
+
 export default function Report({ report, suburbs, reportSuburbs, setReportSuburbs, fetchReport }) {
   if (!report) return null
 
@@ -121,9 +161,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
 
         {(report.price_drops || []).length > 0 && (
           <div className="report-table-section">
-            <h3>Price Changes — Motivated Sellers</h3>
+            <h3>Price Changes — Motivated Sellers <span className="muted-count">(latest 15)</span></h3>
             <table>
-              <thead><tr><th>Address</th><th>Suburb</th><th>Old Price</th><th>New Price</th><th>Drop</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
+              <thead><tr><th>Address</th><th>Suburb</th><th>Old Price</th><th>New Price</th><th>Drop</th><th>When</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
               <tbody>
                 {report.price_drops.map((pd, i) => (
                   <tr key={i} className={pd.drop_amount ? 'price-drop-row' : ''}>
@@ -136,6 +176,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                         ? <span className="price-drop-badge">-${pd.drop_amount.toLocaleString()} ({pd.drop_pct}%)</span>
                         : <span className="price-change-badge">Changed</span>
                       }
+                    </td>
+                    <td className="when-cell" title={fmtPerthFull(pd.changed_at)}>
+                      {fmtRelative(pd.changed_at)}
                     </td>
                     <td>{pd.agent || '-'}</td>
                     <td>{pd.agency || '-'}</td>

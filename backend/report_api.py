@@ -162,7 +162,10 @@ def market_report():
             for name, count in suburb_market_share[sn].items()
         ], key=lambda x: x['count'], reverse=True)
 
-    price_changes = get_price_changes(suburb_ids=suburb_ids, limit=30)
+    # Cap to the 15 most-recent price changes — older ones drop off so
+    # the agent's eye stays on what's actively moving. ORDER BY changed_at
+    # DESC in get_price_changes() means we take the freshest 15.
+    price_changes = get_price_changes(suburb_ids=suburb_ids, limit=15)
     price_drops = []
     for pc in price_changes:
         old_p = _parse_price(pc.get('old_price'))
