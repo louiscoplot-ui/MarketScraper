@@ -85,7 +85,7 @@ export default function Header({
     <header className="app-header">
       <a href="/" className="brand brand-logo-mark">
         <LogoMark size={22} />
-        <span className="brand-text">suburbdesk</span>
+        <span className="brand-text">SuburbDesk</span>
       </a>
 
       <nav className="tabs" aria-label="Primary">

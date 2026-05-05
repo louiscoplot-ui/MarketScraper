@@ -3,7 +3,12 @@ import threading
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from flask_compress import Compress
+# flask-compress is optional — if Render hasn't picked up the
+# requirements.txt change yet, fail open so the app still boots.
+try:
+    from flask_compress import Compress
+except ImportError:
+    Compress = None
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -25,17 +30,17 @@ from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
 
 app = Flask(__name__)
 CORS(app)
-# Gzip every response > 500 bytes — JSON payloads (especially the
-# listings table) compress 60-80%, which on Render's free tier is the
-# difference between 'snappy' and 'feels broken' as the suburb count
-# grows. Negotiated via Accept-Encoding so non-gzip clients are fine.
-app.config['COMPRESS_MIMETYPES'] = [
-    'application/json', 'text/html', 'text/css', 'text/plain',
-    'application/javascript',
-]
-app.config['COMPRESS_LEVEL'] = 6
-app.config['COMPRESS_MIN_SIZE'] = 500
-Compress(app)
+# Gzip every response > 500 bytes when flask-compress is available.
+# Skipped silently if the dep wasn't picked up yet (Render mid-deploy)
+# so a missing pip install doesn't 502 the whole backend.
+if Compress is not None:
+    app.config['COMPRESS_MIMETYPES'] = [
+        'application/json', 'text/html', 'text/css', 'text/plain',
+        'application/javascript',
+    ]
+    app.config['COMPRESS_LEVEL'] = 6
+    app.config['COMPRESS_MIN_SIZE'] = 500
+    Compress(app)
 
 # Ensure DB schema is up to date on every gunicorn worker start.
 # Idempotent (CREATE TABLE IF NOT EXISTS), safe to call here.
