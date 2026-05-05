@@ -2,14 +2,6 @@ import { useState, useEffect } from 'react'
 
 const API = ''
 
-const SUBURBS = [
-  'Cottesloe', 'Nedlands', 'Claremont', 'Dalkeith', 'Swanbourne',
-  'Peppermint Grove', 'Mosman Park', 'Subiaco', 'Mount Claremont',
-  'City Beach', 'Floreat', 'Crawley', 'Mount Lawley', 'Highgate',
-  'North Perth', 'Leederville', 'North Fremantle', 'Wembley',
-  'West Leederville', 'Ellenbrook',
-]
-
 const STATUS_LABELS = {
   sent: { label: 'Sent', color: '#3b82f6' },
   responded: { label: 'Responded', color: '#f59e0b' },
@@ -62,7 +54,12 @@ function clusterByPrimarySource(groups) {
 
 
 export default function Pipeline() {
-  const [suburb, setSuburb] = useState('Cottesloe')
+  // `allowedSuburbs` is fetched from /api/suburbs which is already
+  // filtered server-side to the calling user's assignments. We default
+  // `suburb` to the first allowed entry so a user who's only assigned
+  // Ellenbrook doesn't see Cottesloe pre-selected.
+  const [allowedSuburbs, setAllowedSuburbs] = useState([])
+  const [suburb, setSuburb] = useState('')
   const [days, setDays] = useState(7)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -73,6 +70,20 @@ export default function Pipeline() {
   const [actionModal, setActionModal] = useState(null)
   const [showManualForm, setShowManualForm] = useState(false)
   const [filterSuburb, setFilterSuburb] = useState('')
+
+  useEffect(() => {
+    fetch(`${API}/api/suburbs`)
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const names = (Array.isArray(rows) ? rows : [])
+          .map(r => r.name)
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b))
+        setAllowedSuburbs(names)
+        setSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => { loadTracking() }, [filterSuburb])
 
@@ -175,8 +186,11 @@ export default function Pipeline() {
           <select
             value={suburb}
             onChange={e => setSuburb(e.target.value)}
+            disabled={allowedSuburbs.length === 0}
             style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px' }}>
-            {SUBURBS.map(s => <option key={s}>{s}</option>)}
+            {allowedSuburbs.length === 0
+              ? <option value="">No suburbs assigned — ask your admin</option>
+              : allowedSuburbs.map(s => <option key={s}>{s}</option>)}
           </select>
 
           <div style={{ display: 'flex', gap: '6px' }}>
@@ -245,8 +259,8 @@ export default function Pipeline() {
             value={filterSuburb}
             onChange={e => setFilterSuburb(e.target.value)}
             style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}>
-            <option value="">All suburbs</option>
-            {SUBURBS.map(s => <option key={s}>{s}</option>)}
+            <option value="">All my suburbs</option>
+            {allowedSuburbs.map(s => <option key={s}>{s}</option>)}
           </select>
           <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: 'auto' }}>
             {clusters.length} source{clusters.length !== 1 ? 's' : ''} · {groups.length} target{groups.length !== 1 ? 's' : ''}
