@@ -4,9 +4,15 @@ import App from './App'
 import AuthGate from './AuthGate'
 import PipelinePrint from './pages/PipelinePrint'
 import { getAccessKey } from './lib/api'
+import { applyTheme } from './lib/themeFlag'
 import './index.css'
+import './theme-v2.css'
 import './components/header.css'
 import './components/listings.css'
+
+// Apply the persisted theme flag synchronously on boot so the very
+// first paint is already correct (avoids a flash of the wrong palette).
+applyTheme()
 
 // Global fetch interceptor — every API call automatically carries the
 // user's access_key in the X-Access-Key header. Matches both the Vercel

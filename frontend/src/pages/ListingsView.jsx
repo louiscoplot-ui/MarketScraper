@@ -221,12 +221,17 @@ export default function ListingsView({
       ) },
     { field: 'status', label: 'Status', sortable: true,
       cell: (l) => (
-        <span className="status-badge" style={{ backgroundColor: statusColors[l.status] || '#666' }}>
+        <span
+          className={`status-badge status-${l.status || 'unknown'}`}
+          style={{ backgroundColor: statusColors[l.status] || '#666' }}
+        >
           {l.status?.replace('_', ' ')}
         </span>
       ) },
     { field: 'listing_type', label: 'Type', sortable: true,
-      cell: (l) => l.listing_type || '-' },
+      cell: (l) => l.listing_type
+        ? <span className="type-pill">{l.listing_type}</span>
+        : '-' },
     { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
       cell: (l) => l.reiwa_url
         ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>

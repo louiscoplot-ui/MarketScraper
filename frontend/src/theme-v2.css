@@ -1,0 +1,276 @@
+/* SuburbDesk v2 visual identity.
+ *
+ * Every rule is scoped under [data-theme="v2"] on <html> so flipping the
+ * attribute back to "classic" instantly restores the original styles
+ * with no rebuild — useful as a fast rollback if the new look isn't
+ * approved. The data layer is untouched; this is presentation only.
+ */
+
+[data-theme="v2"] {
+  --brand: #5B5BD6;
+  --brand-soft: #EEEEFB;
+  --ink: #1C1D22;
+  --ink-2: #3A3B42;
+  --muted: #6B6C75;
+  --faint: #A4A5AD;
+  --border: #E8E8EC;
+  --bg: #FBFBFC;
+  --panel: #FFFFFF;
+  --sidebar-bg: #F7F7F9;
+  --green: #0E9F6E;
+  --green-soft: #E8F5EE;
+  --amber: #D97706;
+  --amber-soft: #FDF3E3;
+  --red: #DC2626;
+  --red-soft: #FBECEC;
+
+  /* Override theme.js-driven CSS vars to match the brand on first paint. */
+  --surface: var(--panel);
+  --surface-hover: var(--brand-soft);
+  --text: var(--ink);
+  --text-muted: var(--muted);
+  --primary: var(--brand);
+}
+
+[data-theme="v2"] body {
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv11', 'ss01';
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* Tabular figures everywhere they matter — prices, dates, counts. */
+[data-theme="v2"] .num,
+[data-theme="v2"] .price-cell,
+[data-theme="v2"] .date-cell,
+[data-theme="v2"] .suburb-count,
+[data-theme="v2"] .stat,
+[data-theme="v2"] td.num,
+[data-theme="v2"] th.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  text-align: right;
+}
+
+/* Header / top bar ------------------------------------------------- */
+[data-theme="v2"] .app-header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+}
+
+[data-theme="v2"] .brand-logo-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--ink);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+[data-theme="v2"] .brand-logo-mark svg {
+  width: 22px;
+  height: 22px;
+  color: var(--brand);
+}
+
+/* Tabs in the header */
+[data-theme="v2"] .header-tab {
+  color: var(--muted);
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+[data-theme="v2"] .header-tab:hover {
+  color: var(--ink);
+  background: var(--brand-soft);
+}
+[data-theme="v2"] .header-tab.active {
+  color: var(--brand);
+  font-weight: 600;
+  background: var(--brand-soft);
+}
+
+/* Buttons ---------------------------------------------------------- */
+[data-theme="v2"] .btn-primary,
+[data-theme="v2"] button.btn-primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+[data-theme="v2"] .btn-primary:hover,
+[data-theme="v2"] button.btn-primary:hover {
+  background: #4848BC;
+  border-color: #4848BC;
+}
+
+/* Catch any old generic blue (#3b82f6 / #2563eb / hardcoded) by adding
+ * a brand override on the most common button class. */
+[data-theme="v2"] .btn:not(.btn-ghost):not(.btn-danger):not(.btn-secondary) {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+[data-theme="v2"] .btn:not(.btn-ghost):not(.btn-danger):not(.btn-secondary):hover {
+  background: #4848BC;
+}
+
+/* Sidebar ---------------------------------------------------------- */
+[data-theme="v2"] .sidebar {
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+}
+/* Hide the 3-number stat row by default; show on hover/selected for
+ * the at-a-glance simplicity the brief asked for. */
+[data-theme="v2"] .suburb-stats {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.18s, max-height 0.18s;
+}
+[data-theme="v2"] .suburb-item:hover .suburb-stats,
+[data-theme="v2"] .suburb-item.selected .suburb-stats {
+  opacity: 1;
+  max-height: 30px;
+}
+[data-theme="v2"] .suburb-item {
+  border-radius: 8px;
+}
+[data-theme="v2"] .suburb-item.selected {
+  background: var(--brand-soft);
+  color: var(--ink);
+}
+
+/* Status as dot+text (replaces filled pills everywhere except the
+ * Type column which stays as a neutral filled pill).
+ *
+ * The existing markup in ListingsView.jsx is
+ *   <span className="status-badge" style={{ backgroundColor: ... }}>
+ * so we override the inline backgroundColor with !important and turn
+ * the span into a dot + label. The status text comes via JS as
+ * 'active' | 'under offer' | 'sold' | 'withdrawn' (with spaces). */
+[data-theme="v2"] .status-badge {
+  background: transparent !important;
+  color: var(--ink-2) !important;
+  padding: 0 !important;
+  border: none !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: capitalize;
+  box-shadow: none !important;
+}
+[data-theme="v2"] .status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: none;
+}
+[data-theme="v2"] .status-badge.status-active { color: var(--green) !important; }
+[data-theme="v2"] .status-badge.status-active::before { background: var(--green); }
+[data-theme="v2"] .status-badge.status-under_offer { color: var(--amber) !important; }
+[data-theme="v2"] .status-badge.status-under_offer::before { background: var(--amber); }
+[data-theme="v2"] .status-badge.status-sold { color: var(--red) !important; }
+[data-theme="v2"] .status-badge.status-sold::before { background: var(--red); }
+[data-theme="v2"] .status-badge.status-withdrawn { color: var(--faint) !important; }
+[data-theme="v2"] .status-badge.status-withdrawn::before { background: var(--faint); }
+
+/* Filled pill reserved for the Type column. */
+[data-theme="v2"] .type-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #F2F2F5;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+/* Tables ----------------------------------------------------------- */
+[data-theme="v2"] table {
+  border-color: var(--border);
+}
+[data-theme="v2"] th {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg);
+}
+[data-theme="v2"] tr.selected,
+[data-theme="v2"] tr.row-selected {
+  background: var(--brand-soft);
+  box-shadow: inset 2px 0 0 var(--brand);
+}
+
+/* Filter bar ------------------------------------------------------- */
+[data-theme="v2"] .status-pill {
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 500;
+}
+[data-theme="v2"] .status-pill.selected {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand);
+}
+
+/* Theme toggle (rollback button in header) ------------------------- */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: inherit;
+}
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink-2);
+}
+.theme-toggle .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+[data-theme="classic"] .theme-toggle .dot {
+  background: #386351;
+}
+
+/* Sidebar: scrape spinner + progress bar slot --------------------- */
+[data-theme="v2"] .suburb-scraping-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--brand);
+  animation: sd-progress 1.4s ease-in-out infinite;
+}
+@keyframes sd-progress {
+  0% { transform: scaleX(0.1); transform-origin: left; }
+  50% { transform: scaleX(0.7); transform-origin: left; }
+  100% { transform: scaleX(1); transform-origin: left; }
+}

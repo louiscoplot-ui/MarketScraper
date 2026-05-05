@@ -4,6 +4,46 @@
 // All state lives in App.jsx; this is a presentational component that
 // receives view + handlers via props.
 
+import { useState } from 'react'
+import { getTheme, toggleTheme } from '../lib/themeFlag'
+
+// 4-block grid mark — same source as brand/logo.svg, inlined so the
+// header doesn't need a network round-trip to render.
+function LogoMark({ size = 22 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="2" y="2" width="9" height="9" rx="2" />
+      <rect x="13" y="2" width="9" height="9" rx="2" />
+      <rect x="2" y="13" width="9" height="9" rx="2" />
+      <rect x="13" y="13" width="9" height="9" rx="2" />
+    </svg>
+  )
+}
+
+function ThemeToggle() {
+  // Local state purely for re-render on toggle — the source of truth
+  // is the data-theme attribute that themeFlag.applyTheme() sets.
+  const [, force] = useState(0)
+  const t = getTheme()
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      onClick={() => { toggleTheme(); force(n => n + 1) }}
+      title="Toggle SuburbDesk visual identity (instant rollback if you don't like the new look)"
+    >
+      <span className="dot" />
+      {t === 'v2' ? 'v2' : 'classic'}
+    </button>
+  )
+}
+
 const TABS = [
   { id: 'listings', label: 'Listings' },
   { id: 'pipeline', label: 'Pipeline' },
@@ -43,18 +83,16 @@ export default function Header({
 
   return (
     <header className="app-header">
-      <div className="brand">
-        {/* Logo slot — left empty intentionally. When you have an
-            approved logo asset, drop an <img src=... /> in here. */}
-        <div className="logo-slot" aria-label="Logo" />
-        <span className="brand-text">SuburbDesk</span>
-      </div>
+      <a href="/" className="brand brand-logo-mark">
+        <LogoMark size={22} />
+        <span className="brand-text">suburbdesk</span>
+      </a>
 
       <nav className="tabs" aria-label="Primary">
         {TABS.map(t => (
           <button
             key={t.id}
-            className={`tab${view === t.id ? ' active' : ''}`}
+            className={`tab header-tab${view === t.id ? ' active' : ''}`}
             onClick={() => handleTabClick(t.id)}
           >
             {t.label}
@@ -82,6 +120,7 @@ export default function Header({
         >
           Export
         </button>
+        <ThemeToggle />
         <button
           className="btn btn-ghost btn-icon-sm"
           onClick={() => setShowThemeModal(true)}
