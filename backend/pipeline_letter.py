@@ -20,7 +20,8 @@ from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 
-# Acton | Belle Property official brand green
+# Acton | Belle Property official brand green (kept as visual default —
+# every tenant gets the same band colour until the brand kit is per-tenant).
 BRAND_GREEN = '386351'
 
 # Path to the logo (commit a PNG here to swap the text fallback for the
@@ -29,15 +30,23 @@ BRAND_GREEN = '386351'
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGO_PATH = os.path.join(_THIS_DIR, 'assets', 'acton_belle_logo.png')
 
-AGENCY_NAME_FOOTER = 'ACTON | Belle Property Cottesloe'
-AGENCY_LINE_1 = '160 Stirling Hwy, Nedlands WA 6009'
-AGENCY_LINE_2 = '08 9386 8255  |  cottesloe@belleproperty.com'
-AGENCY_LINE_3 = 'Dalkeith Region Pty Ltd  |  ABN 26 123 014 957  |  belleproperty.com/Cottesloe'
+# Secondary agency footer lines (street address, contact line, legal/ABN).
+# Not exposed in the per-user form yet — env vars override them so an
+# operator can swap them without code change. Defaults preserve Louis's
+# existing letterhead for backward compatibility.
+AGENCY_LINE_1_DEFAULT = '160 Stirling Hwy, Nedlands WA 6009'
+AGENCY_LINE_2_DEFAULT = '08 9386 8255  |  cottesloe@belleproperty.com'
+AGENCY_LINE_3_DEFAULT = 'Dalkeith Region Pty Ltd  |  ABN 26 123 014 957  |  belleproperty.com/Cottesloe'
 
-AGENT_NAME = 'Louis Coplot'
-AGENT_ROLE = 'Sales Agent | Acton | Belle Property Cottesloe'
-AGENT_PHONE = '0400 XXX XXX'
-AGENT_EMAIL = 'louis@belleproperty.com'
+
+def _resolve(profile, profile_key, env_key, default=''):
+    """Profile field → env var → default. Profile values that are blank/
+    None fall through so a half-completed form doesn't override env vars."""
+    if profile:
+        v = (profile.get(profile_key) or '').strip()
+        if v:
+            return v
+    return (os.environ.get(env_key) or '').strip() or default
 
 
 def _format_price(p):
@@ -218,19 +227,22 @@ def _green_header(doc):
         _build_text_logo(cell)
 
 
-def _agency_footer(doc):
+def _agency_footer(doc, agency_name, line_1, line_2, line_3):
     footer = doc.sections[0].footer
     for p in list(footer.paragraphs):
         p.clear()
 
     p1 = footer.paragraphs[0]
     p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    r = p1.add_run(AGENCY_NAME_FOOTER)
-    r.bold = True
-    r.font.size = Pt(8)
-    r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+    if agency_name:
+        r = p1.add_run(agency_name)
+        r.bold = True
+        r.font.size = Pt(8)
+        r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
-    for line in (AGENCY_LINE_1, AGENCY_LINE_2, AGENCY_LINE_3):
+    for line in (line_1, line_2, line_3):
+        if not line:
+            continue
         p = footer.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         run = p.add_run(line)
@@ -239,8 +251,11 @@ def _agency_footer(doc):
         p.paragraph_format.space_after = Pt(0)
 
 
-def render_letter_docx(target_address, owner_name, source_suburb, sources):
-    """Build a complete Acton | Belle Property letter."""
+def render_letter_docx(target_address, owner_name, source_suburb, sources, user_profile=None):
+    """Build a prospecting letter. Agency/agent details come from
+    `user_profile` (the calling user's saved profile), falling back to
+    env vars, then to empty string. Existing callers that don't pass
+    `user_profile` keep working — env vars supply the values."""
     raw = (owner_name or '').strip()
     # Reject the legacy "N/A — verify on Landgate" placeholder that still
     # lives in pipeline_tracking rows from before the fix at source.
@@ -251,6 +266,19 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
     addr_phrase, sale_phrase = format_sources_inline(sources)
     multi = len(sources) > 1
 
+    profile = user_profile or {}
+    agency_name = _resolve(profile, 'agency_name', 'AGENCY_NAME')
+    agent_name = _resolve(profile, 'agent_name', 'AGENT_NAME')
+    agent_phone = _resolve(profile, 'agent_phone', 'AGENT_PHONE')
+    agent_email = _resolve(profile, 'agent_email', 'AGENT_EMAIL')
+    # Role line embeds the agency name when known so the signature
+    # reads "Sales Agent | <Agency>" — same shape as the original
+    # Acton|Belle template, but tenant-aware.
+    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
+    line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
+    line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
+
     doc = Document()
     for section in doc.sections:
         section.top_margin = Cm(0)
@@ -259,7 +287,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
         section.right_margin = Cm(2.5)
 
     _green_header(doc)
-    _agency_footer(doc)
+    _agency_footer(doc, agency_name, line_1, line_2, line_3)
 
     spacer = doc.add_paragraph()
     spacer.paragraph_format.space_before = Pt(0)
@@ -323,19 +351,24 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources):
     body_para('Kind regards,')
     doc.add_paragraph()
 
-    sig = doc.add_paragraph()
-    r = sig.add_run(AGENT_NAME)
-    r.bold = True; r.font.size = Pt(12); r.font.name = 'Arial'
+    if agent_name:
+        sig = doc.add_paragraph()
+        r = sig.add_run(agent_name)
+        r.bold = True; r.font.size = Pt(12); r.font.name = 'Arial'
 
-    p = doc.add_paragraph()
-    r = p.add_run(AGENT_ROLE)
-    r.font.size = Pt(10); r.font.name = 'Arial'
-    r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+    if agent_role:
+        p = doc.add_paragraph()
+        r = p.add_run(agent_role)
+        r.font.size = Pt(10); r.font.name = 'Arial'
+        r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
-    p = doc.add_paragraph()
-    rb = p.add_run('M: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
-    rp = p.add_run(f'{AGENT_PHONE}    '); rp.font.size = Pt(10); rp.font.name = 'Arial'
-    rb = p.add_run('E: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
-    re = p.add_run(AGENT_EMAIL); re.font.size = Pt(10); re.font.name = 'Arial'
+    if agent_phone or agent_email:
+        p = doc.add_paragraph()
+        if agent_phone:
+            rb = p.add_run('M: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
+            rp = p.add_run(f'{agent_phone}    '); rp.font.size = Pt(10); rp.font.name = 'Arial'
+        if agent_email:
+            rb = p.add_run('E: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
+            re_ = p.add_run(agent_email); re_.font.size = Pt(10); re_.font.name = 'Arial'
 
     return doc

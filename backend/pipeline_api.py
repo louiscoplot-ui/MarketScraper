@@ -913,7 +913,18 @@ def pipeline_letter_download(id):
                 owner_name = n
                 break
 
-    doc = render_letter_docx(target_address, owner_name, source_suburb, sources)
+    # Pass the calling user's profile so the signature/footer reflects
+    # their agency + contact details. Falls back to env vars then '' inside
+    # the renderer if a field is empty.
+    from admin_api import get_current_user
+    me = get_current_user() or {}
+    user_profile = {
+        'agency_name': me.get('agency_name'),
+        'agent_name': me.get('agent_name'),
+        'agent_phone': me.get('agent_phone'),
+        'agent_email': me.get('agent_email'),
+    }
+    doc = render_letter_docx(target_address, owner_name, source_suburb, sources, user_profile=user_profile)
 
     buf = BytesIO()
     doc.save(buf)

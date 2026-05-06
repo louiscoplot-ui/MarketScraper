@@ -63,23 +63,68 @@ export default function AdminUsers() {
   const [newSuburbDraft, setNewSuburbDraft] = useState('')
   const [addingSuburb, setAddingSuburb] = useState(false)
 
+  // Per-user prospecting-letter profile — fed by /api/admin/me, saved
+  // via PATCH /api/users/me/profile. Available to every authenticated
+  // user, not just admins.
+  const [profileDraft, setProfileDraft] = useState({
+    agency_name: '', agent_name: '', agent_phone: '', agent_email: '',
+  })
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileSaved, setProfileSaved] = useState(false)
+  const [profileError, setProfileError] = useState('')
+
   const refresh = async () => {
     setLoading(true)
     setError('')
     try {
       const meRes = await apiJson('/api/admin/me')
       setMe(meRes.user)
-      const list = await apiJson('/api/admin/users')
-      setUsers(list.users)
-      // Suburbs list — admins see everything because they bypass the filter
-      const subRes = await fetch('/api/suburbs', {
-        headers: { 'X-Access-Key': getAccessKey() }
-      }).then(r => r.json())
-      setAllSuburbs(Array.isArray(subRes) ? subRes : [])
+      setProfileDraft({
+        agency_name: meRes.user?.agency_name || '',
+        agent_name: meRes.user?.agent_name || '',
+        agent_phone: meRes.user?.agent_phone || '',
+        agent_email: meRes.user?.agent_email || '',
+      })
+      // Admin-only calls — wrapped so non-admins still reach the
+      // profile form below instead of crashing the whole page.
+      try {
+        const list = await apiJson('/api/admin/users')
+        setUsers(list.users)
+        const subRes = await fetch('/api/suburbs', {
+          headers: { 'X-Access-Key': getAccessKey() }
+        }).then(r => r.json())
+        setAllSuburbs(Array.isArray(subRes) ? subRes : [])
+      } catch (e) {
+        if (meRes.user?.role === 'admin') throw e
+      }
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const saveProfile = async (e) => {
+    e.preventDefault()
+    setProfileError('')
+    setProfileSaved(false)
+    if (!profileDraft.agent_name.trim()) {
+      setProfileError('Agent name is required.')
+      return
+    }
+    setProfileSaving(true)
+    try {
+      const updated = await apiJson('/api/users/me/profile', {
+        method: 'PATCH',
+        body: JSON.stringify(profileDraft),
+      })
+      setMe(updated)
+      setProfileSaved(true)
+      setTimeout(() => setProfileSaved(false), 3000)
+    } catch (err) {
+      setProfileError(err.message)
+    } finally {
+      setProfileSaving(false)
     }
   }
 
@@ -243,6 +288,45 @@ export default function AdminUsers() {
             </span>
           )}
         </div>
+      )}
+
+      {me && (
+        <form className="admin-form" onSubmit={saveProfile} style={{ marginTop: 16 }}>
+          <h3>Agent Profile</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            These details appear on prospecting letters. Empty fields fall back to server env vars.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <input
+              type="text" placeholder="Agency Name"
+              value={profileDraft.agency_name}
+              onChange={(e) => setProfileDraft({ ...profileDraft, agency_name: e.target.value })}
+            />
+            <input
+              type="text" placeholder="Agent Name"
+              value={profileDraft.agent_name}
+              onChange={(e) => setProfileDraft({ ...profileDraft, agent_name: e.target.value })}
+              required
+            />
+            <input
+              type="tel" placeholder="Phone"
+              value={profileDraft.agent_phone}
+              onChange={(e) => setProfileDraft({ ...profileDraft, agent_phone: e.target.value })}
+            />
+            <input
+              type="email" placeholder="Email"
+              value={profileDraft.agent_email}
+              onChange={(e) => setProfileDraft({ ...profileDraft, agent_email: e.target.value })}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+            <button className="btn btn-primary btn-sm" type="submit" disabled={profileSaving}>
+              {profileSaving ? 'Saving…' : 'Save profile'}
+            </button>
+            {profileSaved && <span style={{ color: 'var(--active)', fontSize: 13 }}>✓ Saved</span>}
+            {profileError && <span style={{ color: 'var(--danger)', fontSize: 13 }}>{profileError}</span>}
+          </div>
+        </form>
       )}
 
       {error && <div className="admin-error">{error}</div>}

@@ -344,6 +344,25 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_users_access_key ON users(access_key);
     """)
 
+    # Multi-tenant agent profile fields — populate the prospecting letter
+    # signature/footer per-user instead of hardcoding Acton|Belle. The
+    # PATCH /api/users/me/profile endpoint writes these; the letter
+    # renderer falls back through env vars if a user hasn't filled them.
+    for col_sql in [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS agency_name TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_name TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_phone TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_email TEXT",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            try:
+                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
+            except Exception:
+                conn.commit()
+    conn.commit()
+
     # Per-user suburb assignment. A user only sees + scrapes the suburbs
     # they're assigned to (admins see all). Multiple users can share a
     # suburb — that's intentional, an agency team often works the same
