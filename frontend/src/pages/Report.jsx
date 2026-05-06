@@ -68,7 +68,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               if (e.target.checked) {
                 const all = new Set(suburbs.map(s => s.id))
                 setReportSuburbs(all)
-                fetchReport(all)
+                requestAnimationFrame(() => fetchReport(all))
               } else {
                 setReportSuburbs(new Set())
               }
@@ -86,7 +86,14 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 if (e.target.checked) next.add(s.id)
                 else next.delete(s.id)
                 setReportSuburbs(next)
-                if (next.size > 0) fetchReport(next)
+                // Defer the fetch (and its setReportLoading) one paint
+                // frame so the browser commits the checkbox tick first.
+                // Without this, React's heavy re-render that swaps the
+                // data area to LoadingState steals the paint slot and
+                // the operator never sees the tick before the spinner.
+                if (next.size > 0) {
+                  requestAnimationFrame(() => fetchReport(next))
+                }
               }}
             />
             <span>{s.name}</span>
