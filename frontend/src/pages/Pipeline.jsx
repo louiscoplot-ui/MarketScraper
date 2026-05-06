@@ -103,6 +103,54 @@ export default function Pipeline() {
     loadTracking()
   }, [suburb, suburbsLoaded])
 
+  // OSM cache state for the active suburb. The backend warms in a
+  // background thread; we poll every 3s while warming so the user sees
+  // a progress banner instead of waiting on a 30s blocking request.
+  // 'ready' | 'warming' | 'empty' | 'slow' (>60s of warming).
+  const [osmStatus, setOsmStatus] = useState('ready')
+
+  useEffect(() => {
+    if (!suburbsLoaded || !suburb) return
+    let cancelled = false
+    let timer = null
+    const startedAt = Date.now()
+
+    async function tick() {
+      if (cancelled) return
+      try {
+        const res = await fetch(
+          `${PIPELINE_API}/osm-status/${encodeURIComponent(suburb)}`
+        )
+        if (!res.ok) {
+          // 403 (suburb not allowed) or 5xx — stop polling, don't block UI.
+          if (!cancelled) setOsmStatus('ready')
+          return
+        }
+        const data = await res.json()
+        if (cancelled) return
+        if (data.status === 'ready') {
+          setOsmStatus('ready')
+          // If we were warming, the data is now available — refresh
+          // the pipeline view so the just-warmed streets show up.
+          if (Date.now() - startedAt > 1500) loadTracking()
+          return
+        }
+        // Still warming — show banner. After 60s, downgrade message.
+        const elapsed = Date.now() - startedAt
+        setOsmStatus(elapsed > 60_000 ? 'slow' : 'warming')
+        timer = setTimeout(tick, 3000)
+      } catch {
+        if (!cancelled) setOsmStatus('ready')
+      }
+    }
+
+    tick()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [suburb, suburbsLoaded])
+
   async function loadTracking() {
     setLoading(true)
     try {
@@ -254,6 +302,17 @@ export default function Pipeline() {
             color: generateMsg.type === 'success' ? '#065f46' : '#991b1b',
           }}>
             {generateMsg.text}
+          </div>
+        )}
+
+        {(osmStatus === 'warming' || osmStatus === 'slow') && (
+          <div style={{
+            marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '14px',
+            background: '#fef3c7', color: '#92400e',
+          }}>
+            {osmStatus === 'slow'
+              ? 'Loading street data is taking longer than expected — try refreshing in a moment.'
+              : `Loading street data for ${suburb}… this happens once per suburb and is then cached.`}
           </div>
         )}
       </div>

@@ -144,6 +144,35 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_pipeline_sent_date ON pipeline_tracking(sent_date);
     """)
 
+    # Pre-lowered suburb column so the 12+ "WHERE source_suburb = ?"
+    # filters across pipeline_api.py can hit an index instead of running
+    # LOWER(source_suburb) = LOWER(?) which Postgres can't index without
+    # a functional index. Backfill once on schema init; INSERT/UPDATE
+    # callers in pipeline_api.py write source_suburb_lower alongside
+    # source_suburb so the column stays in sync without a trigger.
+    for col_sql in [
+        "ALTER TABLE pipeline_tracking ADD COLUMN IF NOT EXISTS source_suburb_lower TEXT",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            try:
+                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
+            except Exception:
+                conn.commit()
+    try:
+        conn.execute(
+            "UPDATE pipeline_tracking SET source_suburb_lower = LOWER(source_suburb) "
+            "WHERE source_suburb_lower IS NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pipeline_suburb_lower "
+            "ON pipeline_tracking(source_suburb_lower)"
+        )
+        conn.commit()
+    except Exception:
+        conn.commit()
+
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS hot_vendor_uploads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

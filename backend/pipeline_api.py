@@ -1,8 +1,11 @@
 """Appraisal Pipeline routes — endpoints + helper functions."""
 
 import re
+import sys
 import json
 import logging
+import threading
+import traceback
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +16,13 @@ from flask import request, jsonify, send_file
 from database import get_db, normalize_address, USE_POSTGRES
 from admin_api import get_user_allowed_suburb_names, user_can_access_suburb
 from pipeline_letter import render_letter_docx
+
+
+# Tracks ongoing OSM prefetch jobs so we don't kick off duplicate threads
+# while the first one is still warming. Keyed by lowercase suburb name.
+# {suburb_lower: {'status': 'warming'|'ready', 'started_at': datetime}}
+_osm_jobs = {}
+_osm_jobs_lock = threading.Lock()
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +331,13 @@ def _enrich_owner_names(conn, suburb=None):
     """Back-fill pipeline_tracking.target_owner_name from
     hot_vendor_properties.current_owner whenever the pipeline row
     has no owner yet. Matches on normalized_address. Idempotent —
-    cheap to call before every read of the pipeline."""
+    cheap to call before every read of the pipeline.
+
+    Bulk-rewritten: was 1 SELECT + 1 UPDATE per missing row, which on
+    200 rows ran 400 queries and pushed Pipeline page-loads past the
+    Vercel 25s edge timeout. Now: 2 queries total — 1 IN-clause SELECT
+    over hot_vendor_properties keyed on the normalised target addresses,
+    and 1 executemany UPDATE."""
     if not _hot_vendors_table_exists(conn):
         return 0
     try:
@@ -329,7 +345,7 @@ def _enrich_owner_names(conn, suburb=None):
             rows = conn.execute(
                 "SELECT id, target_address FROM pipeline_tracking "
                 "WHERE (target_owner_name IS NULL OR target_owner_name = '') "
-                "AND LOWER(source_suburb) = LOWER(?)",
+                "AND source_suburb_lower = LOWER(?)",
                 (suburb,)
             ).fetchall()
         else:
@@ -341,7 +357,9 @@ def _enrich_owner_names(conn, suburb=None):
         logger.warning(f"enrich_owner_names lookup failed: {e}")
         return 0
 
-    updated = 0
+    # Group pipeline ids by their normalised target address. Multiple
+    # pipeline rows can share an address (re-mailings on different dates).
+    norm_to_ids = {}
     for r in rows:
         target_addr = r['target_address']
         if not target_addr:
@@ -349,31 +367,63 @@ def _enrich_owner_names(conn, suburb=None):
         norm = normalize_address(target_addr)
         if not norm:
             continue
-        try:
-            match = conn.execute(
-                "SELECT current_owner FROM hot_vendor_properties "
-                "WHERE normalized_address = ? AND current_owner IS NOT NULL "
-                "AND current_owner != '' "
-                "ORDER BY final_score DESC LIMIT 1",
-                (norm,)
-            ).fetchone()
-        except Exception:
+        norm_to_ids.setdefault(norm, []).append(r['id'])
+
+    if not norm_to_ids:
+        return 0
+
+    # Single SELECT for every owner we need. ORDER BY final_score DESC
+    # plus the dict-build below picks the highest-scoring match per
+    # address, mirroring the per-row LIMIT 1 from the legacy version.
+    norms = list(norm_to_ids.keys())
+    try:
+        placeholders = ','.join(['?'] * len(norms))
+        owner_rows = conn.execute(
+            f"SELECT normalized_address, current_owner FROM hot_vendor_properties "
+            f"WHERE normalized_address IN ({placeholders}) "
+            f"AND current_owner IS NOT NULL AND current_owner != '' "
+            f"ORDER BY final_score DESC",
+            norms
+        ).fetchall()
+    except Exception as e:
+        logger.warning(f"enrich_owner_names bulk lookup failed: {e}")
+        return 0
+
+    norm_to_owner = {}
+    for o in owner_rows:
+        d = dict(o)
+        # First-seen wins because we ORDER BY final_score DESC, so the
+        # highest-scoring row for each normalized_address lands first.
+        norm_to_owner.setdefault(d['normalized_address'], d['current_owner'])
+
+    update_params = []
+    for norm, ids in norm_to_ids.items():
+        owner = norm_to_owner.get(norm)
+        if not owner:
             continue
-        if match and match['current_owner']:
-            try:
-                conn.execute(
-                    "UPDATE pipeline_tracking SET target_owner_name = ? WHERE id = ?",
-                    (match['current_owner'], r['id'])
-                )
-                updated += 1
-            except Exception:
-                pass
-    if updated:
-        try:
-            conn.commit()
-        except Exception:
-            pass
-        logger.info(f"Enriched {updated} pipeline owner names from hot_vendor_properties")
+        for pipeline_id in ids:
+            update_params.append((owner, pipeline_id))
+
+    if not update_params:
+        return 0
+
+    # Access the raw driver cursor for executemany — _Conn doesn't
+    # expose it, but both sqlite3 and psycopg2 cursors support the
+    # method. Translate '?' to '%s' for psycopg2.
+    try:
+        raw = getattr(conn, '_conn', None) or conn
+        cur = raw.cursor()
+        sql = "UPDATE pipeline_tracking SET target_owner_name = ? WHERE id = ?"
+        if USE_POSTGRES:
+            sql = sql.replace('?', '%s')
+        cur.executemany(sql, update_params)
+        conn.commit()
+    except Exception as e:
+        logger.warning(f"enrich_owner_names bulk update failed: {e}")
+        return 0
+
+    updated = len(update_params)
+    logger.info(f"Enriched {updated} pipeline owner names from hot_vendor_properties (bulk)")
     return updated
 
 
@@ -407,13 +457,21 @@ def _bulk_insert_pipeline(conn, rows):
         return 0
 
     inserted = 0
-    cols = ('source_address', 'source_suburb', 'source_sold_date',
-            'source_price', 'target_address', 'target_owner_name',
-            'hot_vendor_score')
+    # source_suburb_lower kept in sync at write time so the indexed
+    # filter `source_suburb_lower = LOWER(?)` on read can use
+    # idx_pipeline_suburb_lower instead of full-scanning the table.
+    cols = ('source_address', 'source_suburb', 'source_suburb_lower',
+            'source_sold_date', 'source_price', 'target_address',
+            'target_owner_name', 'hot_vendor_score')
     n_cols = len(cols)
 
-    for i in range(0, len(rows), INSERT_CHUNK):
-        chunk = rows[i:i + INSERT_CHUNK]
+    enriched_rows = [
+        (r[0], r[1], (r[1] or '').strip().lower(), r[2], r[3], r[4], r[5], r[6])
+        for r in rows
+    ]
+
+    for i in range(0, len(enriched_rows), INSERT_CHUNK):
+        chunk = enriched_rows[i:i + INSERT_CHUNK]
         single = '(' + ', '.join(['?'] * n_cols) + ", 'sent')"
         values_clause = ', '.join([single] * len(chunk))
         sql = (
@@ -438,7 +496,7 @@ def _gather_sources_for_target(conn, target_address, source_suburb):
         SELECT source_address, source_price, source_sold_date, target_owner_name
         FROM pipeline_tracking
         WHERE LOWER(target_address) = LOWER(?)
-          AND LOWER(source_suburb) = LOWER(?)
+          AND source_suburb_lower = LOWER(?)
         ORDER BY created_at DESC
         """,
         (target_address, source_suburb)
@@ -559,7 +617,7 @@ def pipeline_generate():
     rows = conn.execute(
         """
         SELECT * FROM pipeline_tracking
-        WHERE LOWER(source_suburb) = LOWER(?)
+        WHERE source_suburb_lower = LOWER(?)
         ORDER BY created_at DESC
         LIMIT 500
         """,
@@ -634,7 +692,7 @@ def pipeline_manual_add():
         """
         SELECT * FROM pipeline_tracking
         WHERE LOWER(source_address) = LOWER(?)
-          AND LOWER(source_suburb) = LOWER(?)
+          AND source_suburb_lower = LOWER(?)
           AND sent_date = ?
         ORDER BY target_address ASC
         """,
@@ -671,14 +729,14 @@ def pipeline_tracking_list():
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
-        sql += " AND LOWER(source_suburb) = LOWER(?)"
+        sql += " AND source_suburb_lower = LOWER(?)"
         params.append(suburb)
     elif allowed_names is not None:
         if not allowed_names:
             conn.close()
             return jsonify({'entries': []})
         placeholders = ','.join(['?'] * len(allowed_names))
-        sql += f" AND LOWER(source_suburb) IN ({placeholders})"
+        sql += f" AND source_suburb_lower IN ({placeholders})"
         params.extend(allowed_names)
     if status:
         sql += " AND status = ?"
@@ -709,14 +767,14 @@ def pipeline_tracking_grouped():
     sql = "SELECT * FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
-        sql += " AND LOWER(source_suburb) = LOWER(?)"
+        sql += " AND source_suburb_lower = LOWER(?)"
         params.append(suburb)
     elif allowed_names is not None:
         if not allowed_names:
             conn.close()
             return jsonify({'groups': []})
         placeholders = ','.join(['?'] * len(allowed_names))
-        sql += f" AND LOWER(source_suburb) IN ({placeholders})"
+        sql += f" AND source_suburb_lower IN ({placeholders})"
         params.extend(allowed_names)
     sql += " ORDER BY target_address ASC, created_at DESC"
     rows = conn.execute(sql, params).fetchall()
@@ -804,7 +862,7 @@ def pipeline_tracking_update(id):
     if propagate_owner:
         conn.execute(
             "UPDATE pipeline_tracking SET target_owner_name = ? "
-            "WHERE LOWER(target_address) = LOWER(?) AND LOWER(source_suburb) = LOWER(?)",
+            "WHERE LOWER(target_address) = LOWER(?) AND source_suburb_lower = LOWER(?)",
             (data['target_owner_name'], target_row['target_address'], target_row['source_suburb'])
         )
 
@@ -854,7 +912,7 @@ def pipeline_tracking_clear():
     sql = "DELETE FROM pipeline_tracking WHERE 1=1"
     params = []
     if suburb:
-        sql += " AND LOWER(source_suburb) = LOWER(?)"
+        sql += " AND source_suburb_lower = LOWER(?)"
         params.append(suburb)
     elif allowed_names is not None:
         # Status-only delete from a non-admin user must stay scoped to
@@ -863,7 +921,7 @@ def pipeline_tracking_clear():
             conn.close()
             return jsonify({'deleted': 0, 'suburb': None, 'status': status or None})
         placeholders = ','.join(['?'] * len(allowed_names))
-        sql += f" AND LOWER(source_suburb) IN ({placeholders})"
+        sql += f" AND source_suburb_lower IN ({placeholders})"
         params.extend(allowed_names)
     if status:
         sql += " AND status = ?"
@@ -951,6 +1009,129 @@ def pipeline_enrich_owners():
     return jsonify({'updated': updated, 'suburb': suburb})
 
 
+def _streets_in_suburb(conn, suburb):
+    """Distinct street names that have at least one active/sold listing
+    in the suburb — used as the prefetch worklist for OSM warming."""
+    rows = conn.execute(
+        "SELECT DISTINCT l.address FROM listings l "
+        "JOIN suburbs s ON l.suburb_id = s.id "
+        "WHERE LOWER(s.name) = LOWER(?) AND l.address IS NOT NULL",
+        (suburb,)
+    ).fetchall()
+    streets = set()
+    for r in rows:
+        parsed = _parse_address(dict(r).get('address'))
+        if parsed:
+            streets.add(parsed[2])
+    return sorted(streets)
+
+
+def _osm_prefetch_worker(suburb):
+    """Background thread — warm the OSM cache for every street in the
+    suburb. Catches all exceptions and prints to stderr so a failure
+    can't silently kill the thread (Flask doesn't propagate background
+    thread errors, and we'd never know why a suburb stays 'warming')."""
+    suburb_key = (suburb or '').strip().lower()
+    try:
+        conn = get_db()
+        try:
+            streets = _streets_in_suburb(conn, suburb)
+            todo = [s for s in streets
+                    if _osm_street_numbers_cached(conn, s, suburb) is None]
+            if todo:
+                logger.info(f"[osm-prefetch] {suburb}: warming {len(todo)} streets")
+                with ThreadPoolExecutor(max_workers=6) as ex:
+                    def _warm(street):
+                        try:
+                            return street, _osm_fetch_street_numbers(street, suburb)
+                        except Exception:
+                            return street, []
+                    for street, nums in ex.map(_warm, todo):
+                        try:
+                            _osm_street_numbers_store(conn, street, suburb, nums)
+                        except Exception:
+                            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception:
+        # Print full trace to stderr — see Render logs to debug. We also
+        # log via logger.exception so structured-log consumers catch it.
+        traceback.print_exc(file=sys.stderr)
+        logger.exception(f"[osm-prefetch] worker crashed for suburb={suburb}")
+    finally:
+        with _osm_jobs_lock:
+            _osm_jobs[suburb_key] = {
+                'status': 'ready',
+                'finished_at': datetime.utcnow(),
+            }
+
+
+def _osm_suburb_cache_status(conn, suburb):
+    """Returns 'ready' | 'empty'. 'ready' = at least one fresh cached
+    row exists for this suburb. 'empty' = no fresh cache. Stale rows
+    (older than OSM_CACHE_TTL_DAYS) are treated as misses to match
+    _osm_street_numbers_cached's read behaviour."""
+    sub = (suburb or '').strip().lower()
+    if not sub:
+        return 'empty'
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM street_address_cache "
+            "WHERE street_key LIKE ? AND fetched_at IS NOT NULL",
+            (f"%|{sub}",)
+        ).fetchone()
+    except Exception:
+        return 'empty'
+    if not row:
+        return 'empty'
+    n = dict(row).get('n') or 0
+    return 'ready' if n > 0 else 'empty'
+
+
+def pipeline_osm_status(suburb):
+    """Returns the OSM prefetch state for a suburb. If no fresh cache
+    exists, kicks off a background warm thread and returns 'warming' so
+    the frontend can poll until 'ready' lands. Cached suburbs return
+    'ready' instantly with no work."""
+    suburb = (suburb or '').strip()
+    if not suburb:
+        return jsonify({'status': 'empty'}), 400
+    if not user_can_access_suburb(suburb):
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+
+    suburb_key = suburb.lower()
+    # If a worker is already running for this suburb, just report warming
+    # without spawning another thread.
+    with _osm_jobs_lock:
+        job = _osm_jobs.get(suburb_key)
+        if job and job.get('status') == 'warming':
+            return jsonify({'status': 'warming'})
+
+    conn = get_db()
+    cache_state = _osm_suburb_cache_status(conn, suburb)
+    conn.close()
+
+    if cache_state == 'ready':
+        return jsonify({'status': 'ready'})
+
+    # Cache empty — fire off a background warm and return warming so the
+    # frontend can poll. The thread updates _osm_jobs[suburb_key] when
+    # done; subsequent polls flip to 'ready' once the cache is populated.
+    with _osm_jobs_lock:
+        _osm_jobs[suburb_key] = {
+            'status': 'warming',
+            'started_at': datetime.utcnow(),
+        }
+    t = threading.Thread(
+        target=_osm_prefetch_worker, args=(suburb,), daemon=True
+    )
+    t.start()
+    return jsonify({'status': 'warming'})
+
+
 # ---------------------------------------------------------------------
 # Wiring
 # ---------------------------------------------------------------------
@@ -973,6 +1154,9 @@ def register_pipeline_routes(app):
                      view_func=pipeline_letter_download, methods=['GET'])
     app.add_url_rule('/api/pipeline/enrich-owners', endpoint='pipeline_enrich_owners',
                      view_func=pipeline_enrich_owners, methods=['POST'])
+    app.add_url_rule('/api/pipeline/osm-status/<path:suburb>',
+                     endpoint='pipeline_osm_status',
+                     view_func=pipeline_osm_status, methods=['GET'])
     logger.info(
-        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking,letter/<id>/download,enrich-owners}"
+        "Pipeline routes: /api/pipeline/{generate,manual-add,tracking,letter/<id>/download,enrich-owners,osm-status/<suburb>}"
     )
