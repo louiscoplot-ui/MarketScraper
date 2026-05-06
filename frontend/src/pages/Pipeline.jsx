@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BACKEND_DIRECT, fetchWithRetry } from '../lib/api'
+import LoadingState from '../components/LoadingState'
 
 const API = ''
 // Pipeline tracking + generate go direct to Render to bypass Vercel's
@@ -310,19 +311,10 @@ export default function Pipeline() {
       )}
 
       {loading || !suburbsLoaded ? (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          gap: '12px', padding: '48px 24px', textAlign: 'center',
-        }}>
-          <div className="loading-spinner" />
-          <div style={{ fontWeight: 600, fontSize: '14px', color: '#1C1D22' }}>
-            Loading pipeline…
-          </div>
-          <div style={{ fontSize: '12px', color: '#6B6C75', maxWidth: '380px', lineHeight: 1.5 }}>
-            First load can take 10–15 seconds while the server warms up.
-            Subsequent suburb switches are near-instant.
-          </div>
-        </div>
+        <LoadingState
+          title="Loading pipeline…"
+          subtext="First load can take 10–15 seconds while the server warms up. Subsequent suburb switches are near-instant."
+        />
       ) : groups.length === 0 ? (
         <p style={{ color: '#6b7280' }}>No entries yet. Generate letters to get started.</p>
       ) : (

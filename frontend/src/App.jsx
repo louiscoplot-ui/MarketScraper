@@ -3,6 +3,7 @@ import HotVendorScoring from './HotVendorScoring'
 import Pipeline from './pages/Pipeline'
 import Report from './pages/Report'
 import ListingsView from './pages/ListingsView'
+import LoadingState from './components/LoadingState'
 import AdminUsers from './pages/AdminUsers'
 import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
@@ -251,10 +252,15 @@ function App() {
   const fetchReport = (suburbIds) => {
     const ids = suburbIds && suburbIds.size > 0 ? Array.from(suburbIds) : []
     const params = ids.length > 0 ? `?suburb_ids=${ids.join(',')}` : ''
-    fetch(`${API}/report${params}`)
+    setReportLoading(true)
+    // Direct to Render — Vercel's 25s edge proxy was killing the
+    // report request during cold starts. The retry helper rides on
+    // top so transient 5xx don't drop the user back to a blank tab.
+    fetchWithRetry(`${BACKEND_DIRECT}/api/report${params}`, {}, 4)
       .then(r => r.json())
       .then(data => setReport(data))
       .catch(() => setReport(null))
+      .finally(() => setReportLoading(false))
   }
 
   const cancelScrape = async () => {
@@ -475,6 +481,11 @@ function App() {
             <Report
               report={report} suburbs={suburbs} reportSuburbs={reportSuburbs}
               setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
+            />
+          ) : view === 'report' ? (
+            <LoadingState
+              title="Loading market report…"
+              subtext="Crunching listings, agency share, price changes and snapshots. First load can take 10–15 seconds while the server warms up."
             />
           ) : view === 'listings' ? (
             <ListingsView
