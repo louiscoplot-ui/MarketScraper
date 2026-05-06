@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
+import { BACKEND_DIRECT, fetchWithRetry } from '../lib/api'
 
 const API = ''
+// Pipeline tracking + generate go direct to Render to bypass Vercel's
+// 25s edge timeout, same as the listings/suburbs bootstrap. Switching
+// suburbs reads pre-generated rows from pipeline_tracking, which is a
+// fast indexed lookup — but on a cold dyno even that response is
+// blocked by the proxy timeout, so we go direct.
+const PIPELINE_API = `${BACKEND_DIRECT}/api/pipeline`
 
 const STATUS_LABELS = {
   sent: { label: 'Sent', color: '#3b82f6' },
@@ -99,9 +106,9 @@ export default function Pipeline() {
     setLoading(true)
     try {
       const url = suburb
-        ? `${API}/api/pipeline/tracking/grouped?suburb=${encodeURIComponent(suburb)}&limit=500`
-        : `${API}/api/pipeline/tracking/grouped?limit=500`
-      const res = await fetch(url)
+        ? `${PIPELINE_API}/tracking/grouped?suburb=${encodeURIComponent(suburb)}&limit=500`
+        : `${PIPELINE_API}/tracking/grouped?limit=500`
+      const res = await fetchWithRetry(url, {}, 4)
       const data = await res.json()
       setGroups(data.groups || [])
     } catch (e) { console.error(e) }

@@ -1,10 +1,99 @@
 /* SuburbDesk v2 visual identity.
  *
- * Every rule is scoped under [data-theme="v2"] on <html> so flipping the
- * attribute back to "classic" instantly restores the original styles
- * with no rebuild — useful as a fast rollback if the new look isn't
- * approved. The data layer is untouched; this is presentation only.
+ * Most rules are scoped under [data-theme="v2"] so they only apply
+ * when the user opts into the full new look. A few wins from v2 are
+ * promoted to ALWAYS-ON below (no data-theme prefix) because the
+ * operator wanted them in the default (classic) mode too:
+ *   - brand purple as the primary action colour
+ *   - active-tab highlight in the header
+ *   - the '+' add-suburb button picks up the brand colour
+ *   - spaced 'All suburbs (15) · 466 listings' row in the sidebar
+ *   - inline meta + 'listings' label colours
  */
+
+:root {
+  --brand: #5B5BD6;
+  --brand-soft: #EEEEFB;
+  --brand-strong: #4848BC;
+}
+
+/* Active tab pill in the header — brand fill on whatever theme. */
+.header-tab.active,
+.tab.active {
+  color: var(--brand) !important;
+  background: var(--brand-soft) !important;
+  font-weight: 600;
+}
+.header-tab:hover,
+.tab:not(.active):hover {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+/* Primary buttons (Generate Letters, Save key, Add user, …) */
+.btn-primary,
+button.btn-primary {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.btn-primary:hover,
+button.btn-primary:hover {
+  background: var(--brand-strong);
+  border-color: var(--brand-strong);
+}
+
+/* The '+' add-suburb button next to the 'Type suburb name…' input.
+ * Match it to the brand so it reads as a primary action, not a
+ * neutral tile. */
+.add-form button[type="submit"],
+.add-form button:not([type]),
+.sidebar .add-suburb-btn {
+  background: var(--brand) !important;
+  border-color: var(--brand) !important;
+  color: #fff !important;
+}
+.add-form button[type="submit"]:hover,
+.add-form button:not([type]):hover,
+.sidebar .add-suburb-btn:hover {
+  background: var(--brand-strong) !important;
+  border-color: var(--brand-strong) !important;
+}
+
+/* All-suburbs sidebar row spacing + listings label — operator
+ * specifically asked for v2's layout here even in classic mode. */
+.suburb-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.suburb-item .suburb-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.suburb-item .suburb-count {
+  flex: 0 0 auto;
+  color: #6B6C75;
+  font-size: 12px;
+}
+.suburb-name-meta {
+  color: #A4A5AD;
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 4px;
+}
+.suburb-count-label {
+  color: #A4A5AD;
+  font-weight: 400;
+  margin-left: 2px;
+}
+.suburb-item:not(.suburb-item-all) .suburb-count-label {
+  display: none;
+}
+
+/* ----------------------------------------------------------------
+ * Honest loading state (used in both themes — no fake skeleton rows).
+ * ---------------------------------------------------------------- */
 
 [data-theme="v2"] {
   --brand: #5B5BD6;

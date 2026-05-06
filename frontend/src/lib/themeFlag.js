@@ -1,24 +1,27 @@
 // Single-flag rollback switch for the v2 visual identity.
 //
-// Default = 'v2'. Toggle via the ThemeToggle button in the header (or
-// `localStorage.setItem('sd_theme', 'classic')` from devtools) to fall
-// back to the original look in one click — useful while the new
-// design is being trialled with users.
+// Default = 'classic' (V1 layout) — but several V2 styling wins
+// (brand purple for active tabs, spaced 'All suburbs' row, '+' add
+// button colour) are promoted to always-on in theme-v2.css so the
+// classic mode keeps the parts the operator liked. Toggle to 'v2'
+// via the header button or
+// `localStorage.setItem('sd_theme', 'v2')` to opt back into the full
+// new identity.
 
 const KEY = 'sd_theme'
 
 export function getTheme() {
   try {
     const v = localStorage.getItem(KEY)
-    return v === 'classic' ? 'classic' : 'v2'
+    return v === 'v2' ? 'v2' : 'classic'
   } catch {
-    return 'v2'
+    return 'classic'
   }
 }
 
 export function setTheme(t) {
   try {
-    localStorage.setItem(KEY, t === 'classic' ? 'classic' : 'v2')
+    localStorage.setItem(KEY, t === 'v2' ? 'v2' : 'classic')
   } catch {}
   applyTheme()
 }
