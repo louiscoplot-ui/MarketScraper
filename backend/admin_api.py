@@ -77,9 +77,12 @@ def get_current_user():
     return user
 
 
-def get_user_suburb_ids(user_id):
-    """Return the list of suburb IDs assigned to a user. Used by data
-    routes to filter what the user sees / can scrape."""
+def get_user_suburb_ids(user_id, is_admin=False):
+    """Return the list of suburb IDs assigned to a user, or None when the
+    caller is an admin (None = no filter, see everything). Existing
+    callers that pass only `user_id` get the legacy list-of-ids behaviour."""
+    if is_admin:
+        return None
     conn = get_db()
     rows = conn.execute(
         "SELECT suburb_id FROM user_suburbs WHERE user_id = ?",
@@ -365,7 +368,23 @@ def register_admin_routes(app):
         if err:
             return err
         ids = get_user_suburb_ids(user_id)
-        return jsonify({'suburb_ids': ids})
+        # Resolve to {id,name} pairs for the frontend chips. Single query
+        # so this stays cheap regardless of how many suburbs the user has.
+        suburbs = []
+        if ids:
+            conn = get_db()
+            placeholders = ','.join(['?'] * len(ids))
+            rows = conn.execute(
+                f"SELECT id, name FROM suburbs WHERE id IN ({placeholders}) ORDER BY name",
+                ids
+            ).fetchall()
+            conn.close()
+            suburbs = [dict(r) for r in rows]
+        return jsonify({
+            'user_id': user_id,
+            'suburb_ids': ids,
+            'suburbs': suburbs,
+        })
 
     @app.route('/api/admin/users/<int:user_id>/suburbs', methods=['PUT'])
     def admin_set_user_suburbs(user_id):
@@ -406,6 +425,11 @@ def register_admin_routes(app):
             conn.close()
             return jsonify({'error': f'DB error: {e}'}), 500
         conn.close()
-        return jsonify({'ok': True, 'count': len(ids)})
+        return jsonify({
+            'user_id': user_id,
+            'suburb_ids': ids,
+            'ok': True,
+            'count': len(ids),
+        })
 
     logger.info("Admin routes registered: /api/admin/{me,users[,/<id>[,/suburbs]]}")

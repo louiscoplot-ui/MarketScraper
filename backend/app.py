@@ -254,19 +254,42 @@ def list_listings():
 
 @app.route('/api/listings/summary', methods=['GET'])
 def listings_summary():
-    """Get a summary of listings counts by suburb and status."""
+    """Get a summary of listings counts by suburb and status. Non-admins
+    only see counts for the suburbs assigned to them — without this
+    filter the sidebar would leak the existence of every suburb in the
+    system regardless of role."""
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
     conn = get_db()
-    rows = conn.execute("""
-        SELECT
-            s.id as suburb_id,
-            s.name as suburb_name,
-            l.status,
-            COUNT(*) as count
-        FROM listings l
-        JOIN suburbs s ON l.suburb_id = s.id
-        GROUP BY s.id, l.status
-        ORDER BY s.name
-    """).fetchall()
+    if allowed is None:
+        rows = conn.execute("""
+            SELECT
+                s.id as suburb_id,
+                s.name as suburb_name,
+                l.status,
+                COUNT(*) as count
+            FROM listings l
+            JOIN suburbs s ON l.suburb_id = s.id
+            GROUP BY s.id, l.status
+            ORDER BY s.name
+        """).fetchall()
+    elif not allowed:
+        conn.close()
+        return jsonify([])
+    else:
+        placeholders = ','.join(['?'] * len(allowed))
+        rows = conn.execute(f"""
+            SELECT
+                s.id as suburb_id,
+                s.name as suburb_name,
+                l.status,
+                COUNT(*) as count
+            FROM listings l
+            JOIN suburbs s ON l.suburb_id = s.id
+            WHERE s.id IN ({placeholders})
+            GROUP BY s.id, l.status
+            ORDER BY s.name
+        """, allowed).fetchall()
     conn.close()
 
     summary = {}

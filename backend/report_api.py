@@ -69,6 +69,7 @@ def _calc_dom(l):
 
 def market_report():
     """Generate market report stats for selected suburbs."""
+    from admin_api import resolve_request_scope
     suburb_ids_str = request.args.get('suburb_ids', '')
     suburb_ids = None
     if suburb_ids_str:
@@ -76,6 +77,20 @@ def market_report():
             suburb_ids = [int(x) for x in suburb_ids_str.split(',') if x.strip()]
         except ValueError:
             pass
+
+    # Per-user suburb scoping. Non-admins can only see suburbs assigned
+    # to them — silently intersect their requested set with allowed,
+    # matching the same behaviour as /api/listings.
+    _, allowed = resolve_request_scope()
+    if allowed is not None:
+        if not allowed:
+            return jsonify({'error': 'No listings found'}), 404
+        if suburb_ids:
+            suburb_ids = [s for s in suburb_ids if s in allowed]
+            if not suburb_ids:
+                return jsonify({'error': 'No listings found'}), 404
+        else:
+            suburb_ids = list(allowed)
 
     listings = get_listings(suburb_ids=suburb_ids)
     if not listings:
