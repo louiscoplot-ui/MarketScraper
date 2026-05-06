@@ -481,6 +481,7 @@ function App() {
             <Report
               report={report} suburbs={suburbs} reportSuburbs={reportSuburbs}
               setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
+              reportLoading={reportLoading}
             />
           ) : view === 'report' ? (
             <LoadingState

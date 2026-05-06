@@ -175,6 +175,19 @@ def market_report():
         if old_p and new_p and new_p < old_p:
             drop_amount = old_p - new_p
             drop_pct = round((drop_amount / old_p) * 100, 1)
+        # Robust fallback chain so the 'When' column is NEVER blank.
+        # Order: explicit changed_at → SQL-side COALESCE
+        # (effective_changed_at) → listing's last_seen → first_seen →
+        # current UTC as a last resort. listings.last_seen is
+        # NOT NULL DEFAULT in the schema, so the chain almost always
+        # resolves before the last hop.
+        when = (
+            pc.get('changed_at')
+            or pc.get('effective_changed_at')
+            or pc.get('last_seen')
+            or pc.get('first_seen')
+            or datetime.utcnow().isoformat()
+        )
         price_drops.append({
             'address': pc.get('address'),
             'suburb': pc.get('suburb_name'),
@@ -182,11 +195,7 @@ def market_report():
             'new_price': pc.get('new_price'),
             'drop_amount': drop_amount,
             'drop_pct': drop_pct,
-            # Prefer the explicit changed_at; fall back to the listing's
-            # last_seen / first_seen for legacy rows that pre-date the
-            # column default. Keeps the When column populated.
-            'changed_at': pc.get('changed_at') or pc.get('effective_changed_at')
-                          or pc.get('last_seen') or pc.get('first_seen'),
+            'changed_at': when,
             'agent': pc.get('agent'),
             'agency': pc.get('agency'),
             'status': pc.get('status'),
