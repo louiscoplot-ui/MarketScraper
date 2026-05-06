@@ -23,6 +23,7 @@ export default function ListingsView({
   filteredListings, suburbs, checkedSuburbs,
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing, mirrorListing,
+  bootLoading,
 }) {
   // Note editor state — `editing` holds the listing whose note we're
   // editing (or null). PATCH writes to listing_notes keyed on the
@@ -322,7 +323,22 @@ export default function ListingsView({
                 })}
               </tr>
             ))}
-            {filteredListings.length === 0 && (
+            {filteredListings.length === 0 && bootLoading && (
+              // Skeleton rows — shown on the very first visit (no
+              // localStorage cache to hydrate from) while the network
+              // fetch is in flight. Gives the operator something
+              // structural to look at instead of a blank table.
+              Array.from({ length: 12 }).map((_, i) => (
+                <tr key={`skeleton-${i}`} className="skeleton-row">
+                  {columns.map(c => (
+                    <td key={c.field} className={c.className}>
+                      <span className="skeleton-bar" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+            {filteredListings.length === 0 && !bootLoading && (
               <tr>
                 <td colSpan={columns.length} className="empty">
                   {suburbs.length === 0

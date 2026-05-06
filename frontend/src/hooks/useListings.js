@@ -53,6 +53,11 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   // is waking up. Network refresh happens immediately after and
   // silently overwrites once it lands.
   const [listings, setListings] = useState(() => readCache(LISTINGS_CACHE) || [])
+  // bootLoading flips to false once the first fetch completes (or
+  // errors). The UI uses this + listings.length===0 to decide between
+  // skeleton rows (first-time visitor, network in flight) and the
+  // 'No listings' empty-state copy.
+  const [bootLoading, setBootLoading] = useState(() => (readCache(LISTINGS_CACHE) || []).length === 0)
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -89,6 +94,8 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       }).catch((e) => console.warn('background fetch (sold/withdrawn) failed:', e))
     } catch (e) {
       console.warn('priority fetchListings failed after retries:', e)
+    } finally {
+      setBootLoading(false)
     }
   }, [])
 
@@ -225,5 +232,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     deleteListing,
     updateListing,
     mirrorListing,
+    bootLoading,
   }
 }

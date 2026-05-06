@@ -42,6 +42,7 @@ function App() {
     listings, fetchListings, filteredListings,
     sortField, sortDir, toggleSort,
     uniqueAgents, uniqueAgencies, deleteListing, updateListing, mirrorListing,
+    bootLoading: listingsBootLoading,
   } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view })
 
   const [theme, setTheme] = useState(() => {
@@ -386,11 +387,15 @@ function App() {
 
           <div className="suburb-list">
             {suburbsLoading && suburbs.length === 0 && (
-              <div className="suburb-item suburb-loading">
-                <span className="suburb-name" style={{ color: '#888', fontStyle: 'italic' }}>
-                  Loading your suburbs…
-                </span>
-              </div>
+              // Skeleton suburb rows — visible structure on first ever
+              // load while /api/suburbs is in flight. Eight rows feels
+              // like 'real' content, single 'Loading' text felt empty.
+              Array.from({ length: 8 }).map((_, i) => (
+                <div key={`sub-skel-${i}`} className="suburb-item suburb-skeleton">
+                  <span className="skeleton-bar" style={{ width: 80 + (i * 7) % 60 + 'px' }} />
+                  <span className="skeleton-bar skeleton-bar-sm" />
+                </div>
+              ))
             )}
             {!suburbsLoading && suburbs.length === 0 && (
               <div className="suburb-item suburb-loading">
@@ -482,6 +487,7 @@ function App() {
               sortField={sortField} sortDir={sortDir} toggleSort={toggleSort}
               calcDOM={calcDOM} formatIsoDate={formatIsoDate}
               deleteListing={deleteListing} updateListing={updateListing} mirrorListing={mirrorListing}
+              bootLoading={listingsBootLoading}
             />
           ) : (
             <div className="logs-view">

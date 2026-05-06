@@ -330,6 +330,43 @@
   font-weight: 600;
 }
 
+/* Skeleton placeholders ------------------------------------------- *
+ * Shown on first-ever visit (no localStorage cache yet) so the user
+ * sees structural content immediately rather than a blank page. The
+ * shimmer animation is subtle — enough to read 'this is loading',
+ * not so much it draws the eye away from real content when it lands. */
+.skeleton-bar {
+  display: inline-block;
+  height: 12px;
+  width: 100%;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.09) 50%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-bar.skeleton-bar-sm { width: 30px; height: 10px; }
+.skeleton-row td {
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+.skeleton-row .skeleton-bar { max-width: 90%; }
+.suburb-skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Sidebar: scrape spinner + progress bar slot --------------------- */
 [data-theme="v2"] .suburb-scraping-bar {
   position: absolute;
