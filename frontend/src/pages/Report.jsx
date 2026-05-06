@@ -56,27 +56,39 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
         ? ` — ${[...reportSuburbs].map(id => suburbs.find(s => s.id === id)?.name).filter(Boolean).join(', ')}`
         : ''}</h2>
       <div className="report-suburb-selector">
-        <label className="report-check-item" onClick={() => {
-          if (reportSuburbs.size === suburbs.length) {
-            setReportSuburbs(new Set())
-          } else {
-            const all = new Set(suburbs.map(s => s.id))
-            setReportSuburbs(all)
-            fetchReport(all)
-          }
-        }}>
-          <input type="checkbox" checked={reportSuburbs.size === suburbs.length} readOnly />
+        {/* Native onChange instead of label-onClick + readOnly so the
+            browser ticks the box instantly on click — the React state
+            update + report refetch run after, asynchronously, and don't
+            block the visual feedback. */}
+        <label className="report-check-item">
+          <input
+            type="checkbox"
+            checked={reportSuburbs.size === suburbs.length && suburbs.length > 0}
+            onChange={(e) => {
+              if (e.target.checked) {
+                const all = new Set(suburbs.map(s => s.id))
+                setReportSuburbs(all)
+                fetchReport(all)
+              } else {
+                setReportSuburbs(new Set())
+              }
+            }}
+          />
           <span>All</span>
         </label>
         {suburbs.map(s => (
-          <label key={s.id} className="report-check-item" onClick={(e) => {
-            e.preventDefault()
-            const next = new Set(reportSuburbs)
-            if (next.has(s.id)) { next.delete(s.id) } else { next.add(s.id) }
-            setReportSuburbs(next)
-            if (next.size > 0) fetchReport(next)
-          }}>
-            <input type="checkbox" checked={reportSuburbs.has(s.id)} readOnly />
+          <label key={s.id} className="report-check-item">
+            <input
+              type="checkbox"
+              checked={reportSuburbs.has(s.id)}
+              onChange={(e) => {
+                const next = new Set(reportSuburbs)
+                if (e.target.checked) next.add(s.id)
+                else next.delete(s.id)
+                setReportSuburbs(next)
+                if (next.size > 0) fetchReport(next)
+              }}
+            />
             <span>{s.name}</span>
           </label>
         ))}
