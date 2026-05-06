@@ -330,7 +330,7 @@ export default function ListingsView({
                     <div className="loading-spinner" />
                     <div className="loading-title">Loading listings…</div>
                     <div className="loading-sub">
-                      First load can take a few seconds while the server warms up.
+                      First load can take 15–30 seconds while the server warms up.
                     </div>
                   </div>
                 </td>

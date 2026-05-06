@@ -5,7 +5,7 @@
 
 export default function LoadingState({
   title = 'Loading…',
-  subtext = 'First load can take 10–15 seconds while the server warms up.',
+  subtext = 'First load can take 15–30 seconds while the server warms up.',
 }) {
   return (
     <div style={{

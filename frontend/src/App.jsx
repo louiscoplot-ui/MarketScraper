@@ -485,7 +485,7 @@ function App() {
           ) : view === 'report' ? (
             <LoadingState
               title="Loading market report…"
-              subtext="Crunching listings, agency share, price changes and snapshots. First load can take 10–15 seconds while the server warms up."
+              subtext="Crunching listings, agency share, price changes and snapshots. First load can take 15–30 seconds while the server warms up."
             />
           ) : view === 'listings' ? (
             <ListingsView

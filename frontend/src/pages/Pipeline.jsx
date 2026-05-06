@@ -313,7 +313,7 @@ export default function Pipeline() {
       {loading || !suburbsLoaded ? (
         <LoadingState
           title="Loading pipeline…"
-          subtext="First load can take 10–15 seconds while the server warms up. Subsequent suburb switches are near-instant."
+          subtext="First load can take 15–30 seconds while the server warms up. Subsequent suburb switches are near-instant."
         />
       ) : groups.length === 0 ? (
         <p style={{ color: '#6b7280' }}>No entries yet. Generate letters to get started.</p>
