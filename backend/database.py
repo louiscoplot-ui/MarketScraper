@@ -517,10 +517,21 @@ def get_scrape_logs(suburb_id=None, limit=20):
 
 
 def get_price_changes(suburb_ids=None, limit=50):
+    """Return recent price changes joined with their listings.
+
+    `effective_changed_at` is COALESCE(ph.changed_at, l.last_seen,
+    l.first_seen) so legacy / pre-default rows that have NULL
+    changed_at still show *some* date in the Market Report — the
+    listing's last_seen is a tight upper bound (the change happened
+    on or before that scrape) and is far better than blanks.
+    """
     conn = get_db()
     query = """
-        SELECT ph.*, l.address, l.reiwa_url, l.agent, l.agency, l.status, l.listing_date,
-               s.name as suburb_name
+        SELECT ph.*,
+               l.address, l.reiwa_url, l.agent, l.agency, l.status,
+               l.listing_date, l.first_seen, l.last_seen,
+               s.name as suburb_name,
+               COALESCE(ph.changed_at, l.last_seen, l.first_seen) AS effective_changed_at
         FROM price_history ph
         JOIN listings l ON ph.listing_id = l.id
         JOIN suburbs s ON l.suburb_id = s.id
@@ -530,7 +541,10 @@ def get_price_changes(suburb_ids=None, limit=50):
         placeholders = ','.join('?' * len(suburb_ids))
         query += f" WHERE l.suburb_id IN ({placeholders})"
         params.extend(suburb_ids)
-    query += " ORDER BY ph.changed_at DESC LIMIT ?"
+    # Sort by the effective date so rows with a NULL changed_at still
+    # land in the right spot chronologically rather than drifting to
+    # the end of the list.
+    query += " ORDER BY COALESCE(ph.changed_at, l.last_seen, l.first_seen) DESC LIMIT ?"
     params.append(limit)
     rows = conn.execute(query, params).fetchall()
     conn.close()

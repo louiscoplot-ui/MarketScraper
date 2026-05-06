@@ -182,7 +182,11 @@ def market_report():
             'new_price': pc.get('new_price'),
             'drop_amount': drop_amount,
             'drop_pct': drop_pct,
-            'changed_at': pc.get('changed_at'),
+            # Prefer the explicit changed_at; fall back to the listing's
+            # last_seen / first_seen for legacy rows that pre-date the
+            # column default. Keeps the When column populated.
+            'changed_at': pc.get('changed_at') or pc.get('effective_changed_at')
+                          or pc.get('last_seen') or pc.get('first_seen'),
             'agent': pc.get('agent'),
             'agency': pc.get('agency'),
             'status': pc.get('status'),
