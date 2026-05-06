@@ -70,11 +70,6 @@ export default function Pipeline() {
   const [editingNote, setEditingNote] = useState(null)
   const [actionModal, setActionModal] = useState(null)
   const [showManualForm, setShowManualForm] = useState(false)
-  // Default the filter to the first allowed suburb (same as the
-  // generator dropdown) so the user lands on a focused view of their
-  // own suburb, not 'All my suburbs' which surfaces old entries from
-  // every suburb they've ever generated for.
-  const [filterSuburb, setFilterSuburb] = useState('')
 
   useEffect(() => {
     fetch(`${API}/api/suburbs`)
@@ -86,26 +81,25 @@ export default function Pipeline() {
           .sort((a, b) => a.localeCompare(b))
         setAllowedSuburbs(names)
         setSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
-        setFilterSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
         setSuburbsLoaded(true)
       })
       .catch(() => { setSuburbsLoaded(true) })
   }, [])
 
-  // Wait for suburbs to load before firing tracking — otherwise we
-  // briefly hit /tracking/grouped with no suburb (= "All my suburbs")
-  // and flash unrelated old entries (e.g. Cottesloe rows for a
-  // Claremont user) before the proper filtered fetch lands.
+  // Reload the tracking table whenever the active suburb changes.
+  // Single source of truth — the generator dropdown is also the
+  // filter, so swapping suburbs immediately surfaces that suburb's
+  // already-generated pipeline entries (no Generate click required).
   useEffect(() => {
-    if (!suburbsLoaded) return
+    if (!suburbsLoaded || !suburb) return
     loadTracking()
-  }, [filterSuburb, suburbsLoaded])
+  }, [suburb, suburbsLoaded])
 
   async function loadTracking() {
     setLoading(true)
     try {
-      const url = filterSuburb
-        ? `${API}/api/pipeline/tracking/grouped?suburb=${encodeURIComponent(filterSuburb)}&limit=500`
+      const url = suburb
+        ? `${API}/api/pipeline/tracking/grouped?suburb=${encodeURIComponent(suburb)}&limit=500`
         : `${API}/api/pipeline/tracking/grouped?limit=500`
       const res = await fetch(url)
       const data = await res.json()
@@ -117,11 +111,6 @@ export default function Pipeline() {
   async function handleGenerate() {
     setGenerating(true)
     setGenerateMsg(null)
-    // Switch the filter to the suburb being generated *immediately*
-    // so the user isn't staring at unrelated entries from a previous
-    // session while generation runs. loadTracking re-fires from the
-    // useEffect dependency on filterSuburb.
-    setFilterSuburb(suburb)
     try {
       const res = await fetch(
         `${API}/api/pipeline/generate?suburb=${encodeURIComponent(suburb)}&days=${days}`
@@ -276,14 +265,9 @@ export default function Pipeline() {
 
       {groups.length > 0 && (
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>Filter by suburb:</span>
-          <select
-            value={filterSuburb}
-            onChange={e => setFilterSuburb(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '13px' }}>
-            <option value="">All my suburbs</option>
-            {allowedSuburbs.map(s => <option key={s}>{s}</option>)}
-          </select>
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>
+            Showing <strong style={{ color: '#1C1D22' }}>{suburb}</strong>
+          </span>
           <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: 'auto' }}>
             {clusters.length} source{clusters.length !== 1 ? 's' : ''} · {groups.length} target{groups.length !== 1 ? 's' : ''}
           </span>
