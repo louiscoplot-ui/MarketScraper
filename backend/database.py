@@ -318,9 +318,17 @@ def upsert_listing(suburb_id, reiwa_url, data):
         new_price = data.get('price_text')
         old_price = existing['price_text']
         if new_price and old_price and new_price != old_price:
+            # Stamp the exact UTC moment the scraper saw the diff. We
+            # don't rely on the column DEFAULT because (a) it lets the
+            # Market Report 'When' column reflect detection time
+            # precisely and (b) bulk imports / older code paths
+            # wouldn't fill it consistently.
             conn.execute(
-                "INSERT INTO price_history (listing_id, old_price, new_price) VALUES (?, ?, ?)",
-                (existing['id'], old_price, new_price)
+                "INSERT INTO price_history "
+                "(listing_id, old_price, new_price, changed_at) "
+                "VALUES (?, ?, ?, ?)",
+                (existing['id'], old_price, new_price,
+                 datetime.utcnow().isoformat())
             )
 
         clear_withdrawn = existing['status'] == 'withdrawn' and new_status != 'withdrawn'
