@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { fetchWithRetry, BACKEND_DIRECT } from '../lib/api'
+import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from '../lib/api'
 
 const API = '/api'
 // GET /api/listings is the heaviest bootstrap call (full table for the
 // user's allowed suburbs). Go direct to Render so a cold start doesn't
 // 504 through Vercel's 25s edge proxy.
 const BOOT_LISTINGS = `${BACKEND_DIRECT}/api/listings`
+const LISTINGS_CACHE = 'listings'
 
 
 function parseDateToSortable(dateStr) {
@@ -47,7 +48,11 @@ export function formatIsoDate(iso) {
 
 
 export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view }) {
-  const [listings, setListings] = useState([])
+  // Hydrate from localStorage synchronously so the table renders on
+  // first paint — operator never stares at an empty page while Render
+  // is waking up. Network refresh happens immediately after and
+  // silently overwrites once it lands.
+  const [listings, setListings] = useState(() => readCache(LISTINGS_CACHE) || [])
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -57,6 +62,9 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   // background and merge them in. Nothing is hidden — every status is
   // loaded eventually — but the user sees content immediately instead
   // of staring at a spinner while a 5000-row payload streams.
+  //
+  // Cache the merged result to localStorage so subsequent visits land
+  // on real data on first paint (stale-while-revalidate).
   const fetchListings = useCallback(async () => {
     const fetchSet = async (statuses) => {
       const url = statuses
@@ -69,12 +77,13 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     try {
       const priority = await fetchSet('active,under_offer')
       setListings(priority)
-      // Kick the rest off without blocking; merge by id when it lands.
+      writeCache(LISTINGS_CACHE, priority)
       fetchSet('sold,withdrawn').then((rest) => {
         setListings((prev) => {
           const seen = new Set(prev.map((l) => l.id))
           const merged = prev.slice()
           for (const r of rest) if (!seen.has(r.id)) merged.push(r)
+          writeCache(LISTINGS_CACHE, merged)
           return merged
         })
       }).catch((e) => console.warn('background fetch (sold/withdrawn) failed:', e))

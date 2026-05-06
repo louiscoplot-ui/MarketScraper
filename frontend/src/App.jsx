@@ -8,16 +8,20 @@ import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
-import { fetchWithRetry, BACKEND_DIRECT } from './lib/api'
+import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from './lib/api'
 const API = '/api'
 // Bootstrap fetches go direct to Render to bypass Vercel's 25s edge
 // timeout — without this, a cold Render dyno (30-60s wake) returns
 // 504 to the browser and the sidebar stays blank.
 const BOOT_API = `${BACKEND_DIRECT}/api`
+const SUBURBS_CACHE = 'suburbs'
 
 function App() {
-  const [suburbs, setSuburbs] = useState([])
-  const [suburbsLoading, setSuburbsLoading] = useState(true)
+  // Hydrate from cache so the sidebar paints instantly on returning
+  // visits. Network refresh comes in afterwards and silently
+  // overwrites — stale-while-revalidate.
+  const [suburbs, setSuburbs] = useState(() => readCache(SUBURBS_CACHE) || [])
+  const [suburbsLoading, setSuburbsLoading] = useState(() => (readCache(SUBURBS_CACHE) || []).length === 0)
   const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
   const [checkedSuburbs, setCheckedSuburbs] = useState(new Set())
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(['active', 'under_offer']))
@@ -80,6 +84,7 @@ function App() {
     if (res.ok) {
       const data = await res.json()
       setSuburbs(data)
+      writeCache(SUBURBS_CACHE, data)
       setCheckedSuburbs(prev => {
         if (prev.size === 0 && data.length > 0) return new Set(data.map(s => s.id))
         return prev

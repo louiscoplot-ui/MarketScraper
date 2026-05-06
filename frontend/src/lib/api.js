@@ -72,3 +72,32 @@ export async function fetchWithRetry(url, options = {}, tries = 4) {
   }
   throw lastErr || new Error('fetchWithRetry: out of attempts')
 }
+
+// localStorage cache for slow bootstrap data (listings, suburbs).
+// Stale-while-revalidate UX: on page load we render the previous
+// snapshot instantly, then refresh in the background. The key is
+// scoped to the access_key prefix so two users on the same browser
+// (admin + beta tester) don't see each other's cached data.
+function _cacheKey(suffix) {
+  const k = getAccessKey() || 'anon'
+  return `sd_cache_${k.slice(0, 8)}_${suffix}`
+}
+
+export function readCache(suffix) {
+  try {
+    const raw = localStorage.getItem(_cacheKey(suffix))
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function writeCache(suffix, value) {
+  try {
+    localStorage.setItem(_cacheKey(suffix), JSON.stringify(value))
+  } catch {
+    // Storage full or private mode — silently skip; the network is
+    // still the source of truth.
+  }
+}
