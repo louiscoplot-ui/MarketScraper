@@ -330,7 +330,7 @@ export default function ListingsView({
                     <div className="loading-spinner" />
                     <div className="loading-title">Loading listings…</div>
                     <div className="loading-sub">
-                      First load can take a few seconds while the server warms up. No fake data shown — every row you'll see is real.
+                      First load can take a few seconds while the server warms up.
                     </div>
                   </div>
                 </td>
