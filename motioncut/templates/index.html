@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MotionCut — Local Video Editor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Orbitron:wght@400;600;800&family=Teko:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700;900&family=JetBrains+Mono:wght@400;600&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">MOTIONCUT</span>
+    <span class="brand-tag">local video editor</span>
+  </div>
+  <div class="topbar-actions">
+    <button id="undoBtn" class="btn ghost" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="redoBtn" class="btn ghost" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <button id="saveProjectBtn" class="btn ghost">Save Project</button>
+    <label class="btn ghost" for="loadProjectInput">Load Project</label>
+    <input id="loadProjectInput" type="file" accept="application/json" hidden>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- LEFT SIDEBAR -->
+  <aside class="panel left">
+    <section class="panel-section">
+      <h3>Media</h3>
+      <div id="dropZone" class="dropzone">
+        <p><b>Drop video / image</b><br>or click to browse</p>
+        <p class="muted">MP4 · MOV · JPG · PNG · up to 2GB</p>
+        <input id="fileInput" type="file" accept="video/*,image/*" hidden>
+      </div>
+      <div id="mediaInfo" class="media-info muted">No media loaded.</div>
+    </section>
+
+    <section class="panel-section">
+      <h3>Text Layers</h3>
+      <button id="addTextBtn" class="btn primary block">+ Add Text Layer</button>
+      <div id="layerList" class="layer-list"></div>
+    </section>
+
+    <section class="panel-section">
+      <h3>Logo / Watermark</h3>
+      <label class="btn ghost block" for="logoInput">Upload PNG Logo</label>
+      <input id="logoInput" type="file" accept="image/png,image/jpeg" hidden>
+      <div class="grid-2">
+        <button class="btn small" data-logo-pos="tl">Top Left</button>
+        <button class="btn small" data-logo-pos="tr">Top Right</button>
+        <button class="btn small" data-logo-pos="bl">Bottom Left</button>
+        <button class="btn small" data-logo-pos="br">Bottom Right</button>
+        <button class="btn small block-2" data-logo-pos="c">Center</button>
+      </div>
+      <label class="row">Opacity
+        <input id="logoOpacity" type="range" min="0" max="1" step="0.05" value="1">
+      </label>
+      <label class="row">Size
+        <input id="logoSize" type="range" min="40" max="600" step="2" value="180">
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>Music</h3>
+      <label class="btn ghost block" for="musicInput">Upload MP3 / WAV</label>
+      <input id="musicInput" type="file" accept="audio/*" hidden>
+      <div id="musicInfo" class="muted">No music.</div>
+      <label class="row">Volume
+        <input id="musicVolume" type="range" min="0" max="1" step="0.01" value="0.8">
+      </label>
+      <label class="row inline">
+        <input id="musicFadeIn" type="checkbox"> Fade In
+      </label>
+      <label class="row inline">
+        <input id="musicFadeOut" type="checkbox"> Fade Out
+      </label>
+      <label class="row inline">
+        <input id="musicReplace" type="checkbox" checked> Replace original audio
+      </label>
+    </section>
+
+    <section class="panel-section">
+      <h3>Effects</h3>
+      <label class="row inline"><input id="fxVignette" type="checkbox"> Vignette</label>
+      <label class="row inline"><input id="fxGrain" type="checkbox"> Film Grain</label>
+      <label class="row inline"><input id="fxLetterbox" type="checkbox"> Letterbox bars</label>
+      <label class="row">Color Grade
+        <select id="fxGrade">
+          <option value="natural">Natural</option>
+          <option value="cinematic">Cinematic</option>
+          <option value="teal_orange">Teal &amp; Orange</option>
+          <option value="moody_dark">Moody Dark</option>
+          <option value="bright_airy">Bright &amp; Airy</option>
+          <option value="bw">Black &amp; White</option>
+        </select>
+      </label>
+    </section>
+  </aside>
+
+  <!-- CENTER STAGE -->
+  <section class="stage">
+    <div class="stage-toolbar">
+      <button id="playBtn" class="btn">▶ Play</button>
+      <span id="timeReadout" class="time">00:00 / 00:00</span>
+      <input id="scrubber" type="range" min="0" max="1000" value="0" step="1">
+      <select id="aspectSel" class="select-inline">
+        <option value="16:9">16 : 9</option>
+        <option value="9:16">9 : 16</option>
+      </select>
+    </div>
+    <div id="canvasWrap" class="canvas-wrap">
+      <video id="video" preload="metadata" playsinline></video>
+      <canvas id="overlay"></canvas>
+      <div id="canvasEmpty" class="canvas-empty">
+        <div>
+          <h2>MotionCut</h2>
+          <p>Upload a video to begin.</p>
+        </div>
+      </div>
+    </div>
+    <div class="stage-footer muted">
+      Shortcuts: <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> ±1 frame · <kbd>Del</kbd> remove layer · <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd> undo/redo
+    </div>
+  </section>
+
+  <!-- RIGHT SIDEBAR -->
+  <aside class="panel right">
+    <section class="panel-section">
+      <h3>Templates</h3>
+      <div class="template-list">
+        <button class="tpl" data-tpl="cinematic"><b>Cinematic</b><span>Letterbox · centered title</span></button>
+        <button class="tpl" data-tpl="real_estate"><b>Real Estate</b><span>Drone · property name · price</span></button>
+        <button class="tpl" data-tpl="travel"><b>Travel</b><span>Reveal title · pin location</span></button>
+        <button class="tpl" data-tpl="social"><b>Social 9:16</b><span>Bold top · hashtag bottom</span></button>
+        <button class="tpl" data-tpl="corporate"><b>Corporate</b><span>Minimal · gold rule · tagline</span></button>
+      </div>
+    </section>
+
+    <section class="panel-section" id="layerEditorPanel">
+      <h3>Selected Layer</h3>
+      <div id="layerEditor" class="muted">Select a layer to edit.</div>
+    </section>
+
+    <section class="panel-section">
+      <h3>Export</h3>
+      <div class="row">
+        <button id="export169" class="btn primary block">Export 16 : 9</button>
+      </div>
+      <div class="row">
+        <button id="export916" class="btn primary block">Export 9 : 16</button>
+      </div>
+      <div id="exportProgressWrap" class="progress-wrap" hidden>
+        <div class="progress"><div id="exportProgress" class="progress-bar"></div></div>
+        <div id="exportStatus" class="muted">Preparing…</div>
+      </div>
+      <div id="exportLink" class="export-link" hidden></div>
+    </section>
+  </aside>
+</main>
+
+<script src="/static/js/editor.js"></script>
+</body>
+</html>
