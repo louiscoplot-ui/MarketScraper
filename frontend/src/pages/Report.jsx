@@ -26,9 +26,13 @@ function fmtPerthFull(s) {
 
 // Compact "when" cell — relative for recent events, absolute date
 // after a week so the agent can scan the table at a glance.
+//
+// If the date is missing or unparseable, return '—' (em dash) so the
+// cell is never visually blank — that ambiguity used to read as 'no
+// data' rather than 'unknown'.
 function fmtRelative(s) {
   const d = _toUtcDate(s)
-  if (!d) return ''
+  if (!d) return s ? String(s) : '—'
   const ms = Date.now() - d.getTime()
   const mins = Math.floor(ms / 60000)
   if (mins < 1) return 'just now'
