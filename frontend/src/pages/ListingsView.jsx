@@ -324,19 +324,17 @@ export default function ListingsView({
               </tr>
             ))}
             {filteredListings.length === 0 && bootLoading && (
-              // Skeleton rows — shown on the very first visit (no
-              // localStorage cache to hydrate from) while the network
-              // fetch is in flight. Gives the operator something
-              // structural to look at instead of a blank table.
-              Array.from({ length: 12 }).map((_, i) => (
-                <tr key={`skeleton-${i}`} className="skeleton-row">
-                  {columns.map(c => (
-                    <td key={c.field} className={c.className}>
-                      <span className="skeleton-bar" />
-                    </td>
-                  ))}
-                </tr>
-              ))
+              <tr>
+                <td colSpan={columns.length} className="loading-cell">
+                  <div className="loading-stack">
+                    <div className="loading-spinner" />
+                    <div className="loading-title">Loading listings…</div>
+                    <div className="loading-sub">
+                      First load can take a few seconds while the server warms up. No fake data shown — every row you'll see is real.
+                    </div>
+                  </div>
+                </td>
+              </tr>
             )}
             {filteredListings.length === 0 && !bootLoading && (
               <tr>

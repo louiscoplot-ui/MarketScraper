@@ -387,15 +387,12 @@ function App() {
 
           <div className="suburb-list">
             {suburbsLoading && suburbs.length === 0 && (
-              // Skeleton suburb rows — visible structure on first ever
-              // load while /api/suburbs is in flight. Eight rows feels
-              // like 'real' content, single 'Loading' text felt empty.
-              Array.from({ length: 8 }).map((_, i) => (
-                <div key={`sub-skel-${i}`} className="suburb-item suburb-skeleton">
-                  <span className="skeleton-bar" style={{ width: 80 + (i * 7) % 60 + 'px' }} />
-                  <span className="skeleton-bar skeleton-bar-sm" />
-                </div>
-              ))
+              <div className="suburb-item suburb-loading">
+                <span className="loading-spinner loading-spinner-sm" />
+                <span className="suburb-name" style={{ color: '#888', fontStyle: 'italic', fontSize: 13 }}>
+                  Loading your suburbs…
+                </span>
+              </div>
             )}
             {!suburbsLoading && suburbs.length === 0 && (
               <div className="suburb-item suburb-loading">

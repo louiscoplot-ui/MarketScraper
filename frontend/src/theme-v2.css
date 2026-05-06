@@ -330,41 +330,50 @@
   font-weight: 600;
 }
 
-/* Skeleton placeholders ------------------------------------------- *
- * Shown on first-ever visit (no localStorage cache yet) so the user
- * sees structural content immediately rather than a blank page. The
- * shimmer animation is subtle — enough to read 'this is loading',
- * not so much it draws the eye away from real content when it lands. */
-.skeleton-bar {
-  display: inline-block;
-  height: 12px;
-  width: 100%;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    rgba(0, 0, 0, 0.04) 0%,
-    rgba(0, 0, 0, 0.09) 50%,
-    rgba(0, 0, 0, 0.04) 100%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+/* Honest loading state ------------------------------------------- *
+ * Shown on first-ever visit (no localStorage cache yet) while the
+ * fetch is in flight. No fake rows — just a clear spinner and a
+ * single sentence so the operator knows the page is alive and the
+ * data they're about to see is real. */
+.loading-cell {
+  padding: 48px 24px !important;
+  text-align: center !important;
 }
-.skeleton-bar.skeleton-bar-sm { width: 30px; height: 10px; }
-.skeleton-row td {
-  padding-top: 10px !important;
-  padding-bottom: 10px !important;
-}
-.skeleton-row .skeleton-bar { max-width: 90%; }
-.suburb-skeleton {
+.loading-stack {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 12px;
 }
-@keyframes skeleton-shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+.loading-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.08);
+  border-top-color: #5B5BD6;
+  animation: loading-spin 0.7s linear infinite;
+}
+.loading-spinner-sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+.loading-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1C1D22;
+}
+.loading-sub {
+  font-size: 12px;
+  color: #6B6C75;
+  max-width: 360px;
+  line-height: 1.5;
+}
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Sidebar: scrape spinner + progress bar slot --------------------- */
