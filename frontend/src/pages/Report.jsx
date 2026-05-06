@@ -46,9 +46,10 @@ function fmtRelative(s) {
   })
 }
 
-export default function Report({ report, suburbs, reportSuburbs, setReportSuburbs, fetchReport }) {
-  if (!report) return null
-
+export default function Report({ report, suburbs, reportSuburbs, setReportSuburbs, fetchReport, reportLoading }) {
+  // Render the header + suburb selector even while loading so the
+  // checkboxes update instantly when the user toggles them. The data
+  // area below swaps to a loading indicator until the new fetch lands.
   return (
     <div className="report-view">
       <h2>Market Report{reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length
@@ -80,6 +81,22 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           </label>
         ))}
       </div>
+      {(!report || reportLoading) ? (
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 12, padding: '48px 24px', textAlign: 'center',
+        }}>
+          <div className="loading-spinner" />
+          <div style={{ fontWeight: 600, fontSize: 14, color: '#1C1D22' }}>
+            Loading market report…
+          </div>
+          <div style={{ fontSize: 12, color: '#6B6C75', maxWidth: 380, lineHeight: 1.5 }}>
+            Crunching listings, agency share, price changes and snapshots.
+            First load can take 15–30 seconds while the server warms up.
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="report-grid">
         <div className="report-card">
           <h3>Overview</h3>
@@ -352,7 +369,8 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
             </table>
           </div>
         )}
-      </div>
+      </>
+      )}
     </div>
   )
 }
