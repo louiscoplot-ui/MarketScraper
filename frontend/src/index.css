@@ -879,12 +879,44 @@ tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
   background: var(--surface-hover);
 }
 
+/* Custom-painted checkbox so the checked state is unambiguous and
+   doesn't depend on the browser's accent-color rendering, which is
+   too subtle on a 16px box during a busy re-render — operators
+   reported clicking 5x thinking the toggle was broken. */
 .report-check-item input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--primary);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
   cursor: pointer;
   margin: 0;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.05s, border-color 0.05s;
+}
+
+.report-check-item input[type="checkbox"]:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.report-check-item input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.report-check-item:has(input:checked) {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .report-check-item:first-child {
