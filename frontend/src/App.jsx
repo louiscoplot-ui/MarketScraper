@@ -33,6 +33,7 @@ function App() {
   const [logs, setLogs] = useState([])
   const [view, setView] = useState('listings')
   const [report, setReport] = useState(null)
+  const [reportLoading, setReportLoading] = useState(false)
   const [reportSuburbs, setReportSuburbs] = useState(new Set())
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')

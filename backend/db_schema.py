@@ -362,5 +362,26 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_user_suburbs_suburb ON user_suburbs(suburb_id);
     """)
 
+    # One-shot backfill: legacy price_history rows that have NULL or
+    # empty changed_at (pre-default inserts, bulk imports) get
+    # populated from the joined listing's last_seen — the tightest
+    # upper bound we have on when the diff was actually detected.
+    # Falls through to first_seen if last_seen is also empty.
+    try:
+        conn.execute("""
+            UPDATE price_history
+               SET changed_at = COALESCE(
+                   (SELECT l.last_seen FROM listings l WHERE l.id = price_history.listing_id),
+                   (SELECT l.first_seen FROM listings l WHERE l.id = price_history.listing_id)
+               )
+             WHERE changed_at IS NULL OR changed_at = ''
+        """)
+        conn.commit()
+    except Exception as e:
+        # Non-fatal — boot must succeed even if the backfill hits an
+        # edge case (e.g. very small DB, missing listing rows).
+        try: conn.rollback()
+        except Exception: pass
+
     conn.commit()
     conn.close()
