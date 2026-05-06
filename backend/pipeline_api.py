@@ -60,8 +60,9 @@ def _street_cache_key(street, suburb):
 
 def _osm_street_numbers_cached(conn, street, suburb):
     """Cached lookup; returns list[int] of every house number we've seen
-    on this street (across HV, listings, and OSM). Empty list = miss
-    fresh enough to not retry — TTL handled by caller."""
+    on this street (across HV, listings, and OSM). Returns None when the
+    cache row is missing OR older than OSM_CACHE_TTL_DAYS so the caller
+    re-fetches from Overpass and refreshes the row."""
     key = _street_cache_key(street, suburb)
     try:
         row = conn.execute(
@@ -74,6 +75,19 @@ def _osm_street_numbers_cached(conn, street, suburb):
         return None
     try:
         d = dict(row)
+        fetched = d.get('fetched_at')
+        if fetched:
+            try:
+                # Postgres returns datetime, SQLite returns ISO/space-separated string.
+                if isinstance(fetched, datetime):
+                    fetched_dt = fetched
+                else:
+                    fetched_dt = datetime.fromisoformat(str(fetched).replace(' ', 'T').replace('Z', ''))
+                if datetime.utcnow() - fetched_dt > timedelta(days=OSM_CACHE_TTL_DAYS):
+                    return None
+            except (ValueError, TypeError):
+                # Unparseable timestamp — treat as stale and re-fetch.
+                return None
         nums = json.loads(d.get('numbers') or '[]')
         return [int(n) for n in nums]
     except Exception:

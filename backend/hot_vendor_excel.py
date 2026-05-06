@@ -38,8 +38,11 @@ LGY_TXT = '95A5A6'
 CAT_FILL = {'HOT': HRL, 'WARM': WOL, 'MEDIUM': MYL, 'LOW': LGL}
 CAT_TEXT = {'HOT': HR_TXT, 'WARM': WO_TXT, 'MEDIUM': MY_TXT, 'LOW': LGY_TXT}
 
-# N/A owner placeholder — flagged in amber so the agent verifies on Landgate
-OWNER_NA = 'N/A — verify on Landgate'
+# Empty-owner sentinel — flagged in amber so the agent verifies on Landgate.
+# Was previously the literal string 'N/A — verify on Landgate' but that string
+# was leaking into prospecting letters as the salutation. Empty string keeps
+# the amber-flag detection working while never appearing in user-facing output.
+OWNER_NA = ''
 OWNER_NA_FILL = 'FFF8E7'
 OWNER_NA_TEXT = '856404'
 

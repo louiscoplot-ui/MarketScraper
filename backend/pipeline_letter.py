@@ -241,7 +241,13 @@ def _agency_footer(doc):
 
 def render_letter_docx(target_address, owner_name, source_suburb, sources):
     """Build a complete Acton | Belle Property letter."""
-    owner = (owner_name or '').strip() or 'Homeowner'
+    raw = (owner_name or '').strip()
+    # Reject the legacy "N/A — verify on Landgate" placeholder that still
+    # lives in pipeline_tracking rows from before the fix at source.
+    if not raw or raw.lower().startswith('n/a'):
+        owner = 'Owner'
+    else:
+        owner = raw
     addr_phrase, sale_phrase = format_sources_inline(sources)
     multi = len(sources) > 1
 

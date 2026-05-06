@@ -52,9 +52,11 @@ def detect_current_owner(last, columns):
 
     if o1:
         return o1, o2
-    # Buyer not recorded — surface this explicitly so the user verifies
-    # on Landgate instead of getting a silently-wrong name on a letter.
-    return 'N/A — verify on Landgate', None
+    # Buyer not recorded — return empty so downstream consumers don't
+    # paste the placeholder into a prospecting letter ("Dear N/A —
+    # verify on Landgate,"). The Excel pipeline still detects empty
+    # owners via OWNER_NA == '' and amber-flags them for manual lookup.
+    return '', None
 
 
 def reconstruct_properties(clean_df, today):

@@ -25,6 +25,32 @@ from scraper import scrape_suburb, verify_disappeared_listings
 logger = logging.getLogger(__name__)
 
 
+def _parse_price(price_text):
+    """Best-effort dollar amount from a free-text REIWA price string.
+    Handles m/k suffixes — "low $1m" → 1_000_000, "from $775k" → 775_000.
+    The previous regex r'\\$([\\d,]+)' silently dropped suffixes so
+    "low $1m" was read as $1 and corrupted market_snapshots.median_price."""
+    if not price_text:
+        return None
+    s = price_text.lower().replace(',', '')
+    m = _re.search(
+        r'\$?\s*(\d+(?:\.\d+)?)\s*(m(?:il(?:lion)?)?|k|thousand)?\b',
+        s,
+    )
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    suffix = (m.group(2) or '')
+    if suffix.startswith('m'):
+        val *= 1_000_000
+    elif suffix.startswith('k') or suffix == 'thousand':
+        val *= 1_000
+    return int(round(val))
+
+
 scrape_jobs = {}
 scrape_cancel = set()
 
@@ -195,15 +221,9 @@ def run_scrape(suburb_id, slug, name):
             snap_prices = []
             for r in snap_active:
                 pt = r['price_text']
-                if pt:
-                    m = _re.search(r'\$([\d,]+)', pt.replace(' ', ''))
-                    if m:
-                        try:
-                            p = int(m.group(1).replace(',', ''))
-                            if p >= 100000:
-                                snap_prices.append(p)
-                        except ValueError:
-                            pass
+                p = _parse_price(pt)
+                if p and p >= 100000:
+                    snap_prices.append(p)
             snap_prices.sort()
             median_p = snap_prices[len(snap_prices)//2] if snap_prices else None
 
