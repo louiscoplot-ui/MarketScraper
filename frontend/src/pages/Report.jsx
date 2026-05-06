@@ -2,6 +2,8 @@
 // the MCP push size limit. All state still lives in App.jsx; this
 // component is purely presentational.
 
+import { startTransition, memo } from 'react'
+
 const PERTH_TZ = 'Australia/Perth'
 
 // Backend stores changed_at as naive UTC (datetime('now') / utcnow().
@@ -68,7 +70,12 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               if (e.target.checked) {
                 const all = new Set(suburbs.map(s => s.id))
                 setReportSuburbs(all)
-                requestAnimationFrame(() => fetchReport(all))
+                // startTransition marks fetchReport's state updates
+                // (setReportLoading + setReport) as non-urgent so React
+                // commits + paints the checkbox tick BEFORE swapping the
+                // data area to the loading spinner. Without this, the
+                // heavy unmount of the report-grid steals the paint slot.
+                startTransition(() => fetchReport(all))
               } else {
                 setReportSuburbs(new Set())
               }
@@ -86,13 +93,12 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 if (e.target.checked) next.add(s.id)
                 else next.delete(s.id)
                 setReportSuburbs(next)
-                // Defer the fetch (and its setReportLoading) one paint
-                // frame so the browser commits the checkbox tick first.
-                // Without this, React's heavy re-render that swaps the
-                // data area to LoadingState steals the paint slot and
-                // the operator never sees the tick before the spinner.
+                // startTransition marks fetchReport's state updates as
+                // non-urgent. The urgent setReportSuburbs above paints
+                // the checkbox tick first; the data area swap to the
+                // loading spinner happens after the tick is visible.
                 if (next.size > 0) {
-                  requestAnimationFrame(() => fetchReport(next))
+                  startTransition(() => fetchReport(next))
                 }
               }}
             />
