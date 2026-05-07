@@ -388,6 +388,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
             </table>
           </div>
         )}
+      </div>
       </>
       )}
     </div>
