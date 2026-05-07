@@ -10,8 +10,9 @@ const PERTH_TZ = 'Australia/Perth'
 // rules:
 //   < 1h   → "Just now" / "X min ago"
 //   < 24h  → "Xh ago"
-//   < 7d   → "Sat 3 May 21:51"
-//   ≥ 7d   → "3 May 2026 21:51"
+//   ≥ 24h  → "3 May 2026 21:51"  (always day + month + YEAR + time —
+//            the older "Fri 1 May" bucket was dropped per UX feedback,
+//            year was the missing detail operators wanted)
 //
 // Microseconds are stripped because JS Date only supports ms precision
 // — the raw ".431894" suffix used to slip through and produce Invalid
@@ -40,10 +41,6 @@ function formatWhen(raw) {
     return mins <= 1 ? 'Just now' : `${mins} min ago`
   }
   if (diffH < 24) return `${Math.floor(diffH)}h ago`
-  if (diffH < 168) {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${time}`
-  }
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${time}`
 }
 
