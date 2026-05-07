@@ -35,6 +35,14 @@ window.fetch = (input, init = {}) => {
   return _originalFetch(input, init)
 }
 
+// Render free-tier sleeps after 15min idle. Fire a silent /api/ping
+// the instant the app shell loads so the dyno is already warming
+// while the user reads the login screen / sidebar — by the time they
+// click anything the 30-60s cold-start is mostly absorbed. Direct to
+// Render to bypass Vercel's 25s edge timeout. Fire-and-forget: no
+// await, no error display — failure here is harmless.
+fetch(`https://${BACKEND_HOST}/api/ping`).catch(() => {})
+
 // Lightweight URL-based routing — no React Router. The print view is a
 // truly separate render tree (no header, sidebar, or theme controls)
 // because letters need a clean canvas for browser print.

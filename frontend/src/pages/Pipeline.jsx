@@ -201,43 +201,39 @@ export default function Pipeline() {
     loadTracking()
   }
 
-  function downloadLetter(representativeId, targetAddress) {
-    // window.open bypassed the global fetch interceptor that injects
-    // X-Access-Key, so the backend's auth gate returned
-    // {"error":"Not authenticated"}. Authenticated fetch + Blob → <a>
-    // download keeps the same UX (file lands in Downloads) but carries
-    // the access_key header.
+  async function downloadLetter(representativeId, targetAddress) {
+    // Explicit X-Access-Key header instead of relying on the global
+    // window.fetch interceptor — survives any future refactor of the
+    // interceptor and makes the auth contract visible at the call site.
+    // (Storage key matches lib/api.js: ACCESS_KEY_STORAGE = 'agentdeck_access_key'.)
     setDownloadingIds(prev => {
       const next = new Set(prev); next.add(representativeId); return next
     })
-    fetch(`${API}/api/pipeline/letter/${representativeId}/download`)
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text().catch(() => '')
-          throw new Error(text || `HTTP ${res.status}`)
-        }
-        return res.blob()
+    try {
+      const accessKey = localStorage.getItem('agentdeck_access_key') || ''
+      const resp = await fetch(
+        `${API}/api/pipeline/letter/${representativeId}/download`,
+        { headers: { 'X-Access-Key': accessKey } }
+      )
+      if (!resp.ok) throw new Error(await resp.text())
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const safe = (targetAddress || 'letter').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 60) || `letter_${representativeId}`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `letter_${safe}.docx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Letter download failed:', err)
+      alert('Could not download letter — please refresh and try again.')
+    } finally {
+      setDownloadingIds(prev => {
+        const next = new Set(prev); next.delete(representativeId); return next
       })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob)
-        const safe = (targetAddress || 'letter').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 60)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `letter_${safe}.docx`
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        URL.revokeObjectURL(url)
-      })
-      .catch((err) => {
-        console.error('Letter download failed:', err)
-        alert('Could not download letter — please refresh and try again.')
-      })
-      .finally(() => {
-        setDownloadingIds(prev => {
-          const next = new Set(prev); next.delete(representativeId); return next
-        })
-      })
+    }
   }
 
   function handleExportCSV() {
