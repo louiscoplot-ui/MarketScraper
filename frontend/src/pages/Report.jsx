@@ -4,60 +4,63 @@
 
 const PERTH_TZ = 'Australia/Perth'
 
-// Backend stores changed_at as naive UTC (datetime('now') / utcnow().
-// isoformat()). Force-interpret as UTC so JS doesn't read it as local.
-function _toUtcDate(s) {
-  if (!s) return null
-  let iso = String(s).includes('T') ? String(s) : String(s).replace(' ', 'T')
-  // Postgres serialises timestamptz with a 2-digit offset like "+00".
-  // Most JS Date parsers reject that — they want "+00:00" or "+0000".
-  // Pad it before parsing, otherwise the raw ISO string leaks into
-  // the WHEN column of the report.
-  iso = iso.replace(/([+-])(\d{2})$/, '$1$2:00')
-  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)) iso += 'Z'
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? null : d
+// Single source of truth for WHEN-column formatting in the Price
+// Changes table. Handles every shape Postgres / SQLite can serialise
+// (space separator, microseconds, +00 short tz, no tz at all). Output
+// rules:
+//   < 1h   → "Just now" / "X min ago"
+//   < 24h  → "Xh ago"
+//   < 7d   → "Sat 3 May 21:51"
+//   ≥ 7d   → "3 May 2026 21:51"
+//
+// Microseconds are stripped because JS Date only supports ms precision
+// — the raw ".431894" suffix used to slip through and produce Invalid
+// Date in some browsers, leaking the raw ISO string into the cell.
+function formatWhen(raw) {
+  if (!raw) return '—'
+  // 1. Replace SQL space separator with ISO 'T'
+  // 2. Drop sub-second fractional digits ('.431894') so JS Date parses
+  // 3. Pad Postgres '+00' short-form to '+00:00' so all browsers accept
+  let cleaned = String(raw).replace(' ', 'T').replace(/(\.\d+)/, '')
+  cleaned = cleaned.replace(/([+-])(\d{2})$/, '$1$2:00')
+  // No timezone → naive UTC (matches backend's datetime.utcnow().isoformat())
+  if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(cleaned)) cleaned += 'Z'
+  const d = new Date(cleaned)
+  if (isNaN(d.getTime())) return '—'
+  const now = new Date()
+  const diffMs = now - d
+  const diffH = diffMs / (1000 * 60 * 60)
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const time = `${hh}:${mm}`
+  if (diffH < 1) {
+    const mins = Math.floor(diffMs / 60000)
+    return mins <= 1 ? 'Just now' : `${mins} min ago`
+  }
+  if (diffH < 24) return `${Math.floor(diffH)}h ago`
+  if (diffH < 168) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${time}`
+  }
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${time}`
 }
 
-function fmtPerthFull(s) {
-  const d = _toUtcDate(s)
-  if (!d) return ''
+// Tooltip for the WHEN cell — full date + time so the operator can
+// hover for an exact value when they want one. Uses formatWhen's
+// parsing so any string formatWhen accepts also works here.
+function fmtFullTooltip(raw) {
+  if (!raw) return ''
+  let cleaned = String(raw).replace(' ', 'T').replace(/(\.\d+)/, '')
+  cleaned = cleaned.replace(/([+-])(\d{2})$/, '$1$2:00')
+  if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(cleaned)) cleaned += 'Z'
+  const d = new Date(cleaned)
+  if (isNaN(d.getTime())) return ''
   return d.toLocaleString('en-AU', {
     timeZone: PERTH_TZ,
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
-  })
-}
-
-// Compact "when" cell — relative for recent events, absolute date
-// after a week so the agent can scan the table at a glance.
-//
-// If the date is missing or unparseable, return '—' (em dash) so the
-// cell is never visually blank — that ambiguity used to read as 'no
-// data' rather than 'unknown'.
-function fmtRelative(s) {
-  const d = _toUtcDate(s)
-  // If the input is unparseable, return em-dash — never the raw ISO
-  // string. The previous fallback `String(s)` was leaking timestamps
-  // like "2026-05-03 21:51:37.431894+00" into the WHEN column.
-  if (!d) return '—'
-  const ms = Date.now() - d.getTime()
-  const mins = Math.floor(ms / 60000)
-  const hrs = Math.floor(mins / 60)
-  const days = Math.floor(hrs / 24)
-  // < 24h → relative
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins} min ago`
-  if (hrs < 24) return `${hrs}h ago`
-  // < 7 days → "Sat 3 May" (weekday, day no leading zero, month short)
-  if (days < 7) {
-    return d.toLocaleDateString('en-AU', {
-      timeZone: PERTH_TZ, weekday: 'short', day: 'numeric', month: 'short',
-    })
-  }
-  // ≥ 7 days → "29 Apr 2026" (day no leading zero, month short, year)
-  return d.toLocaleDateString('en-AU', {
-    timeZone: PERTH_TZ, day: 'numeric', month: 'short', year: 'numeric',
   })
 }
 
@@ -232,8 +235,8 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                         : <span className="price-change-badge">Changed</span>
                       }
                     </td>
-                    <td className="when-cell" title={fmtPerthFull(pd.changed_at)}>
-                      {fmtRelative(pd.changed_at)}
+                    <td className="when-cell" title={fmtFullTooltip(pd.changed_at)}>
+                      {formatWhen(pd.changed_at)}
                     </td>
                     <td>{pd.agent || '-'}</td>
                     <td>{pd.agency || '-'}</td>
