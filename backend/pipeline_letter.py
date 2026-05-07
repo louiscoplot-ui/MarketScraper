@@ -217,7 +217,12 @@ def _green_header(doc):
     # the 1.8cm logo — gives ~0.35cm of green padding above/below.
     pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
     pf.line_spacing = Cm(2.5)
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # LEFT-aligned with a 2.5cm first-line indent — the green bar
+    # bleeds to the page edge but the logo itself sits at the body
+    # margin (matching the body text underneath). User flagged the
+    # previous centered layout as wrong.
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    pf.first_line_indent = Cm(2.5)
     _shade_paragraph(p, BRAND_GREEN)
 
     if os.path.exists(LOGO_PATH):

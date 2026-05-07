@@ -10,6 +10,13 @@ const API = ''
 // blocked by the proxy timeout, so we go direct.
 const PIPELINE_API = `${BACKEND_DIRECT}/api/pipeline`
 
+// Per-suburb 5s snapshot cache. Survives unmount/remount within the
+// same JS session so Pipeline → Listings → back-to-Pipeline doesn't
+// re-fetch when the user is navigating quickly. Cache key is the
+// suburb name (or '__all__' for unfiltered). Entries auto-expire on
+// next access via the 5000ms TTL check inside loadTracking.
+const _pipelineCache = new Map()
+
 const STATUS_LABELS = {
   sent: { label: 'Sent', color: '#3b82f6' },
   responded: { label: 'Responded', color: '#f59e0b' },
@@ -173,7 +180,19 @@ export default function Pipeline() {
     return () => clearTimeout(t)
   }, [suburb, osmStatus, groups.length, loading, generating])
 
-  async function loadTracking() {
+  // Module-level snapshot cache so navigating Pipeline → Listings →
+  // back-to-Pipeline within 5s doesn't re-fetch. The component unmounts
+  // when the user switches tabs (App.jsx renders Pipeline conditionally),
+  // so React state is lost — but this Map survives across mounts within
+  // the same JS session. Per-suburb keys, 5s TTL.
+  async function loadTracking({ force = false } = {}) {
+    const cacheKey = suburb || '__all__'
+    const cached = _pipelineCache.get(cacheKey)
+    if (!force && cached && (Date.now() - cached.t) < 5000) {
+      setGroups(cached.groups)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const url = suburb
@@ -181,7 +200,9 @@ export default function Pipeline() {
         : `${PIPELINE_API}/tracking/grouped?limit=500`
       const res = await fetchWithRetry(url, {}, 4)
       const data = await res.json()
-      setGroups(data.groups || [])
+      const groupsResult = data.groups || []
+      setGroups(groupsResult)
+      _pipelineCache.set(cacheKey, { groups: groupsResult, t: Date.now() })
     } catch (e) { console.error(e) }
     setLoading(false)
   }
@@ -232,7 +253,7 @@ export default function Pipeline() {
         text: `Found ${data.sold_count} sales but all neighbours are already in your pipeline.`,
       })
       setFilterSuburb(suburb)
-      loadTracking()
+      loadTracking({ force: true })
     } else {
       const cap = data.cap_applied ? ' (cap reached — try a wider days window for more)' : ''
       setGenerateMsg({
@@ -240,7 +261,7 @@ export default function Pipeline() {
         text: `Added ${data.generated} new targets from ${data.sold_count} sales in ${suburb}${cap}.`,
       })
       setFilterSuburb(suburb)
-      loadTracking()
+      loadTracking({ force: true })
     }
     setGenerating(false)
   }
@@ -251,7 +272,7 @@ export default function Pipeline() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fields),
     })
-    loadTracking()
+    loadTracking({ force: true })
   }
 
   async function downloadLetter(representativeId, targetAddress) {
@@ -457,7 +478,7 @@ export default function Pipeline() {
           onSuccess={(msg) => {
             setGenerateMsg({ type: 'success', text: msg })
             setShowManualForm(false)
-            loadTracking()
+            loadTracking({ force: true })
           }}
           onError={(msg) => setGenerateMsg({ type: 'error', text: msg })}
         />
