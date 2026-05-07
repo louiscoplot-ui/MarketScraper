@@ -20,15 +20,17 @@ from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 
-# Acton | Belle Property official brand green (kept as visual default —
-# every tenant gets the same band colour until the brand kit is per-tenant).
-BRAND_GREEN = '386351'
+# Acton | Belle Property official brand green — exact value extracted
+# from the official wordmark PNG. Was '386351' (off by 1 in the last
+# nibble) which read as a slightly different green vs. the logo file.
+BRAND_GREEN = '386350'
 
-# Path to the logo (commit a PNG here to swap the text fallback for the
-# real wordmark). Resolved relative to this module so it works regardless
-# of where the Flask process is launched from.
+# Path to the logo. Resolved relative to this module so it works
+# regardless of where the Flask process is launched from. Drop the PNG
+# at backend/static/logo_acton_belle.png — if missing, the header
+# falls through to the styled text wordmark.
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-LOGO_PATH = os.path.join(_THIS_DIR, 'assets', 'acton_belle_logo.png')
+LOGO_PATH = os.path.join(_THIS_DIR, 'static', 'logo_acton_belle.png')
 
 # Secondary agency footer lines (street address, contact line, legal/ABN).
 # Not exposed in the per-user form yet — env vars override them so an
@@ -175,56 +177,56 @@ def _emu_to_twips(emu):
     return int(emu / 914400 * 1440)
 
 
+def _shade_paragraph(p, hex_color):
+    """Apply <w:shd> background fill to a paragraph's pPr. This is what
+    Word renders as a full-width coloured bar across the page body."""
+    pPr = p._p.get_or_add_pPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), hex_color)
+    pPr.append(shd)
+
+
 def _green_header(doc):
-    """Right-aligned brand-green band — starts at ~40% from the left edge
-    and runs flush to the right edge of the page (matches the official
-    Acton | Belle template). Uses the PNG logo at
-    backend/assets/acton_belle_logo.png when present, else a text fallback.
-    """
-    section = doc.sections[0]
-    page_width = section.page_width
-    right_m = section.right_margin
+    """Full-width brand-green bar with the Acton | Belle wordmark
+    centered inside. The bar is implemented as a single paragraph
+    with <w:shd> shading so it spans the body text width (between
+    section margins). The logo PNG ships at backend/static/
+    logo_acton_belle.png — when missing, falls back to a styled text
+    wordmark on the same green background.
 
-    # Bleed to the right page edge: width = 60% of the page, indented from
-    # the body's left margin so the green stops short on the left.
-    band_width = int(page_width * 0.60)
-    page_width_twips = _emu_to_twips(page_width)
-    band_width_twips = _emu_to_twips(band_width)
-    right_margin_twips = _emu_to_twips(right_m)
-    indent_twips = page_width_twips - band_width_twips - right_margin_twips
-
-    table = doc.add_table(rows=1, cols=1)
-    table.autofit = False
-    table.columns[0].width = band_width
-
-    # Anchor the table left edge inside the body area, then make it bleed
-    # to the right edge by adding the right_margin to the table width.
-    tbl = table._element
-    tblPr = tbl.find(qn('w:tblPr'))
-    if tblPr is None:
-        tblPr = OxmlElement('w:tblPr')
-        tbl.insert(0, tblPr)
-
-    tblInd = OxmlElement('w:tblInd')
-    tblInd.set(qn('w:w'), str(indent_twips))
-    tblInd.set(qn('w:type'), 'dxa')
-    tblPr.append(tblInd)
-
-    tblW = OxmlElement('w:tblW')
-    tblW.set(qn('w:w'), str(band_width_twips + right_margin_twips))
-    tblW.set(qn('w:type'), 'dxa')
-    tblPr.append(tblW)
-
-    cell = table.cell(0, 0)
-    cell.width = band_width
-    _shade_cell(cell, BRAND_GREEN)
-    _set_cell_padding(cell, top=400, left=600, bottom=400, right=600)
-    _remove_cell_borders(cell)
+    A 2cm-spaced empty paragraph follows the bar to position the body
+    correctly for a tri-fold DL envelope window."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    _shade_paragraph(p, BRAND_GREEN)
 
     if os.path.exists(LOGO_PATH):
-        _build_image_logo(cell, LOGO_PATH)
+        run = p.add_run()
+        # 1.8cm height, width auto-scales from source aspect ratio
+        # (924×295 → ~5.64cm wide). add_picture preserves aspect when
+        # only one dimension is given.
+        run.add_picture(LOGO_PATH, height=Cm(1.8))
     else:
-        _build_text_logo(cell)
+        # Inline text fallback — three runs sized to mimic the lockup.
+        r1 = p.add_run('ACTON')
+        r1.font.size = Pt(28); r1.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r1.font.name = 'Arial'
+        sep = p.add_run('   |   ')
+        sep.font.size = Pt(28); sep.font.color.rgb = RGBColor(0xC9, 0xD3, 0xCD); sep.font.name = 'Arial'
+        r2 = p.add_run('belle')
+        r2.bold = True; r2.font.size = Pt(28); r2.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r2.font.name = 'Arial'
+        r3 = p.add_run('  PROPERTY')
+        r3.bold = True; r3.font.size = Pt(11); r3.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r3.font.name = 'Arial'
+
+    # 2cm spacer after the bar — positions "Dear [Name]," correctly
+    # for a tri-fold DL envelope window. One empty paragraph with
+    # space_after = 2cm drives Word's vertical layout.
+    spacer = doc.add_paragraph()
+    spacer.paragraph_format.space_before = Pt(0)
+    spacer.paragraph_format.space_after = Cm(2.0)
 
 
 def _agency_footer(doc, agency_name, line_1, line_2, line_3):
@@ -288,10 +290,6 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
 
     _green_header(doc)
     _agency_footer(doc, agency_name, line_1, line_2, line_3)
-
-    spacer = doc.add_paragraph()
-    spacer.paragraph_format.space_before = Pt(0)
-    spacer.paragraph_format.space_after = Pt(18)
 
     today = datetime.utcnow().strftime('%d/%m/%Y')
     p = doc.add_paragraph()
