@@ -9,6 +9,11 @@ const PERTH_TZ = 'Australia/Perth'
 function _toUtcDate(s) {
   if (!s) return null
   let iso = String(s).includes('T') ? String(s) : String(s).replace(' ', 'T')
+  // Postgres serialises timestamptz with a 2-digit offset like "+00".
+  // Most JS Date parsers reject that — they want "+00:00" or "+0000".
+  // Pad it before parsing, otherwise the raw ISO string leaks into
+  // the WHEN column of the report.
+  iso = iso.replace(/([+-])(\d{2})$/, '$1$2:00')
   if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)) iso += 'Z'
   const d = new Date(iso)
   return isNaN(d.getTime()) ? null : d
@@ -32,17 +37,27 @@ function fmtPerthFull(s) {
 // data' rather than 'unknown'.
 function fmtRelative(s) {
   const d = _toUtcDate(s)
-  if (!d) return s ? String(s) : '—'
+  // If the input is unparseable, return em-dash — never the raw ISO
+  // string. The previous fallback `String(s)` was leaking timestamps
+  // like "2026-05-03 21:51:37.431894+00" into the WHEN column.
+  if (!d) return '—'
   const ms = Date.now() - d.getTime()
   const mins = Math.floor(ms / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
-  if (days < 7) return `${days}d ago`
+  // < 24h → relative
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  if (hrs < 24) return `${hrs}h ago`
+  // < 7 days → "Sat 3 May" (weekday, day no leading zero, month short)
+  if (days < 7) {
+    return d.toLocaleDateString('en-AU', {
+      timeZone: PERTH_TZ, weekday: 'short', day: 'numeric', month: 'short',
+    })
+  }
+  // ≥ 7 days → "29 Apr 2026" (day no leading zero, month short, year)
   return d.toLocaleDateString('en-AU', {
-    timeZone: PERTH_TZ, day: '2-digit', month: 'short',
+    timeZone: PERTH_TZ, day: 'numeric', month: 'short', year: 'numeric',
   })
 }
 
