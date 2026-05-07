@@ -170,24 +170,42 @@ export default function Pipeline() {
   async function handleGenerate() {
     setGenerating(true)
     setGenerateMsg(null)
-    try {
+    // First attempt: try silently. If it throws (network error / Render
+    // cold-start race), wait 35s and retry once before showing the
+    // user any error — by then the dyno is almost certainly warm.
+    const attempt = async () => {
       const res = await fetch(
         `${API}/api/pipeline/generate?suburb=${encodeURIComponent(suburb)}&days=${days}`
       )
-      const data = await res.json()
-      if (data.error) {
-        setGenerateMsg({ type: 'error', text: data.error })
-      } else {
-        const cap = data.cap_applied ? ' (cap reached — try a wider days window for more)' : ''
+      return res.json()
+    }
+    let data
+    try {
+      data = await attempt()
+    } catch (firstErr) {
+      try {
+        await new Promise(r => setTimeout(r, 35_000))
+        data = await attempt()
+      } catch (secondErr) {
         setGenerateMsg({
-          type: 'success',
-          text: `Generated ${data.generated} new entries from ${data.sold_count} sales in ${suburb}${cap}`,
+          type: 'error',
+          text: 'Connecting to server… please wait a moment and try again.',
+          retryable: true,
         })
-        setFilterSuburb(suburb)
-        loadTracking()
+        setGenerating(false)
+        return
       }
-    } catch (e) {
-      setGenerateMsg({ type: 'error', text: 'Failed to connect to backend' })
+    }
+    if (data.error) {
+      setGenerateMsg({ type: 'error', text: data.error })
+    } else {
+      const cap = data.cap_applied ? ' (cap reached — try a wider days window for more)' : ''
+      setGenerateMsg({
+        type: 'success',
+        text: `Generated ${data.generated} new entries from ${data.sold_count} sales in ${suburb}${cap}`,
+      })
+      setFilterSuburb(suburb)
+      loadTracking()
     }
     setGenerating(false)
   }
@@ -334,8 +352,23 @@ export default function Pipeline() {
             marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '14px',
             background: generateMsg.type === 'success' ? '#d1fae5' : '#fee2e2',
             color: generateMsg.type === 'success' ? '#065f46' : '#991b1b',
+            display: 'flex', alignItems: 'center', gap: '12px',
           }}>
-            {generateMsg.text}
+            <span>{generateMsg.text}</span>
+            {generateMsg.retryable && (
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                style={{
+                  padding: '4px 12px', borderRadius: '4px',
+                  border: '1px solid #991b1b', background: 'white',
+                  color: '#991b1b', cursor: 'pointer', fontSize: '12px',
+                  fontWeight: 600,
+                }}
+              >
+                {generating ? 'Retrying…' : 'Retry'}
+              </button>
+            )}
           </div>
         )}
 

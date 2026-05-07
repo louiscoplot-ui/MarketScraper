@@ -518,16 +518,23 @@ def _gather_sources_for_target(conn, target_address, source_suburb):
 # Route handlers
 # ---------------------------------------------------------------------
 
-def pipeline_generate():
-    suburb = (request.args.get('suburb') or '').strip()
-    if not suburb:
-        return jsonify({'error': 'suburb is required'}), 400
-    if not user_can_access_suburb(suburb):
-        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
+    """Pure-Python pipeline generation — usable from background workers
+    that have no Flask request context (e.g. the scrape_runner auto-gen
+    after each suburb scrape). The HTTP route `pipeline_generate` is
+    a thin wrapper around this with arg parsing + ACL.
+
+    Returns the same dict shape the route returns minus `entries` (which
+    is only useful for the UI — callers that need entries hit the HTTP
+    endpoint). Never raises for ACL — `enforce_acl=False` skips the
+    `user_can_access_suburb` check, which the scraper relies on since
+    it runs as a background daemon, not a user request."""
+    if enforce_acl and not user_can_access_suburb(suburb):
+        return {'error': 'Suburb not in your allowed list', 'status': 403}
 
     try:
-        days = int(request.args.get('days') or 7)
-    except ValueError:
+        days = int(days)
+    except (TypeError, ValueError):
         days = 7
     days = max(1, min(days, 90))
 
@@ -553,15 +560,8 @@ def pipeline_generate():
         """,
         (suburb, cutoff_date, src_limit)
     ).fetchall()
-
     sold_count = len(sold_rows)
 
-    # Pre-warm the OSM number cache for every (street, suburb) we're
-    # about to look up — in parallel. Sequentially this used to dominate
-    # generation time (one Overpass call per uncached street, up to
-    # OVERPASS_TIMEOUT_SECONDS each). With a thread pool, total wait is
-    # ~max(individual call) instead of sum, and uncached streets only
-    # cost the timeout once each forever (the empty result is cached).
     streets_to_fetch = []
     seen = set()
     for r in sold_rows:
@@ -584,8 +584,6 @@ def pipeline_generate():
             except Exception:
                 nums = []
             return (street, sub, nums)
-        # 6 workers is plenty — Overpass throttles aggressive clients,
-        # so we stay polite while still cutting the wall-clock cost.
         with ThreadPoolExecutor(max_workers=6) as ex:
             for street, sub, nums in ex.map(_warm, streets_to_fetch):
                 _osm_street_numbers_store(conn, street, sub, nums)
@@ -613,7 +611,33 @@ def pipeline_generate():
 
     generated = _bulk_insert_pipeline(conn, insert_rows)
     conn.commit()
+    conn.close()
 
+    return {
+        'generated': generated,
+        'sold_count': sold_count,
+        'suburb': suburb,
+        'cap_applied': sold_count >= src_limit,
+        'skipped_no_neighbour': skipped_no_neighbour,
+    }
+
+
+def pipeline_generate():
+    suburb = (request.args.get('suburb') or '').strip()
+    if not suburb:
+        return jsonify({'error': 'suburb is required'}), 400
+    if not user_can_access_suburb(suburb):
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+
+    days_arg = request.args.get('days') or 7
+    result = _generate_pipeline_for_suburb(suburb, days=days_arg, enforce_acl=False)
+    if isinstance(result, dict) and result.get('status'):
+        return jsonify({'error': result['error']}), result['status']
+
+    # The HTTP endpoint also returns the latest 500 entries so the UI
+    # can render the table without a second round-trip. Background
+    # callers don't need this.
+    conn = get_db()
     rows = conn.execute(
         """
         SELECT * FROM pipeline_tracking
@@ -626,14 +650,8 @@ def pipeline_generate():
     entries = _serialize_entries(rows)
     conn.close()
 
-    return jsonify({
-        'generated': generated,
-        'sold_count': sold_count,
-        'suburb': suburb,
-        'cap_applied': sold_count >= src_limit,
-        'skipped_no_neighbour': skipped_no_neighbour,
-        'entries': entries,
-    })
+    result['entries'] = entries
+    return jsonify(result)
 
 
 def pipeline_manual_add():

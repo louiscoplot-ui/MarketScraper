@@ -36,12 +36,17 @@ window.fetch = (input, init = {}) => {
 }
 
 // Render free-tier sleeps after 15min idle. Fire a silent /api/ping
-// the instant the app shell loads so the dyno is already warming
-// while the user reads the login screen / sidebar — by the time they
-// click anything the 30-60s cold-start is mostly absorbed. Direct to
-// Render to bypass Vercel's 25s edge timeout. Fire-and-forget: no
-// await, no error display — failure here is harmless.
-fetch(`https://${BACKEND_HOST}/api/ping`).catch(() => {})
+// the instant the app shell loads — and every 14 min while the tab
+// stays open — so the dyno is always warm by the time the user
+// clicks anything. Direct to Render to bypass Vercel's 25s edge
+// timeout. Fire-and-forget: no await, no error display — failure
+// here is harmless. 14 min is just under Render's 15-min sleep.
+function startKeepAlive() {
+  const ping = () => fetch(`https://${BACKEND_HOST}/api/ping`).catch(() => {})
+  ping()
+  setInterval(ping, 14 * 60 * 1000)
+}
+startKeepAlive()
 
 // Lightweight URL-based routing — no React Router. The print view is a
 // truly separate render tree (no header, sidebar, or theme controls)

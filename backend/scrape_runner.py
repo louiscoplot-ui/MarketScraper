@@ -262,6 +262,24 @@ def run_scrape(suburb_id, slug, name):
         }
         logger.info(f"Scrape completed for {name}: {result['stats']}")
 
+        # Auto-generate pipeline targets from the freshly-scraped sold
+        # listings. 30-day window catches enough recent sales to be
+        # useful without re-mailing addresses from months ago. ACL is
+        # bypassed because this runs as a background daemon thread, not
+        # a user request — the scraper has implicit permission to write
+        # for any suburb it just scraped. Errors are caught + logged
+        # only — a pipeline-gen failure must NEVER fail the scrape.
+        try:
+            from pipeline_api import _generate_pipeline_for_suburb
+            pg = _generate_pipeline_for_suburb(name, days=30, enforce_acl=False)
+            logger.info(
+                f"Pipeline auto-generated for {name}: "
+                f"{pg.get('generated', 0)} new entries from "
+                f"{pg.get('sold_count', 0)} sales"
+            )
+        except Exception as e:
+            logger.warning(f"Pipeline auto-gen failed for {name}: {e}")
+
     except Exception as e:
         logger.error(f"Scrape failed for {name}: {e}")
         update_scrape_log(log_id, completed_at=datetime.utcnow().isoformat(),
