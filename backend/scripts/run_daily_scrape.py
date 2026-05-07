@@ -142,9 +142,15 @@ def scrape_one(suburb):
     if candidates:
         log.info(f"[{name}] verifying {len(candidates)} disappeared URLs")
         verify = verify_disappeared_listings(candidates)
-        for url, status in verify.items():
+        for url, info in verify.items():
+            status = info.get('status')
             if status == 'sold':
-                upsert_listing(suburb_id, url, {'status': 'sold'})
+                payload = {'status': 'sold'}
+                if info.get('sold_price'):
+                    payload['sold_price'] = info['sold_price']
+                if info.get('sold_date'):
+                    payload['sold_date'] = info['sold_date']
+                upsert_listing(suburb_id, url, payload)
                 sold_urls.append(url)
                 rescued_sold += 1
             elif status in ('active', 'under_offer'):

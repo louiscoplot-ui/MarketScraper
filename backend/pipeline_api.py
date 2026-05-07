@@ -636,7 +636,12 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
     for r in sold_rows:
         source_address = r['address']
         source_suburb = r['suburb_name']
-        source_price = _price_to_int(r['sold_price'], r['price_text'])
+        # ONLY use the actual sold_price from REIWA's "Last Sold on …"
+        # block — never fall back to price_text. The asking price is
+        # often very different from the transaction price (vendor
+        # bid up / down) and surfacing it as "sold for $X" was
+        # inventing data. NULL when sold_price is missing.
+        source_price = _price_to_int(r['sold_price'])
         source_sold_date = r['effective_date']
         targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
         if not targets:

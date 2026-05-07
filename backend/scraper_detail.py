@@ -5,6 +5,7 @@ admin debug routes. Extracted from scraper.py."""
 
 import re
 import logging
+from datetime import datetime
 
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
@@ -78,6 +79,48 @@ def fetch_detail(page, url):
             out["status"] = "sold"
         elif is_under_offer:
             out["status"] = "under_offer"
+
+        # Sold-page detail block — REIWA shows "Last Sold on 10 Apr 2026
+        # for $4,450,000" once status flips to sold. We extract the
+        # numeric price + the date so the Pipeline can show the real
+        # transaction price instead of the original asking price.
+        # Anchored to the "Last Sold on" / "Sold on" / "Sold for" wording
+        # so we don't accidentally pick up advertised guide prices that
+        # share the dollar shape elsewhere on the page.
+        if is_sold:
+            sold_text = soup.get_text(" ", strip=True)
+            sold_m = re.search(
+                r"(?:last\s+sold|sold)\s+(?:on\s+)?"
+                r"(\d{1,2}\s+[A-Za-z]+\s+\d{4})"
+                r"(?:[^$\n]{0,40}for\s+)?"
+                r"\$\s*([\d,]+(?:\.\d+)?)\s*([MmKk])?",
+                sold_text,
+                re.I,
+            )
+            if sold_m:
+                date_str, num_str, suffix = sold_m.group(1), sold_m.group(2), sold_m.group(3)
+                try:
+                    val = float(num_str.replace(",", ""))
+                    if suffix and suffix.lower() == "m":
+                        val *= 1_000_000
+                    elif suffix and suffix.lower() == "k":
+                        val *= 1_000
+                    if val >= 100_000:
+                        # Store as plain integer string for the TEXT column.
+                        out["sold_price"] = str(int(round(val)))
+                except ValueError:
+                    pass
+                # Normalize "10 Apr 2026" → ISO "2026-04-10" so callers
+                # don't have to multi-format-parse later.
+                try:
+                    parsed = datetime.strptime(date_str, "%d %b %Y")
+                    out["sold_date"] = parsed.strftime("%Y-%m-%d")
+                except ValueError:
+                    try:
+                        parsed = datetime.strptime(date_str, "%d %B %Y")
+                        out["sold_date"] = parsed.strftime("%Y-%m-%d")
+                    except ValueError:
+                        pass
 
         t = re.sub(r"m\s+2|sqm|sq\.?\s*m", "m2", soup.get_text(" ", strip=True), flags=re.I)
 
@@ -217,9 +260,13 @@ def verify_disappeared_listings(urls):
     is the source of truth — if REIWA still shows it as Sold or Under Offer
     there, we should NOT mark withdrawn.
 
-    Returns dict {url: status} where status is one of:
-        'sold' | 'under_offer' | 'active' | 'gone'
-    'gone' = the page returned no usable data → safe to mark withdrawn.
+    Returns dict {url: {status, sold_price, sold_date}} where status is
+    one of: 'sold' | 'under_offer' | 'active' | 'gone'.
+        'gone'        = page returned no usable data → safe to withdraw
+        sold_price    = transaction price string (digits only, "4450000")
+                        when status == 'sold' AND REIWA's "Last Sold on
+                        DD MMM YYYY for $X" block was parseable; else None
+        sold_date     = ISO date "YYYY-MM-DD" from same block; else None
     """
     out = {}
     if not urls:
@@ -240,14 +287,19 @@ def verify_disappeared_listings(urls):
                 detail = fetch_detail(page, url)
                 status = detail.get('status')
                 if status in ('sold', 'under_offer'):
-                    out[url] = status
+                    resolved = status
                 else:
                     has_content = bool(detail.get('address') or detail.get('agent')
                                        or detail.get('agency') or detail.get('bedrooms'))
-                    out[url] = 'active' if has_content else 'gone'
+                    resolved = 'active' if has_content else 'gone'
+                out[url] = {
+                    'status': resolved,
+                    'sold_price': detail.get('sold_price') or None,
+                    'sold_date': detail.get('sold_date') or None,
+                }
             except Exception as e:
                 logger.warning(f"verify {url}: {e}")
-                out[url] = 'gone'
+                out[url] = {'status': 'gone', 'sold_price': None, 'sold_date': None}
         browser.close()
     return out
 
