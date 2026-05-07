@@ -17,7 +17,7 @@ from docx import Document
 from docx.shared import Pt, RGBColor, Cm, Inches, Emu
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 
 
 # Acton | Belle Property official brand green — exact value extracted
@@ -190,23 +190,39 @@ def _shade_paragraph(p, hex_color):
 
 def _green_header(doc):
     """Full-width brand-green bar with the Acton | Belle wordmark
-    centered inside. The bar is implemented as a single paragraph
-    with <w:shd> shading so it spans the body text width (between
-    section margins). The logo PNG ships at backend/static/
-    logo_acton_belle.png — when missing, falls back to a styled text
-    wordmark on the same green background.
+    centered inside. Bleeds edge-to-edge by pulling the paragraph
+    out beyond both section margins via negative indentation — Word
+    body paragraphs can't otherwise exceed the margin box.
+
+    The negative indents (-2.5cm) must EXACTLY match the section's
+    left_margin / right_margin set in render_letter_docx so the bar
+    lands flush with both page edges. If you change the page
+    margins, change these too.
+
+    Bar height ~2.5cm: forced via exact line spacing so the green
+    extends 0.35cm above and below the 1.8cm logo, giving the
+    wordmark breathing room without spilling outside the shaded area
+    (space_before / space_after live OUTSIDE the shading).
 
     A 2cm-spaced empty paragraph follows the bar to position the body
     correctly for a tri-fold DL envelope window."""
     p = doc.add_paragraph()
+    pf = p.paragraph_format
+    # Pull paragraph beyond both margins so shading bleeds to page edges.
+    pf.left_indent = Cm(-2.5)
+    pf.right_indent = Cm(-2.5)
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(0)
+    # Force a 2.5cm line height so the shaded paragraph is taller than
+    # the 1.8cm logo — gives ~0.35cm of green padding above/below.
+    pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    pf.line_spacing = Cm(2.5)
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
     _shade_paragraph(p, BRAND_GREEN)
 
     if os.path.exists(LOGO_PATH):
         run = p.add_run()
-        # 1.8cm height, width auto-scales from source aspect ratio
+        # 1.8cm height; width auto-scales from source aspect ratio
         # (924×295 → ~5.64cm wide). add_picture preserves aspect when
         # only one dimension is given.
         run.add_picture(LOGO_PATH, height=Cm(1.8))
