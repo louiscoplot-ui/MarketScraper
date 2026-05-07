@@ -78,6 +78,9 @@ export default function Pipeline() {
   const [editingNote, setEditingNote] = useState(null)
   const [actionModal, setActionModal] = useState(null)
   const [showManualForm, setShowManualForm] = useState(false)
+  // Per-row in-flight letter downloads so multiple buttons can be
+  // clicked without the spinner state stomping on itself.
+  const [downloadingIds, setDownloadingIds] = useState(new Set())
 
   useEffect(() => {
     fetch(`${API}/api/suburbs`)
@@ -198,8 +201,43 @@ export default function Pipeline() {
     loadTracking()
   }
 
-  function downloadLetter(representativeId) {
-    window.open(`${API}/api/pipeline/letter/${representativeId}/download`, '_blank')
+  function downloadLetter(representativeId, targetAddress) {
+    // window.open bypassed the global fetch interceptor that injects
+    // X-Access-Key, so the backend's auth gate returned
+    // {"error":"Not authenticated"}. Authenticated fetch + Blob → <a>
+    // download keeps the same UX (file lands in Downloads) but carries
+    // the access_key header.
+    setDownloadingIds(prev => {
+      const next = new Set(prev); next.add(representativeId); return next
+    })
+    fetch(`${API}/api/pipeline/letter/${representativeId}/download`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          throw new Error(text || `HTTP ${res.status}`)
+        }
+        return res.blob()
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        const safe = (targetAddress || 'letter').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 60)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `letter_${safe}.docx`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      })
+      .catch((err) => {
+        console.error('Letter download failed:', err)
+        alert('Could not download letter — please refresh and try again.')
+      })
+      .finally(() => {
+        setDownloadingIds(prev => {
+          const next = new Set(prev); next.delete(representativeId); return next
+        })
+      })
   }
 
   function handleExportCSV() {
@@ -492,13 +530,17 @@ export default function Pipeline() {
 
                     <td style={{ padding: '10px 12px' }}>
                       <button
-                        onClick={() => downloadLetter(g.representative_id)}
+                        onClick={() => downloadLetter(g.representative_id, g.target_address)}
+                        disabled={downloadingIds.has(g.representative_id)}
                         title="Download a Word doc with all nearby sales mentioned"
                         style={{
                           padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db',
-                          background: 'white', cursor: 'pointer', fontSize: '12px',
+                          background: 'white',
+                          cursor: downloadingIds.has(g.representative_id) ? 'wait' : 'pointer',
+                          fontSize: '12px',
+                          opacity: downloadingIds.has(g.representative_id) ? 0.6 : 1,
                         }}>
-                        📄 Word
+                        {downloadingIds.has(g.representative_id) ? 'Downloading…' : '📄 Word'}
                       </button>
                     </td>
 
