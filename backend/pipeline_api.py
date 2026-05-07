@@ -439,16 +439,59 @@ def _serialize_entries(rows):
 
 
 def _price_to_int(*candidates):
+    """Best-effort dollar amount from any price representation.
+
+    Handles every shape we receive across listings.sold_price,
+    listings.price_text, RP Data CSV imports, and manual UI input:
+
+      "$5,605,000"           → 5_605_000
+      "5605000"              → 5_605_000
+      "5605000.0"            → 5_605_000   (was: 56_050_000 — the bug
+                                            that surfaced $56M source
+                                            sales next to $5M houses
+                                            in the Pipeline)
+      Decimal('5605000.00')  → 5_605_000
+      5605000                → 5_605_000
+      "low $1m"              → 1_000_000   (was: 1)
+      "from $775k"           → 775_000     (was: 775)
+      "Offers from $1,250,000" → 1_250_000
+
+    Returns the first usable match across `candidates`. None when no
+    candidate parses, or when every parsed value is below the $100
+    junk floor."""
     for c in candidates:
         if c is None or c == '':
             continue
-        s = str(c)
-        digits = re.sub(r'[^\d]', '', s)
-        if digits:
-            try:
-                return int(digits)
-            except ValueError:
-                pass
+        # Numeric / numeric-string fast path — captures Decimal, float,
+        # int, and decimal strings like "5605000.0" via float() before
+        # the regex strips the decimal point and inflates by 10×.
+        try:
+            f = float(c)
+            if f >= 100:
+                return int(round(f))
+        except (TypeError, ValueError):
+            pass
+        # Free-text path — first $-amount with optional m/k suffix.
+        # Same logic as report_api._parse_price; multiplies by 10^suffix
+        # instead of dropping the suffix and treating "low $1m" as $1.
+        s = str(c).lower().replace(',', '')
+        m = re.search(
+            r'\$?\s*(\d+(?:\.\d+)?)\s*(m(?:il(?:lion)?)?|k|thousand)?\b',
+            s,
+        )
+        if not m:
+            continue
+        try:
+            val = float(m.group(1))
+        except ValueError:
+            continue
+        suffix = m.group(2) or ''
+        if suffix.startswith('m'):
+            val *= 1_000_000
+        elif suffix.startswith('k') or suffix == 'thousand':
+            val *= 1_000
+        if val >= 100:
+            return int(round(val))
     return None
 
 
