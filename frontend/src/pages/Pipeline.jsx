@@ -217,11 +217,27 @@ export default function Pipeline() {
     }
     if (data.error) {
       setGenerateMsg({ type: 'error', text: data.error })
+    } else if (data.sold_count === 0) {
+      // No sales in the window — coach the user toward a wider one
+      // instead of saying "0 entries from 0 sales".
+      setGenerateMsg({
+        type: 'info',
+        text: `No sales found in ${suburb} in the last ${days} days. Try extending to 14 or 30 days.`,
+      })
+    } else if (data.generated === 0) {
+      // Sales exist but every neighbour was already in pipeline_tracking
+      // (likely from a previous run or auto-gen after the daily scrape).
+      setGenerateMsg({
+        type: 'info',
+        text: `Found ${data.sold_count} sales but all neighbours are already in your pipeline.`,
+      })
+      setFilterSuburb(suburb)
+      loadTracking()
     } else {
       const cap = data.cap_applied ? ' (cap reached — try a wider days window for more)' : ''
       setGenerateMsg({
         type: 'success',
-        text: `Generated ${data.generated} new entries from ${data.sold_count} sales in ${suburb}${cap}`,
+        text: `Added ${data.generated} new targets from ${data.sold_count} sales in ${suburb}${cap}.`,
       })
       setFilterSuburb(suburb)
       loadTracking()
@@ -332,7 +348,15 @@ export default function Pipeline() {
 
           <div style={{ display: 'flex', gap: '6px' }}>
             {[7, 14, 30].map(d => (
-              <button key={d} onClick={() => setDays(d)}
+              <button key={d} onClick={() => {
+                setDays(d)
+                // Reset any in-flight Generate state so the button isn't
+                // stuck on "Generating…" if the user changes the window
+                // mid-request. The previous request's response will be
+                // ignored because the new period invalidates it.
+                setGenerating(false)
+                setGenerateMsg(null)
+              }}
                 style={{
                   padding: '8px 14px', borderRadius: '6px', fontSize: '14px', cursor: 'pointer',
                   background: days === d ? '#1d4ed8' : 'white',
@@ -366,43 +390,52 @@ export default function Pipeline() {
           </button>
         </div>
 
-        {generateMsg && (
-          <div style={{
-            marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '14px',
-            background: generateMsg.type === 'success' ? '#d1fae5' : '#fee2e2',
-            color: generateMsg.type === 'success' ? '#065f46' : '#991b1b',
-            display: 'flex', alignItems: 'center', gap: '12px',
-          }}>
-            <span>{generateMsg.text}</span>
-            {generateMsg.retryable && (
-              <button
-                onClick={handleGenerate}
-                disabled={generating}
-                style={{
-                  padding: '4px 12px', borderRadius: '4px',
-                  border: '1px solid #991b1b', background: 'white',
-                  color: '#991b1b', cursor: 'pointer', fontSize: '12px',
-                  fontWeight: 600,
-                }}
-              >
-                {generating ? 'Retrying…' : 'Retry'}
-              </button>
-            )}
-          </div>
-        )}
+        {generateMsg && (() => {
+          // Three palettes: success (green), info (neutral blue —
+          // "0 sales" / "all already in pipeline" cases), error (red).
+          const palette = generateMsg.type === 'success'
+            ? { bg: '#d1fae5', fg: '#065f46', border: 'transparent' }
+            : generateMsg.type === 'info'
+              ? { bg: '#EFF6FF', fg: '#1E40AF', border: '#BFDBFE' }
+              : { bg: '#fee2e2', fg: '#991b1b', border: 'transparent' }
+          return (
+            <div style={{
+              marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '14px',
+              background: palette.bg, color: palette.fg,
+              border: `1px solid ${palette.border}`,
+              display: 'flex', alignItems: 'center', gap: '12px',
+            }}>
+              <span>{generateMsg.text}</span>
+              {generateMsg.retryable && (
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating}
+                  style={{
+                    padding: '4px 12px', borderRadius: '4px',
+                    border: `1px solid ${palette.fg}`, background: 'white',
+                    color: palette.fg, cursor: 'pointer', fontSize: '12px',
+                    fontWeight: 600,
+                  }}
+                >
+                  {generating ? 'Retrying…' : 'Retry'}
+                </button>
+              )}
+            </div>
+          )
+        })()}
 
         {(osmStatus === 'warming' || osmStatus === 'slow') && (
           <div style={{
             marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '14px',
-            background: '#fef3c7', color: '#92400e',
+            background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF',
             display: 'flex', alignItems: 'center', gap: '10px',
           }}>
             <span
               aria-hidden="true"
               style={{
                 width: '14px', height: '14px', borderRadius: '50%',
-                border: '2px solid rgba(146, 64, 14, 0.25)',
-                borderTopColor: '#92400e',
+                border: '2px solid rgba(30, 64, 175, 0.25)',
+                borderTopColor: '#1E40AF',
                 animation: 'sd-spin 0.8s linear infinite',
                 flexShrink: 0,
               }}
