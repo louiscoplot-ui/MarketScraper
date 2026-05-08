@@ -166,35 +166,24 @@ def init_db():
     except Exception:
         conn.commit()
 
-    # NULL out duplicated sold_date corruption: when a sold_date appears
-    # 5+ times for sold listings in the same suburb, it's a smoking-gun
-    # sign of the extract_date bug — real auctions have at most 1-3
-    # sales per suburb on the same day, never 5+. The bug: REIWA's
-    # sold-card <time> element returns a page-level timestamp (the
-    # current day, not the actual sold date), so every card scraped
-    # on the same day gets the same wrong "sold_date". NULL is more
-    # honest than displaying "all sold today" for everything.
+    # NULL out the extract_date corruption: when sold_date matches the
+    # date portion of first_seen, it's almost certainly the bug — REIWA's
+    # sold-card <time> element returned a page-level timestamp (the
+    # scrape day), and our scraper wrote that into sold_date. Real sales
+    # rarely happen on the exact day we first scraped them; this
+    # heuristic catches the corruption (every "all sold 28 Apr" row)
+    # without needing a duplicate threshold. Edge case: some legit
+    # same-day sales get NULLed too — acceptable trade-off, the verify
+    # path will recover them at the next scrape from the detail page's
+    # "Last Sold on…" block which is reliably parseable.
     try:
-        from collections import defaultdict
-        rows = conn.execute(
-            "SELECT id, suburb_id, sold_date FROM listings "
-            "WHERE status = 'sold' AND sold_date IS NOT NULL"
-        ).fetchall()
-        groups_dup = defaultdict(list)
-        for r in rows:
-            d = dict(r)
-            groups_dup[(d['suburb_id'], d['sold_date'])].append(d['id'])
-        for key, ids in groups_dup.items():
-            if len(ids) >= 5:
-                # NULL in chunks to avoid huge IN clauses
-                for i in range(0, len(ids), 100):
-                    chunk = ids[i:i + 100]
-                    placeholders = ','.join(['?'] * len(chunk))
-                    conn.execute(
-                        f"UPDATE listings SET sold_date = NULL "
-                        f"WHERE id IN ({placeholders})",
-                        chunk
-                    )
+        conn.execute(
+            "UPDATE listings SET sold_date = NULL "
+            "WHERE status = 'sold' "
+            "AND sold_date IS NOT NULL "
+            "AND first_seen IS NOT NULL "
+            "AND sold_date = SUBSTR(first_seen, 1, 10)"
+        )
         conn.commit()
     except Exception:
         conn.commit()
