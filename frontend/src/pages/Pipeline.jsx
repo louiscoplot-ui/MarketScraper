@@ -500,26 +500,33 @@ export default function Pipeline() {
             ))}
           </div>
 
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            style={{
-              padding: '8px 20px', borderRadius: '6px', fontSize: '14px', cursor: 'pointer',
-              background: generating ? '#93c5fd' : '#1d4ed8', color: 'white', border: 'none', fontWeight: '600',
-            }}>
-            {generating ? 'Generating...' : 'Generate Letters'}
-          </button>
-
+          {/* Discrete Add Manual Sale only — Generate Letters runs
+              automatically on suburb/days change. The user no longer
+              needs to click anything to see sales + targets. */}
           <button
             onClick={() => setShowManualForm(s => !s)}
             style={{
-              padding: '8px 16px', borderRadius: '6px', fontSize: '14px', cursor: 'pointer',
+              padding: '8px 12px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer',
               background: showManualForm ? '#374151' : 'white',
-              color: showManualForm ? 'white' : '#374151',
+              color: showManualForm ? 'white' : '#6b7280',
               border: '1px solid #d1d5db',
             }}>
-            {showManualForm ? '× Cancel' : '+ Add Manual Sale'}
+            {showManualForm ? '× Cancel' : '+ Add sale'}
           </button>
+
+          {generating && (
+            <span style={{ fontSize: '12px', color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{
+                width: '12px', height: '12px', borderRadius: '50%',
+                border: '2px solid rgba(107,114,128,0.25)',
+                borderTopColor: '#6b7280',
+                animation: 'sd-spin 0.8s linear infinite',
+                display: 'inline-block',
+              }} />
+              Building targets…
+            </span>
+          )}
+          <style>{`@keyframes sd-spin { to { transform: rotate(360deg) } }`}</style>
         </div>
 
         {generateMsg && (() => {
@@ -595,42 +602,35 @@ export default function Pipeline() {
         />
       )}
 
-      {groups.length > 0 && (
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>
-            Showing <strong style={{ color: '#1C1D22' }}>{suburb}</strong>
-          </span>
-          <span style={{ fontSize: '13px', color: '#6b7280', marginLeft: 'auto' }}>
-            {clusters.length} source{clusters.length !== 1 ? 's' : ''} · {groups.length} target{groups.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-      )}
-
-      {groups.length > 0 && (
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-          <button
-            onClick={() => window.open('/pipeline/print', '_blank')}
-            style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer', fontSize: '14px' }}>
-            🖨 Print All Letters
-          </button>
-          <button
-            onClick={handleExportCSV}
-            style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer', fontSize: '14px' }}>
-            ⬇ Export CSV
-          </button>
-        </div>
-      )}
-
+      {/* Compact utility row — single line, shows context + tiny
+          stats + secondary actions. Replaces the previous 3 separate
+          blocks (showing-badge / print-export / 4-stat panel) which
+          were eating vertical space and adding visual noise. */}
       {groups.length > 0 && (
         <div style={{
-          display: 'flex', gap: '24px', marginBottom: '20px',
-          padding: '14px 20px', background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
-          fontSize: '14px', color: '#374151',
+          display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px',
+          fontSize: '13px', color: '#6b7280',
         }}>
-          <span><strong>{sent}</strong> sent</span>
-          <span><strong>{responded}</strong> responded ({respRate}%)</span>
-          <span><strong>{appraisals}</strong> appraisals booked</span>
-          <span><strong>{listed}</strong> listings signed</span>
+          <span>
+            <strong style={{ color: '#1C1D22' }}>{groups.length}</strong> targets
+            {' · '}
+            <strong style={{ color: '#1C1D22' }}>{sent}</strong> sent
+            {responded > 0 && (
+              <> · <strong style={{ color: '#1C1D22' }}>{responded}</strong> responded ({respRate}%)</>
+            )}
+          </span>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => window.open('/pipeline/print', '_blank')}
+              style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer', fontSize: '12px', color: '#6b7280' }}>
+              Print all
+            </button>
+            <button
+              onClick={handleExportCSV}
+              style={{ padding: '4px 10px', borderRadius: '4px', border: '1px solid #d1d5db', background: 'white', cursor: 'pointer', fontSize: '12px', color: '#6b7280' }}>
+              Export CSV
+            </button>
+          </span>
         </div>
       )}
 
