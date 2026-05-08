@@ -59,14 +59,28 @@ export default function Header({
   checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency,
   filteredListingsCount,
   isAnyScraping, scrapeSelected, setShowScrapeModal,
-  setReportSuburbs, fetchReport,
+  setReportSuburbs, fetchReport, reportSuburbs, hasReport,
   setShowThemeModal,
 }) {
   const handleTabClick = (id) => {
     if (id === 'report') {
       setView('report')
-      setReportSuburbs(new Set(checkedSuburbs))
-      fetchReport(checkedSuburbs)
+      // Keep the previous Market Report selection across tab visits.
+      // Resetting to checkedSuburbs every click changed the cache key
+      // → cold-start refetch every return → user saw 2min spinner
+      // every time. Only seed from the sidebar checkboxes the FIRST
+      // time the user visits the report (no existing report or
+      // selection yet). After that, the report's own checkboxes
+      // own the selection.
+      if (!hasReport && (!reportSuburbs || reportSuburbs.size === 0)) {
+        const seed = new Set(checkedSuburbs)
+        setReportSuburbs(seed)
+        fetchReport(seed)
+      } else {
+        // Re-fetch in background only if needed; cache hit makes it
+        // instant for the same selection.
+        fetchReport(reportSuburbs)
+      }
     } else {
       setView(id)
     }

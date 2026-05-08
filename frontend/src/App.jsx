@@ -356,6 +356,7 @@ function App() {
         scrapeSelected={scrapeSelected}
         setShowScrapeModal={setShowScrapeModal}
         setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
+        reportSuburbs={reportSuburbs} hasReport={!!report}
         setShowThemeModal={setShowThemeModal}
       />
 
