@@ -418,28 +418,28 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                     rec['status'] = 'sold'
                     rec['reiwa_url'] = card_url
-                    # On REIWA's /sold/ grid each card stamps the SOLD
-                    # date (not the original listing date). _parse_card
-                    # extracts it into rec['listing_date'] generically —
-                    # move it into sold_date so listings.sold_date
-                    # actually gets populated. Without this move, the
-                    # SOLD column in the table stays blank for every
-                    # sale picked up from the sold-page grid (the only
-                    # path that ran was verify_disappeared_listings,
-                    # which only fires for listings past page 10).
+                    # _parse_card pulls a date via extract_date() which
+                    # tries the card's <time> element first. On REIWA's
+                    # /sold/ grid that element is a page-level timestamp
+                    # (today's date), NOT the actual sold date — every
+                    # card scraped today returns the same date, which
+                    # then propagated to listings.sold_date and surfaced
+                    # as "all sold today" in the Pipeline UI. Drop the
+                    # date entirely if it matches the scrape day; the
+                    # verify_disappeared_listings path will recover the
+                    # real sold_date later from REIWA's "Last Sold on
+                    # DD MMM YYYY for $X" detail-page block.
                     sold_date_dmy = rec.pop('listing_date', '') or ''
-                    if sold_date_dmy:
-                        # Convert dd/mm/yyyy → ISO yyyy-mm-dd to match
-                        # the format verify_disappeared_listings writes
-                        # and the format the rest of the app expects.
+                    today_dmy = datetime.utcnow().strftime('%d/%m/%Y')
+                    if sold_date_dmy and sold_date_dmy != today_dmy:
                         try:
                             rec['sold_date'] = datetime.strptime(
                                 sold_date_dmy, '%d/%m/%Y'
                             ).strftime('%Y-%m-%d')
                         except ValueError:
-                            # Fallback: store whatever we got rather
-                            # than dropping the only date signal.
                             rec['sold_date'] = sold_date_dmy
+                    # else: leave sold_date NULL — let the detail-page
+                    # path fill it in correctly on the next scrape cycle.
                     results['sold_listings'].append(rec)
 
                 results['stats']['sold_pages_scraped'] = pg
