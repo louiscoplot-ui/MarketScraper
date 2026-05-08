@@ -113,18 +113,37 @@ export default function Pipeline() {
   const [recentSales, setRecentSales] = useState([])
 
   useEffect(() => {
-    fetch(`${API}/api/suburbs`)
+    let cancelled = false
+    // Hydrate from App.jsx's localStorage suburb cache so Pipeline
+    // doesn't show "No suburbs assigned" while its own fetch is in
+    // flight — the shared cache key is the same one App.jsx uses
+    // (sd_cache_v2_<key prefix>_suburbs).
+    const cached = readCache('suburbs')
+    if (Array.isArray(cached) && cached.length > 0) {
+      const names = cached.map(r => r.name).filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+      setAllowedSuburbs(names)
+      setSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
+      setSuburbsLoaded(true)
+    }
+    // Always fetch fresh too (cache may be stale or first visit).
+    // Retry with backoff so a transient 401 / cold start doesn't leave
+    // the dropdown empty for the rest of the session.
+    fetchWithRetry(`${API}/api/suburbs`, {}, 4)
       .then(r => r.ok ? r.json() : [])
       .then(rows => {
+        if (cancelled) return
         const names = (Array.isArray(rows) ? rows : [])
-          .map(r => r.name)
-          .filter(Boolean)
+          .map(r => r.name).filter(Boolean)
           .sort((a, b) => a.localeCompare(b))
-        setAllowedSuburbs(names)
-        setSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
+        if (names.length > 0) {
+          setAllowedSuburbs(names)
+          setSuburb(prev => (prev && names.includes(prev)) ? prev : (names[0] || ''))
+        }
         setSuburbsLoaded(true)
       })
-      .catch(() => { setSuburbsLoaded(true) })
+      .catch(() => { if (!cancelled) setSuburbsLoaded(true) })
+    return () => { cancelled = true }
   }, [])
 
   // Reload the tracking table whenever the active suburb changes.
