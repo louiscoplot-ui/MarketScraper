@@ -195,8 +195,11 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   // PATCH a single field on a listing. `fields` is an object like
   // { listing_date: "30/04/2026" } or { sold_date: "2026-04-28" } or
-  // { listing_date: null } to clear. Refreshes the full list on success
-  // so the new value + sort take effect immediately.
+  // { listing_date: null } to clear. Updates ONLY the affected row in
+  // local state from the response — no fetchListings() refetch — so
+  // the user's scroll position, focus, and any in-progress edits on
+  // other rows are preserved. Was triggering a full table reload
+  // every time the user typed in a price cell.
   const updateListing = useCallback(async (id, fields) => {
     const res = await fetch(`${API}/listings/${id}`, {
       method: 'PATCH',
@@ -204,13 +207,22 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       body: JSON.stringify(fields),
     })
     if (res.ok) {
-      fetchListings()
+      try {
+        const updated = await res.json()
+        if (updated && typeof updated === 'object' && !updated.error) {
+          setListings(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l))
+        }
+      } catch {
+        // PATCH succeeded but body wasn't JSON — mirror what the user
+        // sent so the cell at least reflects the change locally.
+        setListings(prev => prev.map(l => l.id === id ? { ...l, ...fields } : l))
+      }
       return true
     }
     const err = await res.json().catch(() => ({}))
     alert(err.error || `Update failed (${res.status})`)
     return false
-  }, [fetchListings])
+  }, [])
 
   // Local-only mirror — updates client state without hitting the API.
   // Used after writes that go through a side-table endpoint (e.g. notes
