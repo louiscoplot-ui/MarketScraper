@@ -115,7 +115,30 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           </label>
         ))}
       </div>
-      {(!report || reportLoading) ? (
+      {/* Inline "updating…" hint when refreshing a previously-loaded
+          report — keeps the old data visible so toggling suburbs
+          doesn't blank the page. The big spinner is only shown when
+          there's literally nothing to display (very first load). */}
+      {report && reportLoading && (
+        <div style={{
+          fontSize: 12, color: '#6B6C75',
+          padding: '6px 10px', marginBottom: 12,
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          background: '#EFF6FF', border: '1px solid #BFDBFE',
+          color: '#1E40AF', borderRadius: 6,
+        }}>
+          <span style={{
+            width: 12, height: 12, borderRadius: '50%',
+            border: '2px solid rgba(30, 64, 175, 0.25)',
+            borderTopColor: '#1E40AF',
+            animation: 'sd-spin 0.8s linear infinite',
+            display: 'inline-block',
+          }} />
+          Updating market report…
+          <style>{`@keyframes sd-spin { to { transform: rotate(360deg) } }`}</style>
+        </div>
+      )}
+      {!report ? (
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           gap: 12, padding: '48px 24px', textAlign: 'center',

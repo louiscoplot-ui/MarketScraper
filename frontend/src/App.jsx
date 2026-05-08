@@ -252,14 +252,30 @@ function App() {
   const fetchReport = (suburbIds) => {
     const ids = suburbIds && suburbIds.size > 0 ? Array.from(suburbIds) : []
     const params = ids.length > 0 ? `?suburb_ids=${ids.join(',')}` : ''
-    setReportLoading(true)
+    // Cache key includes the sorted suburb-id set so different
+    // selections don't stomp each other. Stale-while-revalidate:
+    // render the cached snapshot synchronously (loading spinner
+    // never shows for a previously-loaded selection), refresh in
+    // background. Cuts the visible latency from "1+ min cold-start
+    // every click" to "instant for repeat selections".
+    const cacheKey = `report_${ids.slice().sort().join(',') || '__all__'}`
+    const cached = readCache(cacheKey)
+    if (cached) {
+      setReport(cached)
+      setReportLoading(false)
+    } else {
+      setReportLoading(true)
+    }
     // Direct to Render — Vercel's 25s edge proxy was killing the
     // report request during cold starts. The retry helper rides on
     // top so transient 5xx don't drop the user back to a blank tab.
     fetchWithRetry(`${BACKEND_DIRECT}/api/report${params}`, {}, 4)
       .then(r => r.json())
-      .then(data => setReport(data))
-      .catch(() => setReport(null))
+      .then(data => {
+        setReport(data)
+        if (data && !data.error) writeCache(cacheKey, data)
+      })
+      .catch(() => { if (!cached) setReport(null) })
       .finally(() => setReportLoading(false))
   }
 
