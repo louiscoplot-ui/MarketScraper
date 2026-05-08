@@ -293,7 +293,11 @@ def register_admin_routes(app):
         inviter = (' '.join(filter(None, [
             admin.get('first_name'), admin.get('last_name')
         ])).strip() or admin.get('email'))
-        email_ok, email_err = send_welcome_email(new_user, key, inviter_name=inviter)
+        email_ok, email_err = send_welcome_email(
+            new_user, key,
+            inviter_name=inviter,
+            inviter_email=admin.get('email'),
+        )
 
         # Returns the access_key ONCE on creation — the admin must copy
         # it now if the email failed; on subsequent GET /users calls the

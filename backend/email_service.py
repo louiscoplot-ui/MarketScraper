@@ -41,12 +41,25 @@ def _app_url():
     return os.environ.get('APP_URL', DEFAULT_APP_URL).rstrip('/')
 
 
-def _send(to, subject, html, text=None):
+def _send(to, subject, html, text=None, reply_to=None, list_unsubscribe=None):
     api_key = os.environ.get('RESEND_API_KEY', '').strip()
     sender = os.environ.get('EMAIL_FROM', DEFAULT_FROM).strip() or DEFAULT_FROM
     if not api_key:
         logger.warning("RESEND_API_KEY not set — email to %s skipped", to)
         return False, 'Resend not configured'
+
+    # Surface the #1 deliverability problem on every send: shared
+    # sandbox senders (resend.dev) have zero reputation, no DKIM/SPF/
+    # DMARC alignment for the recipient's domain, and Gmail / Outlook
+    # routinely drop them to spam. Verify your own domain in the
+    # Resend dashboard and set EMAIL_FROM=YourBrand <noreply@your-domain.au>
+    # to fix this properly. We log instead of failing so the app keeps
+    # working for the first-deploy / dev-loop cases.
+    if 'resend.dev' in sender.lower():
+        logger.warning(
+            "EMAIL_FROM uses Resend sandbox (%s) — emails will likely "
+            "land in spam. Verify a domain in Resend + set EMAIL_FROM.", sender
+        )
 
     payload = {
         'from': sender,
@@ -56,6 +69,22 @@ def _send(to, subject, html, text=None):
     }
     if text:
         payload['text'] = text
+
+    # Custom headers improve deliverability:
+    #   Reply-To  → routes replies to a real human (the inviting admin),
+    #               so Gmail's "first contact" heuristic sees a reachable
+    #               sender instead of a noreply address.
+    #   List-Unsubscribe → required by Gmail/Yahoo for transactional+bulk
+    #               mail. mailto: form is the simplest spec-compliant
+    #               value and doesn't need a URL endpoint.
+    extra_headers = {}
+    if reply_to:
+        extra_headers['Reply-To'] = reply_to
+    if list_unsubscribe:
+        extra_headers['List-Unsubscribe'] = f'<mailto:{list_unsubscribe}>'
+        extra_headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
+    if extra_headers:
+        payload['headers'] = extra_headers
 
     headers = {
         'Authorization': f'Bearer {api_key}',
@@ -173,15 +202,28 @@ def _welcome_text(user, access_key, inviter_name):
     )
 
 
-def send_welcome_email(user, access_key, inviter_name=None):
-    """Send the SuburbDesk welcome email to a freshly-created user."""
+def send_welcome_email(user, access_key, inviter_name=None, inviter_email=None):
+    """Send the SuburbDesk welcome email to a freshly-created user.
+    `inviter_email` is used as Reply-To so replies route to a real
+    human — strongly improves first-contact deliverability."""
     to = (user.get('email') or '').strip()
     if not to or '@' not in to:
         return False, 'Invalid email address'
-    subject = f"Welcome to SuburbDesk — your access is ready"
+    # Personal subject line (mentions inviter) reads as 1:1 mail rather
+    # than promotional bulk. Spam filters score it accordingly.
+    inviter_short = (inviter_name or '').strip().split()[0] if inviter_name else ''
+    subject = (
+        f"{inviter_short} added you to SuburbDesk"
+        if inviter_short else
+        "You've been added to SuburbDesk"
+    )
     html = _welcome_html(user, access_key, inviter_name)
     text = _welcome_text(user, access_key, inviter_name)
-    return _send(to, subject, html, text=text)
+    return _send(
+        to, subject, html, text=text,
+        reply_to=inviter_email or os.environ.get('SUPPORT_EMAIL'),
+        list_unsubscribe=inviter_email or os.environ.get('SUPPORT_EMAIL'),
+    )
 
 
 def _login_link(access_key):
