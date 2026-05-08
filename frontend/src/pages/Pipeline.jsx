@@ -38,6 +38,20 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// Strict dd/mm/yyyy for the recent-sales panel — operators in WA
+// expect Australian-style dates, not the ISO yyyy-mm-dd that Postgres
+// returns or the localised "8 May 2026" version above.
+function formatDateAU(value) {
+  if (!value) return '—'
+  const s = String(value).trim()
+  // Accept ISO yyyy-mm-dd or dd/mm/yyyy. Anything else passes through.
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`
+  return s
+}
+
 
 // Cluster consecutive groups (already sorted by primary source on the
 // backend) that share the same primary source address. Each cluster
@@ -591,7 +605,7 @@ export default function Pipeline() {
                   {s.source_price ? `$${s.source_price.toLocaleString()}` : '—'}
                 </span>
                 <span style={{ color: '#6b7280', minWidth: '90px', textAlign: 'right' }}>
-                  {s.source_sold_date || '—'}
+                  {formatDateAU(s.source_sold_date)}
                 </span>
                 {s.reiwa_url && (
                   <a href={s.reiwa_url} target="_blank" rel="noopener noreferrer"
@@ -634,7 +648,7 @@ export default function Pipeline() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
-                {['Source Sale', 'Target Address', 'Owner Name', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
+                {['Source Sale', 'Target Address', 'Owner Name', 'Contacted', 'Status', 'Sent', 'Notes', 'Letter', 'Action'].map(h => (
                   <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '600', color: '#374151', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -706,6 +720,29 @@ export default function Pipeline() {
                           {g.target_owner_name || '+ add name'}
                         </span>
                       )}
+                    </td>
+
+                    <td style={{ padding: '10px 12px' }}>
+                      {/* One-click contacted toggle. Lets the agent
+                          mark a row as called/letter-sent without
+                          digging into the Status dropdown. Backed by
+                          pipeline_tracking.contacted (INTEGER 0/1)
+                          + contacted_at timestamp set server-side. */}
+                      <button
+                        type="button"
+                        onClick={() => patchEntry(g.representative_id, { contacted: !g.contacted })}
+                        title={g.contacted_at ? `Marked contacted ${formatDateAU(g.contacted_at)}` : 'Click to mark contacted'}
+                        style={{
+                          padding: '4px 10px', borderRadius: '999px',
+                          border: `1px solid ${g.contacted ? '#16a34a' : '#d1d5db'}`,
+                          background: g.contacted ? '#dcfce7' : 'white',
+                          color: g.contacted ? '#15803d' : '#6b7280',
+                          cursor: 'pointer', fontSize: '12px', fontWeight: 500,
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        }}
+                      >
+                        {g.contacted ? '✓ Contacted' : 'Mark contacted'}
+                      </button>
                     </td>
 
                     <td style={{ padding: '10px 12px' }}>

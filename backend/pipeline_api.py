@@ -884,6 +884,9 @@ def pipeline_tracking_grouped():
                 'sent_date': r.get('sent_date'),
                 'response_date': r.get('response_date'),
                 'notes': r.get('notes'),
+                # 1/0 from SQLite, bool from psycopg2 — coerce to bool for JSON.
+                'contacted': bool(r.get('contacted')),
+                'contacted_at': r.get('contacted_at'),
                 'representative_id': r.get('id'),
                 'row_ids': [],
                 'sources': [],
