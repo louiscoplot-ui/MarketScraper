@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BACKEND_DIRECT, fetchWithRetry } from '../lib/api'
+import { BACKEND_DIRECT, fetchWithRetry, readCache, writeCache } from '../lib/api'
 import LoadingState from '../components/LoadingState'
 
 const API = ''
@@ -10,12 +10,11 @@ const API = ''
 // blocked by the proxy timeout, so we go direct.
 const PIPELINE_API = `${BACKEND_DIRECT}/api/pipeline`
 
-// Per-suburb 5s snapshot cache. Survives unmount/remount within the
-// same JS session so Pipeline → Listings → back-to-Pipeline doesn't
-// re-fetch when the user is navigating quickly. Cache key is the
-// suburb name (or '__all__' for unfiltered). Entries auto-expire on
-// next access via the 5000ms TTL check inside loadTracking.
-const _pipelineCache = new Map()
+// localStorage cache keys (scoped by access_key prefix via readCache /
+// writeCache from lib/api). Stale-while-revalidate — render the cached
+// snapshot synchronously on mount + reload, refresh in the background.
+const PIPELINE_CACHE_KEY = (suburb) => `pipeline_groups_${(suburb || '__all__').toLowerCase()}`
+const RECENT_SALES_CACHE_KEY = (suburb, days) => `pipeline_recent_${(suburb || '__all__').toLowerCase()}_${days}`
 
 const STATUS_LABELS = {
   sent: { label: 'Sent', color: '#3b82f6' },
@@ -93,7 +92,12 @@ export default function Pipeline() {
   const [days, setDays] = useState(7)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [groups, setGroups] = useState([])
+  // Hydrate groups synchronously from localStorage on first mount —
+  // suburb starts empty until /api/suburbs lands, so we read the
+  // generic "__all__" cache here and the suburb-scoped cache kicks in
+  // once the suburb effect fires. Either way, first paint shows real
+  // rows instead of a spinner after reload.
+  const [groups, setGroups] = useState(() => readCache(PIPELINE_CACHE_KEY('')) || [])
   const [generateMsg, setGenerateMsg] = useState(null)
   const [editingName, setEditingName] = useState(null)
   const [editingNote, setEditingNote] = useState(null)
@@ -135,13 +139,22 @@ export default function Pipeline() {
   // Auto-fetch the raw sales for the active suburb + day window
   // whenever either changes. This drives the "show me sales in the
   // last N days" view — independent of pipeline generation.
+  // Stale-while-revalidate: render cached sales instantly on
+  // suburb/days change (or reload), then refresh in background.
   useEffect(() => {
     if (!suburbsLoaded || !suburb) return
+    const cached = readCache(RECENT_SALES_CACHE_KEY(suburb, days))
+    if (Array.isArray(cached)) setRecentSales(cached)
     let cancelled = false
     fetch(`${PIPELINE_API}/recent-sales?suburb=${encodeURIComponent(suburb)}&days=${days}`)
       .then(r => r.ok ? r.json() : { sales: [] })
-      .then(data => { if (!cancelled) setRecentSales(data.sales || []) })
-      .catch(() => { if (!cancelled) setRecentSales([]) })
+      .then(data => {
+        if (cancelled) return
+        const sales = data.sales || []
+        setRecentSales(sales)
+        writeCache(RECENT_SALES_CACHE_KEY(suburb, days), sales)
+      })
+      .catch(() => { if (!cancelled && !cached) setRecentSales([]) })
     return () => { cancelled = true }
   }, [suburb, days, suburbsLoaded])
 
@@ -225,20 +238,21 @@ export default function Pipeline() {
     return () => clearTimeout(t)
   }, [suburb, days, groups.length, loading, generating, recentSales.length])
 
-  // Module-level snapshot cache so navigating Pipeline → Listings →
-  // back-to-Pipeline within 5s doesn't re-fetch. The component unmounts
-  // when the user switches tabs (App.jsx renders Pipeline conditionally),
-  // so React state is lost — but this Map survives across mounts within
-  // the same JS session. Per-suburb keys, 5s TTL.
+  // Stale-while-revalidate: hydrate from localStorage instantly on
+  // mount/reload (suburb-scoped), then refresh in background. The
+  // user sees pipeline rows on first paint instead of a spinner —
+  // even after a hard reload. `force` skips the cache hit and forces
+  // a fresh fetch (used after PATCH/Generate when we know data
+  // changed).
   async function loadTracking({ force = false } = {}) {
-    const cacheKey = suburb || '__all__'
-    const cached = _pipelineCache.get(cacheKey)
-    if (!force && cached && (Date.now() - cached.t) < 5000) {
-      setGroups(cached.groups)
+    const cached = !force ? readCache(PIPELINE_CACHE_KEY(suburb)) : null
+    if (cached && Array.isArray(cached)) {
+      setGroups(cached)
       setLoading(false)
-      return
+      // Continue to fetch fresh in background
+    } else {
+      setLoading(true)
     }
-    setLoading(true)
     try {
       const url = suburb
         ? `${PIPELINE_API}/tracking/grouped?suburb=${encodeURIComponent(suburb)}&limit=500`
@@ -247,7 +261,7 @@ export default function Pipeline() {
       const data = await res.json()
       const groupsResult = data.groups || []
       setGroups(groupsResult)
-      _pipelineCache.set(cacheKey, { groups: groupsResult, t: Date.now() })
+      writeCache(PIPELINE_CACHE_KEY(suburb), groupsResult)
     } catch (e) { console.error(e) }
     setLoading(false)
   }
@@ -317,12 +331,32 @@ export default function Pipeline() {
   }
 
   async function patchEntry(id, fields) {
-    await fetch(`${API}/api/pipeline/tracking/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fields),
+    // Optimistic local mirror — apply the change to the row instantly
+    // so the user sees the toggle / status / note flip immediately.
+    // No loadTracking refetch (which was eating 1+ second per click
+    // and resetting scroll position). The PATCH lands server-side in
+    // the background. On error we revert by reloading once.
+    const localPatch = { ...fields }
+    if ('contacted' in fields) {
+      localPatch.contacted = !!fields.contacted
+      localPatch.contacted_at = fields.contacted ? new Date().toISOString() : null
+    }
+    setGroups(prev => {
+      const next = prev.map(g => g.representative_id === id ? { ...g, ...localPatch } : g)
+      writeCache(PIPELINE_CACHE_KEY(suburb), next)
+      return next
     })
-    loadTracking({ force: true })
+    try {
+      const res = await fetch(`${API}/api/pipeline/tracking/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch (e) {
+      console.error('patchEntry failed, reverting:', e)
+      loadTracking({ force: true })
+    }
   }
 
   async function downloadLetter(representativeId, targetAddress) {
