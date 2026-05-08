@@ -252,23 +252,23 @@ function App() {
   const fetchReport = (suburbIds) => {
     const ids = suburbIds && suburbIds.size > 0 ? Array.from(suburbIds) : []
     const params = ids.length > 0 ? `?suburb_ids=${ids.join(',')}` : ''
-    // Cache key includes the sorted suburb-id set so different
-    // selections don't stomp each other. Stale-while-revalidate:
-    // render the cached snapshot synchronously (loading spinner
-    // never shows for a previously-loaded selection), refresh in
-    // background. Cuts the visible latency from "1+ min cold-start
-    // every click" to "instant for repeat selections".
     const cacheKey = `report_${ids.slice().sort().join(',') || '__all__'}`
     const cached = readCache(cacheKey)
     if (cached) {
+      // Cache hit → instant render of the matching selection. No
+      // spinner. Fetch refreshes silently in the background.
       setReport(cached)
       setReportLoading(false)
     } else {
+      // Cache miss → CLEAR the previous selection's data immediately
+      // and show the spinner. Otherwise the user toggles "Nedlands
+      // only" and briefly sees the previous "All" report's data
+      // mixed in for ~5s until the fetch lands — confusing because
+      // suburbs they unchecked still appear in Market-Share-by-suburb
+      // etc. Clean state during fetch is more honest.
+      setReport(null)
       setReportLoading(true)
     }
-    // Direct to Render — Vercel's 25s edge proxy was killing the
-    // report request during cold starts. The retry helper rides on
-    // top so transient 5xx don't drop the user back to a blank tab.
     fetchWithRetry(`${BACKEND_DIRECT}/api/report${params}`, {}, 4)
       .then(r => r.json())
       .then(data => {
