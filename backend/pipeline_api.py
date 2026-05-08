@@ -642,7 +642,12 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
         # bid up / down) and surfacing it as "sold for $X" was
         # inventing data. NULL when sold_price is missing.
         source_price = _price_to_int(r['sold_price'])
-        source_sold_date = r['effective_date']
+        # ONLY use the real sold_date — never fall back to first_seen
+        # (which was baking the date the listing was first scraped into
+        # source_sold_date for every sale, surfacing as "all sold 28 Apr"
+        # when the user first scraped the suburb on the 28th). NULL is
+        # honest; the UI shows "—" rather than a fake unified date.
+        source_sold_date = (r['sold_date'] or '').strip() or None
         targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
         if not targets:
             skipped_no_neighbour += 1
@@ -671,7 +676,7 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
             'source_address': d.get('address'),
             'source_suburb': d.get('suburb_name'),
             'source_price': _price_to_int(d.get('sold_price')),
-            'source_sold_date': d.get('effective_date'),
+            'source_sold_date': (d.get('sold_date') or '').strip() or None,
         })
     conn.close()
 
@@ -1145,7 +1150,9 @@ def pipeline_recent_sales():
             'source_address': d.get('address'),
             'source_suburb': d.get('suburb_name'),
             'source_price': _price_to_int(d.get('sold_price')),
-            'source_sold_date': d.get('effective_date'),
+            # Real sold_date only — no first_seen fallback (would surface
+            # the same date for every listing we first saw on day 1).
+            'source_sold_date': (d.get('sold_date') or '').strip() or None,
             'reiwa_url': d.get('reiwa_url'),
             'agent': d.get('agent'),
             'agency': d.get('agency'),

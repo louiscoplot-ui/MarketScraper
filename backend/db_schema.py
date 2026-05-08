@@ -166,6 +166,37 @@ def init_db():
     except Exception:
         conn.commit()
 
+    # Backfill pipeline_tracking.source_sold_date from listings.sold_date.
+    # Pre-fix pipeline_generate fell back to first_seen when sold_date
+    # was NULL, baking the date the listing was first scraped into
+    # source_sold_date for every sale — surfacing as "all sold 28 Apr"
+    # in the UI when the user first scraped that suburb on the 28th.
+    # Now that listings.sold_date is reliably populated (post-scraper
+    # fix + earlier sold_date migration), pull the real value through.
+    # Idempotent: only updates rows where the listings sold_date differs.
+    try:
+        bad_dates = conn.execute(
+            "SELECT pt.id, l.sold_date AS real_sold "
+            "FROM pipeline_tracking pt "
+            "JOIN listings l ON LOWER(l.address) = LOWER(pt.source_address) "
+            "JOIN suburbs s ON l.suburb_id = s.id "
+            "WHERE LOWER(s.name) = pt.source_suburb_lower "
+            "AND l.status = 'sold' "
+            "AND l.sold_date IS NOT NULL "
+            "AND l.sold_date != '' "
+            "AND (pt.source_sold_date IS NULL "
+            "     OR pt.source_sold_date != l.sold_date)"
+        ).fetchall()
+        for r in bad_dates:
+            d = dict(r)
+            conn.execute(
+                "UPDATE pipeline_tracking SET source_sold_date = ? WHERE id = ?",
+                (d['real_sold'], d['id'])
+            )
+        conn.commit()
+    except Exception:
+        conn.commit()
+
     conn.execute(
         "UPDATE listings SET withdrawn_date = last_seen "
         "WHERE status = 'withdrawn' AND withdrawn_date IS NULL"
