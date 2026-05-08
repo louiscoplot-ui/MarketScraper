@@ -88,6 +88,11 @@ export default function Pipeline() {
   // Per-row in-flight letter downloads so multiple buttons can be
   // clicked without the spinner state stomping on itself.
   const [downloadingIds, setDownloadingIds] = useState(new Set())
+  // Raw sales returned by /api/pipeline/generate — surfaced when
+  // generated=0 so the user can SEE the sales found even if no
+  // targets were auto-created. Populated by handleGenerate's
+  // "Found N sales but..." branch and cleared on success.
+  const [recentSales, setRecentSales] = useState([])
 
   useEffect(() => {
     fetch(`${API}/api/suburbs`)
@@ -112,6 +117,19 @@ export default function Pipeline() {
     if (!suburbsLoaded || !suburb) return
     loadTracking()
   }, [suburb, suburbsLoaded])
+
+  // Auto-fetch the raw sales for the active suburb + day window
+  // whenever either changes. This drives the "show me sales in the
+  // last N days" view — independent of pipeline generation.
+  useEffect(() => {
+    if (!suburbsLoaded || !suburb) return
+    let cancelled = false
+    fetch(`${PIPELINE_API}/recent-sales?suburb=${encodeURIComponent(suburb)}&days=${days}`)
+      .then(r => r.ok ? r.json() : { sales: [] })
+      .then(data => { if (!cancelled) setRecentSales(data.sales || []) })
+      .catch(() => { if (!cancelled) setRecentSales([]) })
+    return () => { cancelled = true }
+  }, [suburb, days, suburbsLoaded])
 
   // OSM cache state for the active suburb. The backend warms in a
   // background thread; we poll every 3s while warming so the user sees
@@ -251,10 +269,15 @@ export default function Pipeline() {
       })
     } else if (data.generated === 0) {
       // Sales exist but every neighbour was already in pipeline_tracking
-      // (likely from a previous run or auto-gen after the daily scrape).
+      // OR no neighbours could be auto-found. Either way: surface the
+      // raw sales (recent_sales) so the user can SEE what's available
+      // and manually add targets if needed.
+      const reason = (data.skipped_no_neighbour && data.skipped_no_neighbour > 0)
+        ? `couldn't auto-find neighbour addresses for those sales`
+        : `all neighbours are already in your pipeline`
       setGenerateMsg({
         type: 'info',
-        text: `Found ${data.sold_count} sales but all neighbours are already in your pipeline.`,
+        text: `Found ${data.sold_count} sales — ${reason}.`,
       })
       setFilterSuburb(suburb)
       loadTracking({ force: true })
@@ -524,6 +547,52 @@ export default function Pipeline() {
           <span><strong>{responded}</strong> responded ({respRate}%)</span>
           <span><strong>{appraisals}</strong> appraisals booked</span>
           <span><strong>{listed}</strong> listings signed</span>
+        </div>
+      )}
+
+      {/* Always-visible "sales in last N days" panel — driven by the
+          7/14/30 day toggle. Independent of pipeline generation:
+          shows what's there even when no targets have been auto-built
+          yet. */}
+      {recentSales.length > 0 && (
+        <div style={{
+          background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px',
+          padding: '14px 18px', marginBottom: '16px',
+        }}>
+          <div style={{
+            fontSize: '13px', fontWeight: 600, color: '#111827',
+            marginBottom: '10px', display: 'flex', justifyContent: 'space-between',
+          }}>
+            <span>Recent sales in {suburb} — last {days} days</span>
+            <span style={{ color: '#6b7280', fontWeight: 400 }}>
+              {recentSales.length} {recentSales.length === 1 ? 'sale' : 'sales'}
+            </span>
+          </div>
+          <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+            {recentSales.map((s, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                padding: '8px 0', borderTop: i ? '1px solid #f3f4f6' : 'none',
+                fontSize: '13px',
+              }}>
+                <span style={{ flex: 1, fontWeight: 500, color: '#111827' }}>
+                  {s.source_address}
+                </span>
+                <span style={{ color: '#374151', minWidth: '110px', textAlign: 'right' }}>
+                  {s.source_price ? `$${s.source_price.toLocaleString()}` : '—'}
+                </span>
+                <span style={{ color: '#6b7280', minWidth: '90px', textAlign: 'right' }}>
+                  {s.source_sold_date || '—'}
+                </span>
+                {s.reiwa_url && (
+                  <a href={s.reiwa_url} target="_blank" rel="noopener noreferrer"
+                     style={{ color: '#1d4ed8', fontSize: '12px' }}>
+                    View
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -659,6 +659,20 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
 
     generated = _bulk_insert_pipeline(conn, insert_rows)
     conn.commit()
+
+    # Always return the raw source sales — even when generated=0
+    # (every neighbour already in pipeline OR no neighbours found).
+    # The Pipeline UI surfaces these so the user can SEE the sales
+    # found and add manual targets if auto-discovery missed them.
+    raw_sales = []
+    for r in sold_rows:
+        d = dict(r)
+        raw_sales.append({
+            'source_address': d.get('address'),
+            'source_suburb': d.get('suburb_name'),
+            'source_price': _price_to_int(d.get('sold_price')),
+            'source_sold_date': d.get('effective_date'),
+        })
     conn.close()
 
     return {
@@ -667,6 +681,7 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
         'suburb': suburb,
         'cap_applied': sold_count >= src_limit,
         'skipped_no_neighbour': skipped_no_neighbour,
+        'recent_sales': raw_sales,
     }
 
 
@@ -898,14 +913,25 @@ def pipeline_tracking_grouped():
 
 def pipeline_tracking_update(id):
     data = request.get_json(silent=True) or {}
-    allowed = ('status', 'response_date', 'notes', 'target_owner_name')
+    allowed = ('status', 'response_date', 'notes', 'target_owner_name', 'contacted')
 
     sets = []
     params = []
     for key in allowed:
         if key in data:
-            sets.append(f"{key} = ?")
-            params.append(data[key])
+            if key == 'contacted':
+                # Coerce truthy → 1 / falsy → 0 for cross-driver INTEGER
+                # storage. Also stamp contacted_at when flipping to ON
+                # and clear it when flipping OFF, so the UI can show
+                # "contacted X days ago".
+                v = 1 if data[key] else 0
+                sets.append("contacted = ?")
+                params.append(v)
+                sets.append("contacted_at = ?")
+                params.append(datetime.utcnow().isoformat() if v else None)
+            else:
+                sets.append(f"{key} = ?")
+                params.append(data[key])
 
     if not sets:
         return jsonify({'error': 'No updatable fields provided'}), 400
@@ -1075,6 +1101,58 @@ def pipeline_enrich_owners():
     return jsonify({'updated': updated, 'suburb': suburb})
 
 
+def pipeline_recent_sales():
+    """Lightweight read of sales matching ?suburb=X&days=N. No
+    generation, no DB writes — just returns the raw sold listings so
+    the Pipeline page can SHOW the sales the day-window toggle
+    selects, regardless of whether targets have been generated yet."""
+    suburb = (request.args.get('suburb') or '').strip()
+    if not suburb:
+        return jsonify({'sales': []})
+    if not user_can_access_suburb(suburb):
+        return jsonify({'error': 'Suburb not in your allowed list'}), 403
+    try:
+        days = int(request.args.get('days') or 30)
+    except ValueError:
+        days = 30
+    days = max(1, min(days, 365))
+    cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT l.address, l.sold_price, l.price_text, l.sold_date,
+               l.first_seen, l.last_seen, l.reiwa_url, l.agent, l.agency,
+               s.name AS suburb_name,
+               COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) AS effective_date
+        FROM listings l
+        JOIN suburbs s ON l.suburb_id = s.id
+        WHERE l.status = 'sold'
+          AND LOWER(s.name) = LOWER(?)
+          AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?
+        ORDER BY COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) DESC,
+                 l.first_seen DESC
+        LIMIT 200
+        """,
+        (suburb, cutoff_date)
+    ).fetchall()
+    conn.close()
+
+    sales = []
+    for r in rows:
+        d = dict(r)
+        sales.append({
+            'source_address': d.get('address'),
+            'source_suburb': d.get('suburb_name'),
+            'source_price': _price_to_int(d.get('sold_price')),
+            'source_sold_date': d.get('effective_date'),
+            'reiwa_url': d.get('reiwa_url'),
+            'agent': d.get('agent'),
+            'agency': d.get('agency'),
+        })
+    return jsonify({'sales': sales, 'suburb': suburb, 'days': days})
+
+
 def _streets_in_suburb(conn, suburb):
     """Distinct street names with a recent SOLD listing in this suburb —
     Pipeline only generates targets from sold sources, so warming OSM
@@ -1227,6 +1305,9 @@ def register_pipeline_routes(app):
                      view_func=pipeline_letter_download, methods=['GET'])
     app.add_url_rule('/api/pipeline/enrich-owners', endpoint='pipeline_enrich_owners',
                      view_func=pipeline_enrich_owners, methods=['POST'])
+    app.add_url_rule('/api/pipeline/recent-sales',
+                     endpoint='pipeline_recent_sales',
+                     view_func=pipeline_recent_sales, methods=['GET'])
     app.add_url_rule('/api/pipeline/osm-status/<path:suburb>',
                      endpoint='pipeline_osm_status',
                      view_func=pipeline_osm_status, methods=['GET'])

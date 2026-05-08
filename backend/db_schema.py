@@ -266,6 +266,24 @@ def init_db():
     except Exception:
         conn.commit()
 
+    # Per-row "I've already contacted this owner" flag — separate from
+    # `status` (sent/responded/appraisal_booked/...) so an agent can
+    # quickly tick a row as called/letter-sent without committing to a
+    # full lifecycle stage. Stored as INTEGER 0/1 for SQLite + Postgres
+    # bool compatibility. Updated via PATCH /api/pipeline/tracking/<id>.
+    for col_sql in [
+        "ALTER TABLE pipeline_tracking ADD COLUMN IF NOT EXISTS contacted INTEGER DEFAULT 0",
+        "ALTER TABLE pipeline_tracking ADD COLUMN IF NOT EXISTS contacted_at TEXT",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            try:
+                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
+            except Exception:
+                conn.commit()
+    conn.commit()
+
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS hot_vendor_uploads (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
