@@ -428,7 +428,7 @@ export default function Pipeline() {
       const sourcesText = g.sources
         .map(s => {
           const price = s.source_price ? ` ($${s.source_price.toLocaleString()})` : ''
-          const dt = s.source_sold_date ? ` — sold ${s.source_sold_date}` : ''
+          const dt = s.source_sold_date ? ` — sold ${formatDateAU(s.source_sold_date)}` : ''
           return `${s.source_address}${price}${dt}`
         })
         .join('; ')
@@ -742,7 +742,7 @@ export default function Pipeline() {
                               {formatPrice(s.source_price)}
                               {s.source_sold_date && (
                                 <span style={{ color: '#9ca3af', marginLeft: '6px' }}>
-                                  · sold {formatDate(s.source_sold_date)}
+                                  · sold {formatDateAU(s.source_sold_date)}
                                 </span>
                               )}
                             </div>
@@ -817,7 +817,7 @@ export default function Pipeline() {
                     </td>
 
                     <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: '#6b7280' }}>
-                      {formatDate(g.sent_date)}
+                      {formatDateAU(g.sent_date)}
                     </td>
 
                     <td style={{ padding: '10px 12px', maxWidth: '180px' }}>
