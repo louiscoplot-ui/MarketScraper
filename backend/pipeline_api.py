@@ -1076,12 +1076,19 @@ def pipeline_enrich_owners():
 
 
 def _streets_in_suburb(conn, suburb):
-    """Distinct street names that have at least one active/sold listing
-    in the suburb — used as the prefetch worklist for OSM warming."""
+    """Distinct street names with a recent SOLD listing in this suburb —
+    Pipeline only generates targets from sold sources, so warming OSM
+    for streets where nothing's been sold is wasted Overpass quota.
+    Was previously pulling EVERY listing (active+UO+sold+withdrawn)
+    which on a fresh account dragged the warm-up to 1+ minute."""
     rows = conn.execute(
         "SELECT DISTINCT l.address FROM listings l "
         "JOIN suburbs s ON l.suburb_id = s.id "
-        "WHERE LOWER(s.name) = LOWER(?) AND l.address IS NOT NULL",
+        "WHERE LOWER(s.name) = LOWER(?) "
+        "AND l.status = 'sold' "
+        "AND l.address IS NOT NULL "
+        "ORDER BY l.last_seen DESC "
+        "LIMIT 60",
         (suburb,)
     ).fetchall()
     streets = set()

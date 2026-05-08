@@ -147,7 +147,11 @@ export default function Pipeline() {
         }
         // Still warming — show banner. After 60s, downgrade message.
         const elapsed = Date.now() - startedAt
-        setOsmStatus(elapsed > 60_000 ? 'slow' : 'warming')
+        // Warming is silent (no banner) up to 30s — most prefetches
+        // finish well within that and the user shouldn't see a
+        // "Loading..." indicator for a quick background task. Past 30s
+        // we surface the "slow" banner so they know something's stuck.
+        setOsmStatus(elapsed > 30_000 ? 'slow' : 'warming')
         timer = setTimeout(tick, 3000)
       } catch {
         if (!cancelled) setOsmStatus('ready')
@@ -445,7 +449,7 @@ export default function Pipeline() {
           )
         })()}
 
-        {(osmStatus === 'warming' || osmStatus === 'slow') && (
+        {osmStatus === 'slow' && (
           <div style={{
             marginTop: '12px', padding: '10px 14px', borderRadius: '6px', fontSize: '14px',
             background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF',
@@ -529,11 +533,12 @@ export default function Pipeline() {
           subtext="First load can take 15–30 seconds while the server warms up. Subsequent suburb switches are near-instant."
         />
       ) : groups.length === 0 ? (
-        // Empty state: stay quiet while OSM is warming (the yellow
-        // banner above already explains what's happening). Once OSM
-        // is ready and there are still no entries, show a clear
-        // call-to-action instead of the cryptic "No entries yet."
-        osmStatus === 'warming' || osmStatus === 'slow' ? null : (
+        // Empty state: only suppress when OSM is "slow" (>30s) — at
+        // that point a banner is already telling the user. While
+        // warming silently in the background, show the empty-state
+        // CTA so the user can read what to do next instead of
+        // staring at a blank page.
+        osmStatus === 'slow' ? null : (
           <div style={{
             background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px',
             padding: '20px 24px', maxWidth: '640px', margin: '20px 0',
