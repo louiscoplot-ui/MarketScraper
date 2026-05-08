@@ -15,6 +15,7 @@ import re
 import time
 import random
 import logging
+from datetime import datetime
 
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
@@ -417,6 +418,28 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                     rec['status'] = 'sold'
                     rec['reiwa_url'] = card_url
+                    # On REIWA's /sold/ grid each card stamps the SOLD
+                    # date (not the original listing date). _parse_card
+                    # extracts it into rec['listing_date'] generically —
+                    # move it into sold_date so listings.sold_date
+                    # actually gets populated. Without this move, the
+                    # SOLD column in the table stays blank for every
+                    # sale picked up from the sold-page grid (the only
+                    # path that ran was verify_disappeared_listings,
+                    # which only fires for listings past page 10).
+                    sold_date_dmy = rec.pop('listing_date', '') or ''
+                    if sold_date_dmy:
+                        # Convert dd/mm/yyyy → ISO yyyy-mm-dd to match
+                        # the format verify_disappeared_listings writes
+                        # and the format the rest of the app expects.
+                        try:
+                            rec['sold_date'] = datetime.strptime(
+                                sold_date_dmy, '%d/%m/%Y'
+                            ).strftime('%Y-%m-%d')
+                        except ValueError:
+                            # Fallback: store whatever we got rather
+                            # than dropping the only date signal.
+                            rec['sold_date'] = sold_date_dmy
                     results['sold_listings'].append(rec)
 
                 results['stats']['sold_pages_scraped'] = pg
