@@ -923,25 +923,21 @@ def pipeline_tracking_update(id):
     data = request.get_json(silent=True) or {}
     allowed = ('status', 'response_date', 'notes', 'target_owner_name', 'contacted')
 
-    sets = []
-    params = []
+    # Build (column, value) pairs in one pass — keeps coerced values
+    # like contacted/contacted_at aligned with their placeholders.
+    pairs = []  # list of (sql_fragment, value)
     for key in allowed:
-        if key in data:
-            if key == 'contacted':
-                # Coerce truthy → 1 / falsy → 0 for cross-driver INTEGER
-                # storage. Also stamp contacted_at when flipping to ON
-                # and clear it when flipping OFF, so the UI can show
-                # "contacted X days ago".
-                v = 1 if data[key] else 0
-                sets.append("contacted = ?")
-                params.append(v)
-                sets.append("contacted_at = ?")
-                params.append(datetime.utcnow().isoformat() if v else None)
-            else:
-                sets.append(f"{key} = ?")
-                params.append(data[key])
+        if key not in data:
+            continue
+        if key == 'contacted':
+            v = 1 if data[key] else 0
+            pairs.append(("contacted = ?", v))
+            pairs.append(("contacted_at = ?",
+                          datetime.utcnow().isoformat() if v else None))
+        else:
+            pairs.append((f"{key} = ?", data[key]))
 
-    if not sets:
+    if not pairs:
         return jsonify({'error': 'No updatable fields provided'}), 400
 
     propagate_owner = 'target_owner_name' in data
@@ -966,19 +962,31 @@ def pipeline_tracking_update(id):
             (data['target_owner_name'], target_row['target_address'], target_row['source_suburb'])
         )
 
-    other_sets = [s for s in sets if not s.startswith('target_owner_name')]
-    if other_sets:
-        other_params = []
-        for key in allowed:
-            if key == 'target_owner_name':
-                continue
-            if key in data:
-                other_params.append(data[key])
-        other_params.append(id)
-        conn.execute(
-            f"UPDATE pipeline_tracking SET {', '.join(other_sets)} WHERE id = ?",
-            other_params
-        )
+    # Apply every non-target_owner_name update for THIS row only.
+    other_pairs = [p for p in pairs if not p[0].startswith('target_owner_name')]
+    if other_pairs:
+        sql_frags = [p[0] for p in other_pairs]
+        sql_params = [p[1] for p in other_pairs] + [id]
+        try:
+            conn.execute(
+                f"UPDATE pipeline_tracking SET {', '.join(sql_frags)} WHERE id = ?",
+                sql_params
+            )
+        except Exception as e:
+            # Most likely cause: contacted/contacted_at column missing
+            # because migrations haven't run (fresh deploy). Strip
+            # those fields and retry once with the fields the schema
+            # definitely has, so the user's other edits still land.
+            logger.warning(f"PATCH retry without contacted columns: {e}")
+            safe_pairs = [p for p in other_pairs
+                          if not p[0].startswith('contacted')]
+            if safe_pairs:
+                sql_frags = [p[0] for p in safe_pairs]
+                sql_params = [p[1] for p in safe_pairs] + [id]
+                conn.execute(
+                    f"UPDATE pipeline_tracking SET {', '.join(sql_frags)} WHERE id = ?",
+                    sql_params
+                )
 
     conn.commit()
     row = conn.execute(

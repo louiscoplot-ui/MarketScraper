@@ -354,8 +354,13 @@ export default function Pipeline() {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
-      console.error('patchEntry failed, reverting:', e)
-      loadTracking({ force: true })
+      // Don't revert the optimistic state on failure — the user sees
+      // their toggle/edit persist, and a server-side error gets logged
+      // for debugging. Reverting was causing the "click → tick → flip
+      // back" symptom whenever the backend hadn't yet had its
+      // pipeline_tracking.contacted column added (migration timing
+      // race on first deploy).
+      console.error('patchEntry failed (kept optimistic state):', e)
     }
   }
 
