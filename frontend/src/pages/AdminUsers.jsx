@@ -485,8 +485,13 @@ export default function AdminUsers() {
       </table>
 
       {assigning && (
-        <div className="note-modal-overlay" onClick={() => setAssigning(null)}>
-          <div className="note-modal admin-assign-modal" onClick={(e) => e.stopPropagation()}>
+        // Backdrop is non-interactive — clicking outside the modal does
+        // NOT close it. The previous behavior (close on backdrop click)
+        // was eating the user's progress: tick a few suburbs, click
+        // anywhere outside the panel by accident → ticks gone, no save.
+        // Use the × or Cancel button to close explicitly.
+        <div className="note-modal-overlay">
+          <div className="note-modal admin-assign-modal">
             <div className="note-modal-header">
               <div>
                 <div className="note-modal-title">Assign suburbs</div>
