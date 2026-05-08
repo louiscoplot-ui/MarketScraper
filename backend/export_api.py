@@ -137,7 +137,27 @@ def export_listings():
     if statuses_str:
         statuses = [s.strip() for s in statuses_str.split(',') if s.strip()]
 
-    listings = get_listings(suburb_ids=suburb_ids, statuses=statuses)
+    # Per-user suburb scoping — same pattern as /api/listings (app.py:236).
+    # Non-admin callers can't widen scope by passing arbitrary suburb_ids
+    # in the query string. Empty intersection → empty workbook (200 with
+    # header-only sheets — verified safe; no division-by-zero or empty-
+    # list access in the downstream workbook construction).
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
+    if allowed is not None:
+        if not allowed:
+            listings = []
+        else:
+            if suburb_ids:
+                suburb_ids = [s for s in suburb_ids if s in allowed]
+                if not suburb_ids:
+                    listings = []
+                else:
+                    listings = get_listings(suburb_ids=suburb_ids, statuses=statuses)
+            else:
+                listings = get_listings(suburb_ids=list(allowed), statuses=statuses)
+    else:
+        listings = get_listings(suburb_ids=suburb_ids, statuses=statuses)
     if agent:
         listings = [l for l in listings if l.get('agent') == agent]
     if agency:

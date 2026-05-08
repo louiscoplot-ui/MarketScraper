@@ -199,13 +199,23 @@ def delete_suburb(suburb_id):
 def delete_listing(listing_id):
     """Manual delete of a single listing row — useful for cleaning stale
     withdrawn rows that the auto re-list detector couldn't match (e.g. the
-    withdrawn row has 'Address not disclosed' so no address to normalise)."""
+    withdrawn row has 'Address not disclosed' so no address to normalise).
+    Scope-checked: a non-admin user can only delete listings in suburbs
+    they're assigned to. Admins (allowed=None) bypass the check."""
+    from admin_api import resolve_request_scope
     conn = get_db()
-    row = conn.execute("SELECT id, address, status FROM listings WHERE id = ?",
-                       (listing_id,)).fetchone()
+    # SELECT suburb_id too so we can scope-check before deletion.
+    row = conn.execute(
+        "SELECT id, address, status, suburb_id FROM listings WHERE id = ?",
+        (listing_id,)
+    ).fetchone()
     if not row:
         conn.close()
         return jsonify({'error': 'Listing not found'}), 404
+    _, allowed = resolve_request_scope()
+    if allowed is not None and row['suburb_id'] not in allowed:
+        conn.close()
+        return jsonify({'error': 'Not authorised for that suburb'}), 403
     conn.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
     conn.commit()
     conn.close()
@@ -406,7 +416,13 @@ def debug_scrape(suburb_id):
 
 @app.route('/api/admin/reset-listing-dates', methods=['POST'])
 def reset_listing_dates():
-    """Clear listing_date on all rows so the next scrape repopulates them."""
+    """Clear listing_date on all rows so the next scrape repopulates them.
+    Admin-only: this NULLs a column on every listing row in the DB; any
+    authenticated non-admin previously had access via the global gate."""
+    from admin_api import _require_admin
+    _, err = _require_admin()
+    if err:
+        return err
     conn = get_db()
     cur = conn.execute("UPDATE listings SET listing_date = NULL WHERE listing_date IS NOT NULL")
     affected = cur.rowcount
