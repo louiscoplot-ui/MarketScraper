@@ -73,6 +73,37 @@ def init_db():
             except Exception:
                 conn.commit()
 
+    # One-shot backfill: prior to scraper.py commit 190fed0, the sold-page
+    # card scraper wrote REIWA's "Sold DD/MM/YYYY" stamp into
+    # listings.listing_date instead of listings.sold_date — leaving the
+    # SOLD column blank and showing the sold date as the listed date.
+    # Recover those rows by copying listing_date → sold_date (with a
+    # dd/mm/yyyy → ISO yyyy-mm-dd conversion via SUBSTR + concat, which
+    # works on both SQLite and Postgres) and NULL-ing out the corrupted
+    # listing_date so UI doesn't display the same date in LISTED and
+    # SOLD columns. Idempotent — only fires for sold rows whose
+    # sold_date is still NULL, so subsequent runs are no-ops. The real
+    # original listing_date can't be recovered (REIWA doesn't show it
+    # on the sold detail page); user can manually edit via the inline
+    # cell editor when they remember the date.
+    try:
+        conn.execute(
+            "UPDATE listings "
+            "SET sold_date = SUBSTR(listing_date, 7, 4) || '-' "
+            "              || SUBSTR(listing_date, 4, 2) || '-' "
+            "              || SUBSTR(listing_date, 1, 2), "
+            "    listing_date = NULL "
+            "WHERE status = 'sold' "
+            "AND sold_date IS NULL "
+            "AND listing_date IS NOT NULL "
+            "AND LENGTH(listing_date) = 10 "
+            "AND SUBSTR(listing_date, 3, 1) = '/' "
+            "AND SUBSTR(listing_date, 6, 1) = '/'"
+        )
+        conn.commit()
+    except Exception:
+        conn.commit()
+
     conn.execute(
         "UPDATE listings SET withdrawn_date = last_seen "
         "WHERE status = 'withdrawn' AND withdrawn_date IS NULL"
