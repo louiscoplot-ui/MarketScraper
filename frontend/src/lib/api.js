@@ -78,9 +78,16 @@ export async function fetchWithRetry(url, options = {}, tries = 4) {
 // snapshot instantly, then refresh in the background. The key is
 // scoped to the access_key prefix so two users on the same browser
 // (admin + beta tester) don't see each other's cached data.
+//
+// VERSION suffix bumped (was unset → 'v2') to invalidate all cached
+// entries across users on next page load. Reason: pre-fix data
+// like "all sold 28 Apr" was being served from cache even after
+// the backend migration corrected the underlying DB. Bumping
+// orphans the old keys; new ones get fresh data on the first fetch.
+const CACHE_VERSION = 'v2'
 function _cacheKey(suffix) {
   const k = getAccessKey() || 'anon'
-  return `sd_cache_${k.slice(0, 8)}_${suffix}`
+  return `sd_cache_${CACHE_VERSION}_${k.slice(0, 8)}_${suffix}`
 }
 
 export function readCache(suffix) {
