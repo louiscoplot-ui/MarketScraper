@@ -44,7 +44,7 @@ function App() {
     listings, fetchListings, filteredListings,
     sortField, sortDir, toggleSort,
     uniqueAgents, uniqueAgencies, deleteListing, updateListing, mirrorListing,
-    bootLoading: listingsBootLoading,
+    bootLoading: listingsBootLoading, soldLoadError,
   } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view })
 
   const [theme, setTheme] = useState(() => {
@@ -506,16 +506,27 @@ function App() {
               subtext="Crunching listings, agency share, price changes and snapshots. First load can take 15–30 seconds while the server warms up."
             />
           ) : view === 'listings' ? (
-            <ListingsView
-              selectedStatuses={selectedStatuses} toggleStatus={toggleStatus} statusColors={statusColors}
-              selectedAgency={selectedAgency} setSelectedAgency={setSelectedAgency} uniqueAgencies={uniqueAgencies}
-              selectedAgent={selectedAgent} setSelectedAgent={setSelectedAgent} uniqueAgents={uniqueAgents}
-              filteredListings={filteredListings} suburbs={suburbs} checkedSuburbs={checkedSuburbs}
-              sortField={sortField} sortDir={sortDir} toggleSort={toggleSort}
-              calcDOM={calcDOM} formatIsoDate={formatIsoDate}
-              deleteListing={deleteListing} updateListing={updateListing} mirrorListing={mirrorListing}
-              bootLoading={listingsBootLoading}
-            />
+            <>
+              {soldLoadError && (
+                <div style={{
+                  margin: '0 0 12px', padding: '8px 12px', borderRadius: 6,
+                  background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e',
+                  fontSize: 13,
+                }}>
+                  Sold/withdrawn listings unavailable — refresh to retry.
+                </div>
+              )}
+              <ListingsView
+                selectedStatuses={selectedStatuses} toggleStatus={toggleStatus} statusColors={statusColors}
+                selectedAgency={selectedAgency} setSelectedAgency={setSelectedAgency} uniqueAgencies={uniqueAgencies}
+                selectedAgent={selectedAgent} setSelectedAgent={setSelectedAgent} uniqueAgents={uniqueAgents}
+                filteredListings={filteredListings} suburbs={suburbs} checkedSuburbs={checkedSuburbs}
+                sortField={sortField} sortDir={sortDir} toggleSort={toggleSort}
+                calcDOM={calcDOM} formatIsoDate={formatIsoDate}
+                deleteListing={deleteListing} updateListing={updateListing} mirrorListing={mirrorListing}
+                bootLoading={listingsBootLoading}
+              />
+            </>
           ) : (
             <div className="logs-view">
               <h2>Scrape History</h2>

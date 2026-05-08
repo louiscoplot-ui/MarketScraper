@@ -58,6 +58,10 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   // skeleton rows (first-time visitor, network in flight) and the
   // 'No listings' empty-state copy.
   const [bootLoading, setBootLoading] = useState(() => (readCache(LISTINGS_CACHE) || []).length === 0)
+  // Surface step-2 (sold/withdrawn) failures so the UI can show a
+  // banner instead of silently displaying only active+UO. No retry
+  // — user can refresh manually if they want.
+  const [soldLoadError, setSoldLoadError] = useState(false)
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -80,6 +84,10 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       return res.json()
     }
     try {
+      // Reset any prior error at the START of each fetchListings call,
+      // so a previous suburb's step-2 failure doesn't keep the banner
+      // visible after a successful refresh.
+      setSoldLoadError(false)
       const priority = await fetchSet('active,under_offer')
       setListings(priority)
       writeCache(LISTINGS_CACHE, priority)
@@ -91,7 +99,10 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
           writeCache(LISTINGS_CACHE, merged)
           return merged
         })
-      }).catch((e) => console.warn('background fetch (sold/withdrawn) failed:', e))
+      }).catch((e) => {
+        console.warn('background fetch (sold/withdrawn) failed:', e)
+        setSoldLoadError(true)
+      })
     } catch (e) {
       console.warn('priority fetchListings failed after retries:', e)
     } finally {
@@ -245,5 +256,6 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     updateListing,
     mirrorListing,
     bootLoading,
+    soldLoadError,
   }
 }
