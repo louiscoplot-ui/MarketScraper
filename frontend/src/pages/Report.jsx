@@ -2,6 +2,8 @@
 // the MCP push size limit. All state still lives in App.jsx; this
 // component is purely presentational.
 
+import { useRef, useEffect } from 'react'
+
 const PERTH_TZ = 'Australia/Perth'
 
 // Single source of truth for WHEN-column formatting in the Price
@@ -65,6 +67,29 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
   // Render the header + suburb selector even while loading so the
   // checkboxes update instantly when the user toggles them. The data
   // area below swaps to a loading indicator until the new fetch lands.
+
+  // Debounce fetchReport across rapid checkbox clicks. User clicking
+  // 3 suburbs in a row would previously fire 3 backend calls (each a
+  // cold-start risk); now only the FINAL selection 500ms after the
+  // last click hits the API. Replaces requestAnimationFrame which
+  // was there to ensure the checkbox tick paints before the heavy
+  // data-area re-render — the 500ms delay solves the same paint-
+  // priority problem (the tick paints well before fetchReport runs)
+  // while also collapsing rapid clicks into one request.
+  const fetchTimerRef = useRef(null)
+  const scheduleFetch = (selection) => {
+    if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current)
+    fetchTimerRef.current = setTimeout(() => {
+      fetchTimerRef.current = null
+      fetchReport(selection)
+    }, 500)
+  }
+  // Cancel any pending fetch on unmount so navigating away doesn't
+  // fire a stale request after the component is gone.
+  useEffect(() => () => {
+    if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current)
+  }, [])
+
   return (
     <div className="report-view">
       <h2>Market Report{reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length
@@ -83,7 +108,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               if (e.target.checked) {
                 const all = new Set(suburbs.map(s => s.id))
                 setReportSuburbs(all)
-                requestAnimationFrame(() => fetchReport(all))
+                scheduleFetch(all)
               } else {
                 setReportSuburbs(new Set())
               }
@@ -107,7 +132,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 // data area to LoadingState steals the paint slot and
                 // the operator never sees the tick before the spinner.
                 if (next.size > 0) {
-                  requestAnimationFrame(() => fetchReport(next))
+                  scheduleFetch(next)
                 }
               }}
             />
