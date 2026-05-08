@@ -104,6 +104,68 @@ def init_db():
     except Exception:
         conn.commit()
 
+    # One-shot backfill: pipeline_tracking.source_price values inserted
+    # before the _price_to_int decimal fix (commit 1797f87) inflated by
+    # 10× — "5605000.0" stripped of non-digits became 56050000 and
+    # surfaced as $56M next to a $5M house. ON CONFLICT DO NOTHING in
+    # _bulk_insert_pipeline blocks re-Generate from updating these rows,
+    # so they need a one-shot direct fix. Strategy:
+    #   1. For any source_price > 50M (impossible residential ceiling)
+    #      OR < 100K, try to recover the real price from
+    #      listings.sold_price (which the post-d5e153f scraper now
+    #      captures cleanly via REIWA's "Last Sold for $X" block).
+    #   2. If listings.sold_price is missing OR also looks wrong, NULL
+    #      out source_price — the frontend already renders the row as
+    #      "sold DD MMM YYYY" without an amount when source_price is
+    #      NULL, which is exactly what the user wants ("tu n'inventes
+    #      rien"). Idempotent — only fires for out-of-range rows, so
+    #      subsequent runs touch nothing.
+    try:
+        bad_rows = conn.execute(
+            "SELECT id, source_address, source_suburb_lower "
+            "FROM pipeline_tracking "
+            "WHERE source_price IS NOT NULL "
+            "AND (source_price > 50000000 OR source_price < 100000)"
+        ).fetchall()
+        for r in bad_rows:
+            d = dict(r)
+            recovered = None
+            try:
+                match = conn.execute(
+                    "SELECT l.sold_price FROM listings l "
+                    "JOIN suburbs s ON l.suburb_id = s.id "
+                    "WHERE LOWER(l.address) = LOWER(?) "
+                    "AND LOWER(s.name) = ? "
+                    "AND l.status = 'sold' "
+                    "AND l.sold_price IS NOT NULL "
+                    "AND l.sold_price != '' "
+                    "LIMIT 1",
+                    (d['source_address'], d['source_suburb_lower'])
+                ).fetchone()
+            except Exception:
+                match = None
+            if match:
+                sp = (dict(match).get('sold_price') or '').replace(',', '').strip()
+                try:
+                    val = float(sp)
+                    if 100_000 <= val <= 50_000_000:
+                        recovered = int(round(val))
+                except (TypeError, ValueError):
+                    pass
+            if recovered is not None:
+                conn.execute(
+                    "UPDATE pipeline_tracking SET source_price = ? WHERE id = ?",
+                    (recovered, d['id'])
+                )
+            else:
+                conn.execute(
+                    "UPDATE pipeline_tracking SET source_price = NULL WHERE id = ?",
+                    (d['id'],)
+                )
+        conn.commit()
+    except Exception:
+        conn.commit()
+
     conn.execute(
         "UPDATE listings SET withdrawn_date = last_seen "
         "WHERE status = 'withdrawn' AND withdrawn_date IS NULL"
