@@ -672,11 +672,15 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
     raw_sales = []
     for r in sold_rows:
         d = dict(r)
+        sold_date = (d.get('sold_date') or '').strip() or None
+        first_seen = (d.get('first_seen') or '')[:10]
+        if sold_date and sold_date == first_seen:
+            sold_date = None  # extract_date corruption guard
         raw_sales.append({
             'source_address': d.get('address'),
             'source_suburb': d.get('suburb_name'),
             'source_price': _price_to_int(d.get('sold_price')),
-            'source_sold_date': (d.get('sold_date') or '').strip() or None,
+            'source_sold_date': sold_date,
         })
     conn.close()
 
@@ -1157,13 +1161,22 @@ def pipeline_recent_sales():
     sales = []
     for r in rows:
         d = dict(r)
+        # Live corruption guard: if sold_date equals the date portion
+        # of first_seen, it was set by the extract_date bug (REIWA's
+        # sold-card <time> returned the scrape day, not the actual
+        # sold date). Treat as unknown rather than displaying a wrong
+        # uniform date for every listing scraped that day. This runs
+        # at every request so even if the one-shot migration hasn't
+        # executed (Render deploy lag), the API doesn't lie.
+        sold_date = (d.get('sold_date') or '').strip() or None
+        first_seen = (d.get('first_seen') or '')[:10]
+        if sold_date and sold_date == first_seen:
+            sold_date = None
         sales.append({
             'source_address': d.get('address'),
             'source_suburb': d.get('suburb_name'),
             'source_price': _price_to_int(d.get('sold_price')),
-            # Real sold_date only — no first_seen fallback (would surface
-            # the same date for every listing we first saw on day 1).
-            'source_sold_date': (d.get('sold_date') or '').strip() or None,
+            'source_sold_date': sold_date,
             'reiwa_url': d.get('reiwa_url'),
             'agent': d.get('agent'),
             'agency': d.get('agency'),

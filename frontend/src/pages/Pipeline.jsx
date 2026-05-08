@@ -147,11 +147,14 @@ export default function Pipeline() {
   }, [])
 
   // Reload the tracking table whenever the active suburb changes.
-  // Single source of truth — the generator dropdown is also the
-  // filter, so swapping suburbs immediately surfaces that suburb's
-  // already-generated pipeline entries (no Generate click required).
+  // Clear groups + recentSales SYNCHRONOUSLY first so the user
+  // doesn't see stale rows from the previous suburb while the new
+  // fetch is in flight (was showing Floreat pipeline rows after
+  // switching to Mt Claremont because groups state lagged the fetch).
   useEffect(() => {
     if (!suburbsLoaded || !suburb) return
+    setGroups([])
+    setRecentSales([])
     loadTracking()
   }, [suburb, suburbsLoaded])
 
