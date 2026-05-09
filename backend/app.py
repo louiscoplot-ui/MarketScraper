@@ -476,6 +476,7 @@ def compare_scrape(suburb_id):
 @app.route('/api/scrape/audit', methods=['GET'])
 def audit_suburbs():
     """Multi-suburb audit — data completeness + optional REIWA comparison."""
+    from admin_api import resolve_request_scope
     ids_str = request.args.get('suburb_ids', '').strip()
     if not ids_str:
         return jsonify({'error': 'suburb_ids required (comma-separated)'}), 400
@@ -483,6 +484,11 @@ def audit_suburbs():
         suburb_ids = [int(x) for x in ids_str.split(',') if x.strip()]
     except ValueError:
         return jsonify({'error': 'invalid suburb_ids'}), 400
+    _user, allowed_ids = resolve_request_scope()
+    if allowed_ids is not None:
+        suburb_ids = [sid for sid in suburb_ids if sid in allowed_ids]
+        if not suburb_ids:
+            return jsonify({'error': 'Not authorised for any of those suburbs'}), 403
     do_compare = request.args.get('compare', '').lower() in ('1', 'true', 'yes')
 
     conn = get_db()
