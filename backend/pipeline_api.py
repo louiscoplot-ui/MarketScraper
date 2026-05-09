@@ -1115,6 +1115,18 @@ def pipeline_enrich_owners():
     (or one suburb) from the latest hot_vendor_properties data. Useful
     right after uploading a fresh RP Data CSV."""
     suburb = (request.args.get('suburb') or '').strip() or None
+    # Multi-tenant scope: a non-admin call without ?suburb= would bulk-
+    # rewrite target_owner_name across every tenant's pipeline rows.
+    # Require an explicit, in-scope suburb for non-admins; admins keep
+    # the global option.
+    _user, allowed_names = get_user_allowed_suburb_names()
+    if allowed_names is not None:
+        if not suburb:
+            return jsonify({
+                'error': 'suburb query param required (only admins can enrich globally)'
+            }), 403
+        if not user_can_access_suburb(suburb):
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
     conn = get_db()
     updated = _enrich_owner_names(conn, suburb)
     conn.close()
