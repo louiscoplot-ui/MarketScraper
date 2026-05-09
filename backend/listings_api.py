@@ -189,6 +189,20 @@ def patch_listing_note():
         return jsonify({'error': 'address normalises to empty'}), 400
 
     conn = get_db()
+    # Multi-tenant scope: the note table is keyed on normalized_address
+    # alone, so without a check any user could overwrite a competitor
+    # agency's notes. Require that at least one listings row matching
+    # this normalized_address is in the caller's allowed suburbs.
+    _user, allowed_ids = resolve_request_scope()
+    if allowed_ids is not None:
+        suburb_rows = conn.execute(
+            "SELECT DISTINCT suburb_id FROM listings WHERE normalized_address = ?",
+            (norm,)
+        ).fetchall()
+        owning_ids = {r['suburb_id'] for r in suburb_rows}
+        if not owning_ids or not (owning_ids & set(allowed_ids)):
+            conn.close()
+            return jsonify({'error': 'Not authorised for that listing'}), 403
     try:
         if not note:
             conn.execute(
