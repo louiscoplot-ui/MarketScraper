@@ -413,6 +413,10 @@ def scrape_status_single(suburb_id):
 @app.route('/api/scrape/debug/<int:suburb_id>', methods=['GET'])
 def debug_scrape(suburb_id):
     """Debug: see what the scraper sees on the REIWA page for a suburb."""
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
     conn = get_db()
     suburb = conn.execute("SELECT * FROM suburbs WHERE id = ?", (suburb_id,)).fetchone()
     conn.close()
@@ -448,6 +452,10 @@ def reset_listing_dates():
 def debug_scrape_detail():
     """Debug a single listing URL: returns extracted fields, text snippets,
     and regex-match results so we can see why land/internal sizes are empty."""
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
     url = request.args.get('url', '').strip()
     if not url:
         return jsonify({'error': 'Missing ?url=...'}), 400
