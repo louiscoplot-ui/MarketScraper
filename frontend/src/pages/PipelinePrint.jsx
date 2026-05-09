@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
+import { BACKEND_DIRECT } from '../lib/api'
 
-// Empty base URL — relative /api/... fetches go through the Vercel
-// rewrite to the Render backend with no CORS preflight. Same pattern
-// as the rest of the app.
-const API = ''
+// Hit Render directly — Vercel's 25s edge timeout would 504 on a cold
+// start, and a print page is the worst time to hit a blank screen.
+const API = BACKEND_DIRECT
 
 function formatDate() {
   return new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -16,16 +16,29 @@ function formatPrice(p) {
 export default function PipelinePrint() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState(null)
 
   useEffect(() => {
     fetch(`${API}/api/pipeline/tracking?status=sent&limit=200`)
       .then(r => r.json())
       .then(d => { setEntries(d.entries || []); setLoading(false) })
       .catch(() => setLoading(false))
+    fetch(`${API}/api/auth/me`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setProfile(d) })
+      .catch(() => {})
   }, [])
 
   if (loading) return <p style={{ padding: 40 }}>Loading letters...</p>
   if (!entries.length) return <p style={{ padding: 40 }}>No letters with status "sent" found.</p>
+
+  // Fallbacks preserve the original hardcoded values when the user
+  // hasn't filled their agent profile yet.
+  const agencyHeader = profile?.agency_name || 'BELLE PROPERTY  |  Cottesloe'
+  const agentName = profile?.agent_name || 'Louis Coplot'
+  const agentRole = `Sales Agent | ${profile?.agency_name || 'Belle Property Cottesloe'}`
+  const agentPhone = profile?.agent_phone || '0400 XXX XXX'
+  const agentEmail = profile?.agent_email || 'louis@belleproperty.com.au'
 
   return (
     <>
@@ -65,7 +78,7 @@ export default function PipelinePrint() {
         <div key={e.id} className="letter">
           <div style={{ marginBottom: '40px' }}>
             <div style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '2px', fontFamily: 'Arial, sans-serif' }}>
-              BELLE PROPERTY  |  Cottesloe
+              {agencyHeader}
             </div>
             <div style={{ fontSize: '13px', color: '#666', fontFamily: 'Arial, sans-serif', marginTop: '4px' }}>
               160 Stirling Highway, Nedlands WA 6009
@@ -105,11 +118,11 @@ export default function PipelinePrint() {
 
           <div style={{ marginTop: '48px' }}>
             <div style={{ marginBottom: '4px' }}>Warm regards,</div>
-            <div style={{ marginTop: '24px', fontWeight: '700', fontSize: '16px' }}>Louis Coplot</div>
-            <div style={{ color: '#444', fontSize: '14px' }}>Sales Agent | Belle Property Cottesloe</div>
+            <div style={{ marginTop: '24px', fontWeight: '700', fontSize: '16px' }}>{agentName}</div>
+            <div style={{ color: '#444', fontSize: '14px' }}>{agentRole}</div>
             <div style={{ color: '#444', fontSize: '14px', marginTop: '8px' }}>
-              M: 0400 XXX XXX<br/>
-              E: louis@belleproperty.com.au<br/>
+              M: {agentPhone}<br/>
+              E: {agentEmail}<br/>
               W: belleproperty.com.au/cottesloe
             </div>
           </div>
