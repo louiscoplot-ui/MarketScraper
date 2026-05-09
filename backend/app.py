@@ -431,6 +431,11 @@ def reset_listing_dates():
     _, err = _require_admin()
     if err:
         return err
+    if request.args.get('confirm') != 'yes':
+        return jsonify({
+            'error': 'Destructive operation. Re-send with ?confirm=yes to proceed. '
+                     'This will NULL listing_date on every row across all agencies.'
+        }), 400
     conn = get_db()
     cur = conn.execute("UPDATE listings SET listing_date = NULL WHERE listing_date IS NOT NULL")
     affected = cur.rowcount
