@@ -2,6 +2,7 @@
 Extracted from scraper.py."""
 
 import re
+from datetime import datetime
 
 from scraper_utils import clean_listing_url, normalise_agency
 from scraper_dates import extract_date
@@ -165,6 +166,25 @@ def parse_card(card, suburb_name):
     if "under offer" in card_text_lower or "under contract" in card_text_lower:
         card_status = "under_offer"
 
+    # REIWA's <time> tag on /sold/ cards holds the page-render timestamp
+    # (= scrape day), not the actual sale date. When extract_date comes back
+    # empty or equal to today, scan the card body for a plain-text
+    # "Sold DD MMM YYYY" stamp and prefer that.
+    listing_date = extract_date(card)
+    today_dmy = datetime.now().strftime("%d/%m/%Y")
+    if not listing_date or listing_date == today_dmy:
+        m = re.search(r"\bsold\s+(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})\b", ct, re.I)
+        if m:
+            for fmt in ("%d %b %Y", "%d %B %Y"):
+                try:
+                    dt = datetime.strptime(m.group(1), fmt)
+                    candidate = dt.strftime("%d/%m/%Y")
+                    if candidate != today_dmy:
+                        listing_date = candidate
+                    break
+                except ValueError:
+                    continue
+
     return {
         "url": url,
         "address": address,
@@ -178,7 +198,7 @@ def parse_card(card, suburb_name):
         "agency": agency,
         "agent": agent,
         "status": card_status,
-        "listing_date": extract_date(card),
+        "listing_date": listing_date,
     }
 
 
