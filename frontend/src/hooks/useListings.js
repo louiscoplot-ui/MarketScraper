@@ -115,7 +115,7 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   useEffect(() => {
     setSortField('')
     setSortDir('desc')
-  }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view])
+  }, [checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency])
 
   const DESC_DEFAULT_FIELDS = useMemo(
     () => new Set(['listing_date', 'sold_date', 'withdrawn_date', 'dom', 'price_text']),
