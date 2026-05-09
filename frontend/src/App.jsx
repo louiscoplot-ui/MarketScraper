@@ -43,6 +43,7 @@ function App() {
   const [view, setView] = useState(readViewFromHash)
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError] = useState(false)
   const [reportSuburbs, setReportSuburbs] = useState(new Set())
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')
@@ -298,13 +299,17 @@ function App() {
       setReport(null)
       setReportLoading(true)
     }
+    setReportError(false)
     fetchWithRetry(`${BACKEND_DIRECT}/api/report${params}`, {}, 4)
       .then(r => r.json())
       .then(data => {
         setReport(data)
         if (data && !data.error) writeCache(cacheKey, data)
       })
-      .catch(() => { if (!cached) setReport(null) })
+      .catch(() => {
+        if (!cached) setReport(null)
+        setReportError(true)
+      })
       .finally(() => setReportLoading(false))
   }
 
@@ -529,6 +534,30 @@ function App() {
               setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
               reportLoading={reportLoading}
             />
+          ) : view === 'report' && reportError && !reportLoading ? (
+            <div style={{
+              padding: '40px 24px', textAlign: 'center',
+              color: '#7d6608', background: '#fef9e7',
+              border: '1px solid #f0d264', borderRadius: 8,
+              margin: '24px auto', maxWidth: 560,
+            }}>
+              <h3 style={{ margin: '0 0 8px', color: '#7d6608' }}>
+                Could not load report
+              </h3>
+              <p style={{ margin: '0 0 16px', fontSize: 14, color: '#444' }}>
+                The server may be waking up or temporarily unreachable.
+              </p>
+              <button
+                onClick={() => fetchReport(reportSuburbs)}
+                style={{
+                  padding: '10px 24px', background: '#386351', color: '#fff',
+                  border: 'none', borderRadius: 6, fontWeight: 600,
+                  cursor: 'pointer', fontSize: 14,
+                }}
+              >
+                Retry
+              </button>
+            </div>
           ) : view === 'report' ? (
             <LoadingState
               title="Loading market report…"
