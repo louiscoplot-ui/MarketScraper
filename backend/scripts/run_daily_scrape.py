@@ -65,6 +65,9 @@ from database import (  # noqa: E402
     trim_sold_listings,
 )
 from scraper import scrape_suburb, verify_disappeared_listings  # noqa: E402
+from scraper_detail import fetch_detail  # noqa: E402
+from scraper_utils import UA, CHROMIUM_PATH  # noqa: E402
+from playwright.sync_api import sync_playwright  # noqa: E402
 
 
 logging.basicConfig(
@@ -82,6 +85,78 @@ INTER_SUBURB_DELAY = (5, 15)  # seconds
 # trimmed to 40 — wasted history. 200 keeps the full window the scraper
 # actually pulls, with no extra scrape time.
 SOLD_KEEP = 200
+
+
+def _backfill_sold_dates(suburb_id, suburb_name):
+    """Fix the legacy <time>-tag bug fallout: re-fetch up to 30 sold
+    listings whose sold_date is missing or matches a suspicious bulk
+    date (>10 listings sharing the same date in this suburb — symptom
+    of every sold being stamped with the scrape day). Errors logged,
+    never raised — backfill must never break the parent scrape."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            "SELECT id, reiwa_url, address, sold_date FROM listings "
+            "WHERE suburb_id = ? AND status = 'sold' "
+            "AND reiwa_url IS NOT NULL AND reiwa_url != '' "
+            "AND (sold_date IS NULL OR sold_date = '' "
+            "     OR sold_date IN (SELECT sold_date FROM listings "
+            "                      WHERE suburb_id = ? AND status = 'sold' "
+            "                      AND sold_date IS NOT NULL "
+            "                      GROUP BY sold_date HAVING COUNT(*) > 10)) "
+            "ORDER BY id DESC LIMIT 30",
+            (suburb_id, suburb_id)
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        log.warning(f"[{suburb_name}] backfill query failed: {e}")
+        return
+
+    if not rows:
+        return
+
+    log.info(f"[{suburb_name}] backfilling sold_date for {len(rows)} listing(s)")
+    today_iso = datetime.utcnow().strftime("%Y-%m-%d")
+
+    try:
+        launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
+        if CHROMIUM_PATH:
+            launch_opts['executable_path'] = CHROMIUM_PATH
+        with sync_playwright() as p:
+            browser = p.chromium.launch(**launch_opts)
+            context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},
+                                          locale='en-AU')
+            page = context.new_page()
+            page.route("**/*", lambda route: route.abort()
+                       if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                       else route.continue_())
+
+            for i, row in enumerate(rows):
+                if i > 0:
+                    time.sleep(random.uniform(5, 8))
+                try:
+                    detail = fetch_detail(page, row['reiwa_url']) or {}
+                    new_sd = detail.get('sold_date') or ''
+                    old_sd = row['sold_date'] or ''
+                    if not new_sd or new_sd == today_iso or new_sd == old_sd:
+                        continue
+                    upd = get_db()
+                    upd.execute(
+                        "UPDATE listings SET sold_date = ? WHERE id = ?",
+                        (new_sd, row['id'])
+                    )
+                    upd.commit()
+                    upd.close()
+                    log.info(f"[{suburb_name}] backfill "
+                             f"{row['address'] or row['reiwa_url']}: "
+                             f"{old_sd or 'NULL'} -> {new_sd}")
+                except Exception as fe:
+                    log.warning(f"[{suburb_name}] backfill fetch failed "
+                                f"for {row['reiwa_url']}: {fe}")
+                    continue
+            browser.close()
+    except Exception as e:
+        log.warning(f"[{suburb_name}] backfill aborted: {e}")
 
 
 def scrape_one(suburb):
@@ -181,6 +256,10 @@ def scrape_one(suburb):
         new_count=new_count,
         errors=None,
     )
+
+    # Post-pass: backfill sold_date for listings stuck on the old bulk-date
+    # bug or with NULL date. ~10s per listing × up to 30 = ~5 min/suburb.
+    _backfill_sold_dates(suburb_id, name)
 
     log.info(
         f"[{name}] done — active={len(forsale_urls)} sold={saved_sold} "
