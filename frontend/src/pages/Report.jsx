@@ -6,6 +6,19 @@ import { useRef, useEffect } from 'react'
 
 const PERTH_TZ = 'Australia/Perth'
 
+// Strict dd/mm/yyyy. Mirrors Pipeline.jsx:43 — kept in sync manually
+// since Pipeline doesn't export it. Operators in WA expect dd/mm/yyyy
+// over the ISO yyyy-mm-dd that Postgres / market_snapshots returns.
+function formatDateAU(value) {
+  if (!value) return '—'
+  const s = String(value).trim()
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) return `${m[1].padStart(2, '0')}/${m[2].padStart(2, '0')}/${m[3]}`
+  return s
+}
+
 // Single source of truth for WHEN-column formatting in the Price
 // Changes table. Handles every shape Postgres / SQLite can serialise
 // (space separator, microseconds, +00 short tz, no tz at all). Output
@@ -317,7 +330,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           return (
             <div className="report-table-section">
               <h3>Market Trends</h3>
-              <p className="trend-subtitle">{dates.length} snapshot{dates.length > 1 ? 's' : ''} recorded (latest: {latestDate})</p>
+              <p className="trend-subtitle">{dates.length} snapshot{dates.length > 1 ? 's' : ''} recorded (latest: {formatDateAU(latestDate)})</p>
               <div className="trend-cards">
                 <div className="trend-card">
                   <span className="trend-val">{latestActive}</span>
@@ -347,7 +360,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                       const snaps = report.snapshots.filter(s => s.snapshot_date === date)
                       return (
                         <tr key={date}>
-                          <td>{date}</td>
+                          <td>{formatDateAU(date)}</td>
                           <td className="num">{sumField(snaps, 'active_count')}</td>
                           <td className="num">{sumField(snaps, 'under_offer_count')}</td>
                           <td className="num">{sumField(snaps, 'sold_count')}</td>
