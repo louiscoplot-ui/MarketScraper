@@ -546,6 +546,7 @@ def init_db():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_name TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_phone TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_email TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
     ]:
         try:
             conn.execute(col_sql)

@@ -17,6 +17,7 @@ export default function Login() {
   const [keyInput, setKeyInput] = useState('')
   const [keyError, setKeyError] = useState('')
   const [directError, setDirectError] = useState('')
+  const [password, setPassword] = useState('')
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -41,10 +42,15 @@ export default function Login() {
       const res = await fetch('/api/auth/login-by-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), password }),
       })
       if (res.status === 404) {
         setDirectError('Email not found — use the magic link below')
+        setBusy(false)
+        return
+      }
+      if (res.status === 401) {
+        setDirectError('Incorrect password')
         setBusy(false)
         return
       }
@@ -121,6 +127,13 @@ export default function Login() {
                   placeholder="you@agency.com.au"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  style={styles.input}
+                />
+                <input
+                  type="password"
+                  placeholder="Password (leave empty if first time)"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   style={styles.input}
                 />
                 <button type="submit" disabled={busy} style={styles.btn}>

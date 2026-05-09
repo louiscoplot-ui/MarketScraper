@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Login from './pages/Login'
+import SetPasswordModal from './pages/SetPasswordModal'
 import { getAccessKey, setAccessKey, ACCESS_KEY_STORAGE, BACKEND_DIRECT } from './lib/api'
 
 // Fire a ping the moment this module loads (before React even mounts)
@@ -47,19 +48,27 @@ export default function AuthGate({ children }) {
     }
     return getAccessKey() ? 'in' : 'out'
   })
+  const [needsPwd, setNeedsPwd] = useState(false)
 
   useEffect(() => {
     if (state !== 'in') return
     const key = getAccessKey()
     if (!key) return
     let cancelled = false
-    // Background validation — only acts on a definitive 401.
+    // Background validation — only acts on a definitive 401. Also reads
+    // password_set so we can force the SetPasswordModal on accounts
+    // that haven't completed initial setup yet.
     fetch('/api/auth/me', { headers: { 'X-Access-Key': key } })
-      .then((res) => {
+      .then(async (res) => {
         if (cancelled) return
         if (res.status === 401) {
           try { localStorage.removeItem(ACCESS_KEY_STORAGE) } catch {}
           setState('out')
+          return
+        }
+        if (res.ok) {
+          const data = await res.json().catch(() => null)
+          if (data && data.password_set === false) setNeedsPwd(true)
         }
       })
       .catch(() => { /* cold start / offline — leave them in */ })
@@ -67,6 +76,11 @@ export default function AuthGate({ children }) {
   }, [state])
 
   if (state === 'out') return <Login />
-  return children
+  return (
+    <>
+      {children}
+      {needsPwd && <SetPasswordModal />}
+    </>
+  )
 }
 

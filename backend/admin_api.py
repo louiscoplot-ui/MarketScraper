@@ -34,12 +34,15 @@ def _gen_access_key():
 
 
 def _row_to_dict(row):
-    """Strip the access_key from public payloads — admins see it once on
-    creation only, never again. Prevents accidental leak in screenshots."""
+    """Strip access_key + password_hash from public payloads, expose
+    password_set so the frontend AuthGate knows whether to force the
+    SetPasswordModal."""
     if row is None:
         return None
     d = dict(row)
     d.pop('access_key', None)
+    pw = d.pop('password_hash', None)
+    d['password_set'] = bool(pw)
     return d
 
 

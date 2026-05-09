@@ -15,6 +15,7 @@ hook in app.py — anything that isn't auth/ping requires a valid key.
 
 import re
 from flask import request, jsonify
+import bcrypt
 from database import get_db
 from email_service import send_login_link_email
 from admin_api import get_current_user, _row_to_dict
@@ -48,17 +49,49 @@ def register_auth_routes(app):
     def login_by_email():
         body = request.get_json(silent=True) or {}
         email = (body.get('email') or '').strip().lower()
+        password = body.get('password') or ''
         if not email or '@' not in email:
-            return jsonify({'error': 'Email invalide'}), 400
+            return jsonify({'error': 'Invalid email'}), 400
         conn = get_db()
         row = conn.execute(
-            "SELECT access_key FROM users WHERE LOWER(email) = ?",
+            "SELECT access_key, password_hash FROM users WHERE LOWER(email) = ?",
             (email,)
         ).fetchone()
         conn.close()
         if not row:
-            return jsonify({'error': 'Email non reconnu'}), 404
-        return jsonify({'access_key': row['access_key']})
+            return jsonify({'error': 'Email not found'}), 404
+        stored = row['password_hash']
+        if stored:
+            if not password:
+                return jsonify({'error': 'Incorrect password'}), 401
+            try:
+                ok = bcrypt.checkpw(password.encode('utf-8'), stored.encode('utf-8'))
+            except Exception:
+                ok = False
+            if not ok:
+                return jsonify({'error': 'Incorrect password'}), 401
+            return jsonify({'access_key': row['access_key'], 'password_set': True})
+        # Grace path: user has never set a password. Let them in once;
+        # the frontend AuthGate's /api/auth/me check will pick up
+        # password_set=False and force SetPasswordModal before they
+        # touch any real data.
+        return jsonify({'access_key': row['access_key'], 'password_set': False})
+
+    @app.route('/api/users/me/set-password', methods=['POST'])
+    def set_password():
+        user = get_current_user()
+        if not user:
+            return jsonify({'error': 'Not authenticated'}), 401
+        body = request.get_json(silent=True) or {}
+        password = body.get('password') or ''
+        if len(password) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        conn = get_db()
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (hashed, user['id']))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
 
     @app.route('/api/auth/me', methods=['GET'])
     def whoami():
