@@ -10,7 +10,8 @@ Nom produit : SuburbDesk (nom repo : MarketScraper)
 Fondateur : Louis Coplot, agent Belle Property Cottesloe, Perth WA
 Vision : SaaS B2B leads vendeurs scores pour agences premium Perth WA
 Stade : MVP live, 0 client payant, validation demande en cours
-Cibles : Belle Property, Acton, Ray White, William Porteous, Mont Property, BHGRE, Realmark
+Cible principale : Acton | Belle Property (reseau Australie)
+Domaine : www.suburbdesk.com
 
 ---
 
@@ -19,13 +20,14 @@ Cibles : Belle Property, Acton, Ray White, William Porteous, Mont Property, BHGR
 Repo : github.com/louiscoplot-ui/MarketScraper
 Branche prod : claude/fix-scraper-missing-listings-PlwVM
 Working branch locale : claude/fix-scraper-listings-4uUz9
-HEAD prod actuel : 8762339
+HEAD prod actuel : 087f700
 
 Push pattern obligatoire a chaque commit :
 ```
 git push origin claude/fix-scraper-listings-4uUz9:claude/fix-scraper-missing-listings-PlwVM
 git push origin claude/fix-scraper-listings-4uUz9:claude/fix-scraper-listings-4uUz9
 # main -> 403 branch protection, skip systematiquement
+# main est 24+ commits derriere PlwVM
 ```
 
 ---
@@ -40,6 +42,7 @@ git push origin claude/fix-scraper-listings-4uUz9:claude/fix-scraper-listings-4u
 - Letters : python-docx
 - Hosting : Vercel (frontend, 25s timeout HARD) + Render free tier (backend, cold start 30-60s)
 - Cron : GitHub Actions 0 21 * * * UTC = 5am Perth
+- Deps notables : bcrypt>=4.1.0 (password hashing, ajoute session 3)
 
 ---
 
@@ -49,13 +52,15 @@ git push origin claude/fix-scraper-listings-4uUz9:claude/fix-scraper-listings-4u
 
 Tout appel frontend pouvant depasser 25s DOIT passer par BACKEND_DIRECT.
 BACKEND_DIRECT = https://marketscraper-backend.onrender.com (lib/api.js:15)
-Deja sur BACKEND_DIRECT : Pipeline, Hot Vendors, Market Report, PipelinePrint, Excel export
+Deja sur BACKEND_DIRECT : Pipeline (generate, tracking, recent-sales, letter download),
+Hot Vendors uploads, Market Report, PipelinePrint, Excel export
 Pattern dangereux : fetch('/api/...') sur routes lentes -> timeout silencieux
 
 ### Render cold start 30-60s
 
 Backend dort apres 15min idle. Keep-alive ping 14min en place (main.jsx).
 Toujours afficher un message loading sur appels lents.
+Pipeline affiche compteur 35->0 avec bouton Cancel pendant cold start.
 
 ### Auth interceptor
 
@@ -88,14 +93,23 @@ Bump CACHE_VERSION si format reponse API change.
 - access_key : 32-char hex, secrets.token_hex(16)
 - Gate backend : app.py:73-85, exempts /api/auth/ et /api/ping
 - ADMIN_EMAIL env : force role=admin (admin_api.py:74-76)
-- POST /api/auth/login-by-email : retourne access_key direct si email connu
-- POST /api/auth/request-login-link : magic link via Resend
+- POST /api/auth/login-by-email : body {email, password}
+  Si password_hash set : bcrypt.checkpw -> 401 si fail
+  Si password_hash NULL : grace 200 {access_key, password_set: False}
+- POST /api/users/me/set-password : body {password}, min 8 chars, bcrypt.hashpw
+  Route protegee par X-Access-Key (pas exemptee du gate)
+- POST /api/auth/request-login-link : magic link via Resend (inchange)
+- SetPasswordModal : modale non-dismissible forcee par AuthGate si password_set=false
+  Pas de bouton x, pas de backdrop click, pas d'ESC
+  Seul exit = submit valide -> window.location.reload()
+- _row_to_dict : strip password_hash, expose password_set: bool
 
 ---
 
 ## MULTI-TENANT SCOPING (securite critique)
 
 Toute route backend DOIT checker le scope avant de lire ou ecrire des donnees.
+14 failles securite fermees en session 2 (commits 572a192 a 8acb545).
 
 Helpers dans admin_api.py :
 
@@ -148,10 +162,11 @@ if err: return err
 | Market Report | Stats per-suburb, snapshots historiques, debounce 500ms |
 | Hot Vendors | RP Data CSV -> scoring 0-100 -> Excel export |
 | Admin | User CRUD + suburb assignment + agent profile |
-| Auth | Magic link + login-by-email direct |
+| Auth | Magic link + login-by-email + password bcrypt + SetPasswordModal |
 | Scraper | Cron 5am Perth + manual refresh + backfill sold_date nuit |
 | Email digest | Morning report apres cron, scope par user, HTML + plain text |
 | Letters | Word .docx branded, barre verte full-width, logo PNG |
+| Back button | URL hash synced, browser back/forward fonctionnels |
 
 ---
 
@@ -188,34 +203,35 @@ Body explique le POURQUOI, pas le quoi. Reference files:lines.
 
 ---
 
-## BUGS CRITIQUES RESTANTS (HEAD 8762339)
+## BUGS CRITIQUES RESTANTS (HEAD 087f700)
 
-### Backend performance
+### Backend performance (pas encore touches)
 
 - database.py:182-193 : pas de connection pooling -> cold-connect 200-800ms x2 par request
 - database.py:227-255 : get_suburbs 4 subqueries correlees (N+1)
 - pipeline_api.py:867-870 : pipeline_tracking_grouped charge tout sans LIMIT
 - pipeline_api.py:266-286 : _real_neighbours LIKE sans index -> 6s pour 30 sources
 - admin_api.py:106-125 : get_user_allowed_suburb_names non-cached (4x par GET pipeline)
+- app.py:73-85 : auth gate UPDATE last_seen a chaque /api/* (write amplification)
+- hot_vendors_api.py:240-257 : _fetch_status_map IN-clause uncapped (SQLite limit 999)
+- hot_vendors_api.py:456,731 : _hv_jobs ne purge pas les done (40MB RAM)
 
-### Frontend UX
+### Frontend UX (pas encore touches)
 
-- Login.jsx:47,52,135 : strings francais -> doit etre anglais
-- Pipeline.jsx:387-420 : downloadLetter via Vercel proxy -> passer sur BACKEND_DIRECT
-- Pipeline.jsx:443 : CSV export sans BOM UTF-8 + pas de revokeObjectURL (memory leak)
-- Pipeline.jsx:154-181 : race conditions suburb switch sans AbortController
-- useListings.js:104-107 : sort reset sur view change (retirer view du dep array)
-- AdminUsers.jsx:205-219 : saveAssignments ne refresh pas la liste users
-- HotVendorScoring.jsx:15 : redefini BACKEND_DIRECT localement (utiliser lib/api.js)
+- App.jsx:262-279 : scrapeSuburb/Selected sans res.ok check
+- App.jsx:107-133 : fetchScrapeStatus via Vercel proxy -> passer BACKEND_DIRECT
+- Header.jsx:96 : export via Vercel proxy -> passer BACKEND_DIRECT
+- ListingsView.jsx:87-112 : saveNote alert tardif sans contexte
+- HotVendorScoring.jsx:15 : redefini BACKEND_DIRECT localement
+- HotVendorScoring.jsx:477-491 : setStatus optimiste sans rollback
+- Pipeline.jsx:115-147 + App.jsx : double fetch /api/suburbs
+- EditableDateCell.jsx:18 : swap MM/DD US sans validation
 
 ### Features non commencees
 
-- Plan password bcrypt (design valide en session 1, code non ecrit)
-  DB : ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT
-  Hash : bcrypt>=4.1.0 dans requirements.txt
-  Auth : modifier login-by-email + nouvelle route set-password + SetPasswordModal.jsx + AuthGate check
 - Stripe checkout (aucun code dans le repo)
 - Landing page demo agences (pas de page publique)
+- Backend perf (connection pooling, N+1, index manquants)
 
 ---
 
@@ -231,10 +247,12 @@ Outils concurrents actuels :
 - REIWA Member tools : inclus adhesion. Pas de owner data.
 
 Differentiation SuburbDesk :
-1. Scoring auto Hot Vendors (aucun outil ne fait ca)
+1. Long-hold vendors (10-20 ans) identifies automatiquement -> signal que personne d'autre ne voit
 2. Pipeline prospection + lettre Word branded en 1 clic
 3. Scrape REIWA daily push (CoreLogic = pull a la demande)
 4. 10x moins cher pour le workflow prospection specifiquement
+
+Pitch a retenir : "1 listing recupere grace a SuburbDesk paie 3 ans d'abonnement"
 
 ---
 
@@ -242,8 +260,9 @@ Differentiation SuburbDesk :
 
 1. Historique REIWA scrappe depuis debut = avantage cumulatif
 2. Boucle complete : scrape -> score -> pipeline -> lettre
-3. Prix : $99-349/mo vs $3-8k/an CoreLogic
+3. Long-hold scoring : identifie les owners qui hold depuis 15+ ans avant qu'ils decident de vendre
+4. Prix : $99-349/mo vs $3-8k/an CoreLogic
 
 ---
 
-Fin du fichier CLAUDE.md.
+Fin du fichier CLAUDE.md. Si tu lis ceci, tu as tout le contexte. Commence a coder.
