@@ -23,6 +23,7 @@ from datetime import datetime, date
 from flask import request, jsonify
 
 from database import get_db, normalize_address, USE_POSTGRES
+from admin_api import resolve_request_scope
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +284,8 @@ def import_rpdata():
 
     fallback_suburb = (request.form.get('suburb') or '').strip()
 
+    _user, allowed_ids = resolve_request_scope()
+
     conn = get_db()
 
     t1 = time.time()
@@ -344,6 +347,14 @@ def import_rpdata():
                 continue
 
             suburb_id = suburb_row['id']
+            # Multi-tenant scope: silently skip rows whose suburb isn't
+            # in the caller's allowed list (admin → allowed_ids None →
+            # no filter). Counted as skipped, not errors, so a CSV that
+            # straddles agencies imports cleanly for the rows the user
+            # owns and ignores the rest without surfacing scope errors.
+            if allowed_ids is not None and suburb_id not in allowed_ids:
+                skipped += 1
+                continue
             address = _strip_suburb_from_address(addr_raw, suburb_name)
             norm_addr = normalize_address(address)
             if not norm_addr:
