@@ -79,15 +79,17 @@ export async function fetchWithRetry(url, options = {}, tries = 4) {
 // scoped to the access_key prefix so two users on the same browser
 // (admin + beta tester) don't see each other's cached data.
 //
-// VERSION suffix bumped (was unset → 'v2') to invalidate all cached
-// entries across users on next page load. Reason: pre-fix data
-// like "all sold 28 Apr" was being served from cache even after
-// the backend migration corrected the underlying DB. Bumping
-// orphans the old keys; new ones get fresh data on the first fetch.
-const CACHE_VERSION = 'v2'
+// VERSION suffix bumped to 'v3' alongside the prefix-length change
+// (8 → 16 chars). The 8-char prefix had a 1-in-4M birthday-collision
+// risk: two users sharing the same first 8 hex chars of their access
+// key would silently read each other's cached listings/pipeline. 16
+// chars (64 bits of entropy) reduces that to negligible. The version
+// bump invalidates every existing entry so no client keeps serving
+// stale data after the prefix change.
+const CACHE_VERSION = 'v3'
 function _cacheKey(suffix) {
   const k = getAccessKey() || 'anon'
-  return `sd_cache_${CACHE_VERSION}_${k.slice(0, 8)}_${suffix}`
+  return `sd_cache_${CACHE_VERSION}_${k.slice(0, 16)}_${suffix}`
 }
 
 export function readCache(suffix) {
