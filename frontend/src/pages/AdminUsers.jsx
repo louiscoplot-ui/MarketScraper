@@ -211,6 +211,10 @@ export default function AdminUsers() {
         body: JSON.stringify({ suburb_ids: Array.from(assigning.suburb_ids) }),
       })
       setAssigning(null)
+      // Refresh the users table so the Suburbs column reflects the
+      // new assignment immediately — without this the admin sees the
+      // old chip list and assumes the save failed.
+      refresh()
     } catch (e) {
       alert(`Could not save: ${e.message}`)
     } finally {
