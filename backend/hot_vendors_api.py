@@ -872,13 +872,20 @@ def register_hot_vendors_routes(app):
         norm = normalize_address(addr)
         conn = get_db()
         row = conn.execute(
-            "SELECT current_owner, final_score, category, holding_years, "
-            "owner_purchase_date, owner_purchase_price, last_sale_price "
-            "FROM hot_vendor_properties WHERE normalized_address = ? "
-            "ORDER BY final_score DESC LIMIT 1",
+            "SELECT p.current_owner, p.final_score, p.category, p.holding_years, "
+            "p.owner_purchase_date, p.owner_purchase_price, p.last_sale_price, "
+            "u.suburb AS upload_suburb "
+            "FROM hot_vendor_properties p "
+            "JOIN hot_vendor_uploads u ON p.upload_id = u.id "
+            "WHERE p.normalized_address = ? "
+            "ORDER BY p.final_score DESC LIMIT 1",
             (norm,)
         ).fetchone()
         conn.close()
         if not row:
             return jsonify({'match': None})
-        return jsonify({'match': dict(row)})
+        if not user_can_access_suburb(row['upload_suburb']):
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
+        payload = dict(row)
+        payload.pop('upload_suburb', None)
+        return jsonify({'match': payload})
