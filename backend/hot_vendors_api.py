@@ -508,6 +508,16 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': 'address normalises to empty'}), 400
 
         conn = get_db()
+        suburb_rows = conn.execute(
+            "SELECT DISTINCT u.suburb FROM hot_vendor_properties p "
+            "JOIN hot_vendor_uploads u ON p.upload_id = u.id "
+            "WHERE p.normalized_address = ?",
+            (norm,)
+        ).fetchall()
+        owning = [r['suburb'] for r in suburb_rows if r['suburb']]
+        if not owning or not any(user_can_access_suburb(s) for s in owning):
+            conn.close()
+            return jsonify({'error': 'Not authorised for that property'}), 403
         try:
             if status is None:
                 conn.execute(
@@ -565,6 +575,16 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': 'address normalises to empty'}), 400
 
         conn = get_db()
+        suburb_rows = conn.execute(
+            "SELECT DISTINCT u.suburb FROM hot_vendor_properties p "
+            "JOIN hot_vendor_uploads u ON p.upload_id = u.id "
+            "WHERE p.normalized_address = ?",
+            (norm,)
+        ).fetchall()
+        owning = [r['suburb'] for r in suburb_rows if r['suburb']]
+        if not owning or not any(user_can_access_suburb(s) for s in owning):
+            conn.close()
+            return jsonify({'error': 'Not authorised for that property'}), 403
         try:
             if USE_POSTGRES:
                 conn.execute(
