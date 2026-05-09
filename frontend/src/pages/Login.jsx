@@ -44,12 +44,12 @@ export default function Login() {
         body: JSON.stringify({ email: email.trim() }),
       })
       if (res.status === 404) {
-        setDirectError('Email non reconnu — utilisez le lien magique')
+        setDirectError('Email not found — use the magic link below')
         setBusy(false)
         return
       }
       if (!res.ok) {
-        setDirectError('Erreur serveur. Réessayez.')
+        setDirectError('Server error. Please try again.')
         setBusy(false)
         return
       }
@@ -132,7 +132,7 @@ export default function Login() {
                   onClick={onSubmitDirect}
                   style={{ ...styles.btnSecondary, marginTop: 10 }}
                 >
-                  Se connecter avec mon email
+                  Sign in with my email
                 </button>
                 {directError && <div style={{ ...styles.err, marginTop: 10 }}>{directError}</div>}
               </form>
