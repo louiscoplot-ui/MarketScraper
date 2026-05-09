@@ -86,13 +86,32 @@ export default function Header({
     }
   }
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const params = new URLSearchParams()
     if (checkedSuburbs.size > 0) params.set('suburb_ids', Array.from(checkedSuburbs).join(','))
     if (selectedStatuses.size > 0) params.set('statuses', Array.from(selectedStatuses).join(','))
     if (selectedAgent) params.set('agent', selectedAgent)
     if (selectedAgency) params.set('agency', selectedAgency)
-    window.open(`/api/listings/export?${params.toString()}`, '_blank')
+    try {
+      const resp = await fetch(`/api/listings/export?${params.toString()}`)
+      if (!resp.ok) throw new Error(await resp.text())
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      let filename = 'SuburbDesk_export.xlsx'
+      const cd = resp.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i)
+      if (m) filename = decodeURIComponent(m[1])
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export failed:', err)
+      alert('Could not export — please refresh and try again.')
+    }
   }
 
   return (
