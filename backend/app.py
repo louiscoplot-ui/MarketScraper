@@ -621,8 +621,27 @@ def scrape_selected():
 
 @app.route('/api/scrape/logs', methods=['GET'])
 def list_scrape_logs():
+    from admin_api import resolve_request_scope
     suburb_id = request.args.get('suburb_id', type=int)
-    return jsonify(get_scrape_logs(suburb_id=suburb_id))
+    _user, allowed_ids = resolve_request_scope()
+    # admin (allowed_ids None) → no filter; specific suburb_id passed
+    # is honoured if (a) admin or (b) it's in the user's allowed list.
+    if suburb_id is not None:
+        if allowed_ids is not None and suburb_id not in allowed_ids:
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
+        return jsonify(get_scrape_logs(suburb_id=suburb_id))
+    if allowed_ids is None:
+        return jsonify(get_scrape_logs())
+    if not allowed_ids:
+        return jsonify([])
+    # Non-admin without a specific suburb_id: return logs only for the
+    # caller's assigned suburbs. get_scrape_logs filters one suburb at a
+    # time, so we collect across allowed and re-cap to 20 most recent.
+    rows = []
+    for sid in allowed_ids:
+        rows.extend(get_scrape_logs(suburb_id=sid, limit=20))
+    rows.sort(key=lambda r: r.get('started_at') or '', reverse=True)
+    return jsonify(rows[:20])
 
 
 if __name__ == '__main__':
