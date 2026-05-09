@@ -361,9 +361,15 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     # NEW: backend pipeline — upload raw CSV, get scored result back
     # ------------------------------------------------------------------
-    def _score_csv_worker(job_id, file_bytes, filename, suburb_override, agency, uploaded_by):
+    def _score_csv_worker(job_id, file_bytes, filename, suburb_override, agency, uploaded_by, allowed_names):
         """Background worker — heavy lifting for big suburbs (Ellenbrook).
-        Updates job state at each stage so the frontend can show progress."""
+        Updates job state at each stage so the frontend can show progress.
+
+        `allowed_names` is the caller's scope captured in the request
+        handler (None for admin, set of lowercased suburb names for
+        regular users). Enforced after scoring detects the suburb so a
+        user can't side-load a CSV for a suburb they don't own by
+        omitting ?suburb=."""
         t0 = time.time()
         try:
             size_mb = len(file_bytes) / (1024 * 1024)
@@ -375,6 +381,22 @@ def register_hot_vendors_routes(app):
             logger.info(f"[score-csv {job_id}] scoring took "
                         f"{time.time() - t_score_start:.1f}s "
                         f"({len(result.get('properties') or [])} rows)")
+            # Scope enforcement post-detection: if no suburb_override was
+            # supplied, the scorer pulled the suburb from the CSV content
+            # — make sure the caller is allowed to write to it before
+            # any DB rows are created.
+            if suburb_override is None and allowed_names is not None:
+                detected = (result.get('suburb') or '').strip().lower()
+                if not detected or detected not in allowed_names:
+                    _hv_job_set(
+                        job_id, status='error',
+                        error='Detected suburb is not in your allowed list. '
+                              'Re-upload with ?suburb=<one of your suburbs>.'
+                    )
+                    logger.warning(
+                        f"[score-csv {job_id}] blocked — detected '{detected}' not in scope"
+                    )
+                    return
 
             _hv_job_set(job_id, stage=f"Coercing {len(result['properties'])} rows…")
             rows = [_coerce_property_row(p) for p in result['properties']]
@@ -453,12 +475,17 @@ def register_hot_vendors_routes(app):
         if suburb_override and not user_can_access_suburb(suburb_override):
             return jsonify({'error': 'Suburb not in your allowed list'}), 403
 
+        # Capture the caller's scope while we still have the request
+        # context — the worker thread runs detached and can't read
+        # request headers anymore.
+        _user, allowed_names = get_user_allowed_suburb_names()
+
         _hv_jobs_purge_expired()
         job_id = uuid.uuid4().hex[:12]
         _hv_job_set(job_id, status='running', stage='Queued', filename=filename)
         threading.Thread(
             target=_score_csv_worker,
-            args=(job_id, file_bytes, filename, suburb_override, agency, uploaded_by),
+            args=(job_id, file_bytes, filename, suburb_override, agency, uploaded_by, allowed_names),
             daemon=True,
         ).start()
         logger.info(f"[score-csv] queued job {job_id} for {filename}")
