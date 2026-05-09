@@ -189,50 +189,53 @@ def _shade_paragraph(p, hex_color):
 
 
 def _green_header(doc):
-    """Full-width brand-green bar with the Acton | Belle wordmark
-    centered inside. Bleeds edge-to-edge by pulling the paragraph
-    out beyond both section margins via negative indentation — Word
-    body paragraphs can't otherwise exceed the margin box.
+    """Full-width brand-green bar via a single-cell borderless table.
 
-    The negative indents (-2.5cm) must EXACTLY match the section's
-    left_margin / right_margin set in render_letter_docx so the bar
-    lands flush with both page edges. If you change the page
-    margins, change these too.
+    Previously a body paragraph with negative left/right indents +
+    paragraph shading. Word clips paragraph shading at the margin box
+    in several renderers (LibreOffice, some Word builds), leaving the
+    bar short of the right page edge. Cell shading is bound to the
+    cell rectangle and is always filled — table is the reliable
+    primitive for a full-bleed coloured band.
 
-    Bar height ~2.5cm: forced via exact line spacing so the green
-    extends 0.35cm above and below the 1.8cm logo, giving the
-    wordmark breathing room without spilling outside the shaded area
-    (space_before / space_after live OUTSIDE the shading).
+    Width = page_width via tblW; the table is shifted -left_margin via
+    tblInd so it starts flush at the page edge. Cell padding pushes
+    the logo back to the body margin so it aligns with the letter
+    text below. Top/bottom padding (~0.35cm) gives the 1.8cm logo a
+    2.5cm bar — same visual height as before."""
+    section = doc.sections[0]
+    page_w = _emu_to_twips(section.page_width)
+    left_m = _emu_to_twips(section.left_margin)
 
-    A 2cm-spaced empty paragraph follows the bar to position the body
-    correctly for a tri-fold DL envelope window."""
-    p = doc.add_paragraph()
-    pf = p.paragraph_format
-    # Pull paragraph beyond both margins so shading bleeds to page edges.
-    pf.left_indent = Cm(-2.5)
-    pf.right_indent = Cm(-2.5)
-    pf.space_before = Pt(0)
-    pf.space_after = Pt(0)
-    # Force a 2.5cm line height so the shaded paragraph is taller than
-    # the 1.8cm logo — gives ~0.35cm of green padding above/below.
-    pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-    pf.line_spacing = Cm(2.5)
-    # LEFT-aligned with a 2.5cm first-line indent — the green bar
-    # bleeds to the page edge but the logo itself sits at the body
-    # margin (matching the body text underneath). User flagged the
-    # previous centered layout as wrong.
+    table = doc.add_table(rows=1, cols=1)
+    table.autofit = False
+
+    tblPr = table._tbl.tblPr
+    for tag, value in (('w:tblW', page_w), ('w:tblInd', -left_m)):
+        existing = tblPr.find(qn(tag))
+        if existing is not None:
+            tblPr.remove(existing)
+        el = OxmlElement(tag)
+        el.set(qn('w:w'), str(value))
+        el.set(qn('w:type'), 'dxa')
+        tblPr.append(el)
+
+    cell = table.cell(0, 0)
+    cell.width = section.page_width
+
+    _remove_cell_borders(cell)
+    _shade_cell(cell, BRAND_GREEN)
+    _set_cell_padding(cell, top=200, left=left_m, bottom=200, right=left_m)
+
+    p = cell.paragraphs[0]
+    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.space_before = Pt(0)
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    pf.first_line_indent = Cm(2.5)
-    _shade_paragraph(p, BRAND_GREEN)
 
     if os.path.exists(LOGO_PATH):
         run = p.add_run()
-        # 1.8cm height; width auto-scales from source aspect ratio
-        # (924×295 → ~5.64cm wide). add_picture preserves aspect when
-        # only one dimension is given.
         run.add_picture(LOGO_PATH, height=Cm(1.8))
     else:
-        # Inline text fallback — three runs sized to mimic the lockup.
         r1 = p.add_run('ACTON')
         r1.font.size = Pt(28); r1.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r1.font.name = 'Arial'
         sep = p.add_run('   |   ')
@@ -242,9 +245,7 @@ def _green_header(doc):
         r3 = p.add_run('  PROPERTY')
         r3.bold = True; r3.font.size = Pt(11); r3.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r3.font.name = 'Arial'
 
-    # 2cm spacer after the bar — positions "Dear [Name]," correctly
-    # for a tri-fold DL envelope window. One empty paragraph with
-    # space_after = 2cm drives Word's vertical layout.
+    # 2cm spacer after the bar — DL envelope window alignment.
     spacer = doc.add_paragraph()
     spacer.paragraph_format.space_before = Pt(0)
     spacer.paragraph_format.space_after = Cm(2.0)
