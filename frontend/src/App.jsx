@@ -17,6 +17,14 @@ const API = '/api'
 const BOOT_API = `${BACKEND_DIRECT}/api`
 const SUBURBS_CACHE = 'suburbs'
 
+const VALID_VIEWS = ['listings', 'pipeline', 'report', 'hot-vendors', 'logs', 'admin']
+
+function readViewFromHash() {
+  if (typeof window === 'undefined') return 'listings'
+  const h = (window.location.hash || '').replace(/^#/, '')
+  return VALID_VIEWS.includes(h) ? h : 'listings'
+}
+
 function App() {
   // Hydrate from cache so the sidebar paints instantly on returning
   // visits. Network refresh comes in afterwards and silently
@@ -32,7 +40,7 @@ function App() {
   const [scrapeStatus, setScrapeStatus] = useState({})
   const [showScrapeModal, setShowScrapeModal] = useState(false)
   const [logs, setLogs] = useState([])
-  const [view, setView] = useState('listings')
+  const [view, setView] = useState(readViewFromHash)
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportSuburbs, setReportSuburbs] = useState(new Set())
@@ -133,6 +141,27 @@ function App() {
     fetchSuburbs()
     fetchScrapeStatus()
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
+
+  // Sync view <-> URL hash so browser back/forward navigates between
+  // tabs instead of leaving the app. pushState on user-driven view
+  // changes; popstate pulls view back from the URL. First render is
+  // skipped so the initial mount doesn't push a redundant entry.
+  const isFirstViewRender = useRef(true)
+  useEffect(() => {
+    if (isFirstViewRender.current) {
+      isFirstViewRender.current = false
+      return
+    }
+    if (window.location.hash !== `#${view}`) {
+      window.history.pushState({ view }, '', `#${view}`)
+    }
+  }, [view])
+
+  useEffect(() => {
+    const onPop = () => setView(readViewFromHash())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
   }, [])
 
   useEffect(() => { if (view === 'logs') fetchLogs() }, [view])
