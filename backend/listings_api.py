@@ -32,6 +32,7 @@ from datetime import datetime, date
 from flask import request, jsonify
 
 from database import get_db
+from admin_api import resolve_request_scope
 
 logger = logging.getLogger(__name__)
 
@@ -137,11 +138,15 @@ def patch_listing(id):
 
     conn = get_db()
     existing = conn.execute(
-        "SELECT id FROM listings WHERE id = ?", (id,)
+        "SELECT id, suburb_id FROM listings WHERE id = ?", (id,)
     ).fetchone()
     if not existing:
         conn.close()
         return jsonify({'error': 'Listing not found'}), 404
+    _user, allowed_ids = resolve_request_scope()
+    if allowed_ids is not None and existing['suburb_id'] not in allowed_ids:
+        conn.close()
+        return jsonify({'error': 'Not authorised for that listing'}), 403
 
     # last_seen always bumped so the listings UI sorts manually-edited
     # rows to the top of the recent-activity views.
