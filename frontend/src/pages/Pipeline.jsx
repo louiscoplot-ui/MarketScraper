@@ -338,7 +338,6 @@ export default function Pipeline() {
         type: 'info',
         text: `Found ${data.sold_count} sales — ${reason}.`,
       })
-      setFilterSuburb(suburb)
       loadTracking({ force: true })
     } else {
       const cap = data.cap_applied ? ' (cap reached — try a wider days window for more)' : ''
@@ -346,7 +345,6 @@ export default function Pipeline() {
         type: 'success',
         text: `Added ${data.generated} new targets from ${data.sold_count} sales in ${suburb}${cap}.`,
       })
-      setFilterSuburb(suburb)
       loadTracking({ force: true })
     }
     setGenerating(false)
