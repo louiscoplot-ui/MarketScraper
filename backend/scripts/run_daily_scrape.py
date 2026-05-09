@@ -321,6 +321,30 @@ def main():
                 f"withdrawn={s['withdrawn']} new={s['new']}"
             )
 
+    # Morning digest pass — one email per user with their assigned
+    # suburbs' overnight stats. Skipped entirely when EMAIL_FROM isn't
+    # set so the cron is silent on first-deploy environments.
+    if not (os.environ.get('EMAIL_FROM') or '').strip():
+        log.warning("EMAIL_FROM not set — skipping morning digest pass")
+    else:
+        try:
+            from email_digest import send_digest
+            conn = get_db()
+            user_ids = [r['id'] for r in conn.execute(
+                "SELECT id FROM users ORDER BY id"
+            ).fetchall()]
+            conn.close()
+            log.info(f"Sending morning digest to {len(user_ids)} user(s)")
+            for uid in user_ids:
+                try:
+                    ok, err = send_digest(uid)
+                    if not ok:
+                        log.warning(f"Digest send failed for user_id={uid}: {err}")
+                except Exception as e:
+                    log.exception(f"Digest crash for user_id={uid}: {e}")
+        except Exception as e:
+            log.exception(f"Digest pass aborted: {e}")
+
 
 if __name__ == '__main__':
     main()
