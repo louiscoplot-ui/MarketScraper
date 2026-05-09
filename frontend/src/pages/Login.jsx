@@ -16,6 +16,7 @@ export default function Login() {
   const [showKey, setShowKey] = useState(false)
   const [keyInput, setKeyInput] = useState('')
   const [keyError, setKeyError] = useState('')
+  const [directError, setDirectError] = useState('')
 
   const onSubmit = async (e) => {
     e.preventDefault()
@@ -30,6 +31,35 @@ export default function Login() {
     } catch {}
     setSubmitted(true)
     setBusy(false)
+  }
+
+  const onSubmitDirect = async () => {
+    if (!email.trim() || busy) return
+    setBusy(true)
+    setDirectError('')
+    try {
+      const res = await fetch('/api/auth/login-by-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      })
+      if (res.status === 404) {
+        setDirectError('Email non reconnu — utilisez le lien magique')
+        setBusy(false)
+        return
+      }
+      if (!res.ok) {
+        setDirectError('Erreur serveur. Réessayez.')
+        setBusy(false)
+        return
+      }
+      const data = await res.json()
+      setAccessKey(data.access_key)
+      window.location.reload()
+    } catch {
+      setDirectError('Could not reach the server. Try again in a moment.')
+      setBusy(false)
+    }
   }
 
   const onSubmitKey = async (e) => {
@@ -96,6 +126,15 @@ export default function Login() {
                 <button type="submit" disabled={busy} style={styles.btn}>
                   {busy ? 'Sending…' : 'Send login link'}
                 </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onSubmitDirect}
+                  style={{ ...styles.btnSecondary, marginTop: 10 }}
+                >
+                  Se connecter avec mon email
+                </button>
+                {directError && <div style={{ ...styles.err, marginTop: 10 }}>{directError}</div>}
               </form>
               <p style={styles.fineprint}>
                 No public sign-up. Access is granted by your administrator.

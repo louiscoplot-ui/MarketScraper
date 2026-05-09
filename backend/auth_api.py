@@ -44,6 +44,22 @@ def register_auth_routes(app):
                     pass  # never leak failure to caller
         return jsonify({'ok': True})
 
+    @app.route('/api/auth/login-by-email', methods=['POST'])
+    def login_by_email():
+        body = request.get_json(silent=True) or {}
+        email = (body.get('email') or '').strip().lower()
+        if not email or '@' not in email:
+            return jsonify({'error': 'Email invalide'}), 400
+        conn = get_db()
+        row = conn.execute(
+            "SELECT access_key FROM users WHERE LOWER(email) = ?",
+            (email,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Email non reconnu'}), 404
+        return jsonify({'access_key': row['access_key']})
+
     @app.route('/api/auth/me', methods=['GET'])
     def whoami():
         user = get_current_user()
