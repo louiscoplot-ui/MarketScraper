@@ -359,6 +359,10 @@ def start_scrape(suburb_id):
 @app.route('/api/scrape/all', methods=['POST'])
 def start_scrape_all():
     """Start scraping all active suburbs in parallel."""
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
     suburbs = get_suburbs()
     active_suburbs = [s for s in suburbs if s['active']]
 
@@ -382,6 +386,10 @@ def start_scrape_all():
 @app.route('/api/scrape/cancel', methods=['POST'])
 def cancel_scrape():
     """Cancel all running scrapes."""
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
     running_ids = [sid for sid, job in scrape_jobs.items() if job.get('status') == 'running']
     for sid in running_ids:
         scrape_cancel.add(sid)
