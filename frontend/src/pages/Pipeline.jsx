@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { BACKEND_DIRECT, fetchWithRetry, readCache, writeCache } from '../lib/api'
 import LoadingState from '../components/LoadingState'
 
@@ -92,6 +92,8 @@ export default function Pipeline() {
   const [days, setDays] = useState(7)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [coldStartSecs, setColdStartSecs] = useState(0)
+  const cancelGenerateRef = useRef(false)
   // Hydrate groups synchronously from localStorage on first mount —
   // suburb starts empty until /api/suburbs lands, so we read the
   // generic "__all__" cache here and the suburb-scoped cache kicks in
@@ -291,9 +293,11 @@ export default function Pipeline() {
   async function handleGenerate() {
     setGenerating(true)
     setGenerateMsg(null)
+    cancelGenerateRef.current = false
     // First attempt: try silently. If it throws (network error / Render
-    // cold-start race), wait 35s and retry once before showing the
-    // user any error — by then the dyno is almost certainly warm.
+    // cold-start race), countdown 35s — visible to the user — and retry
+    // once. The user can cancel during the wait by clicking the button
+    // again (handler reads cancelGenerateRef).
     const attempt = async () => {
       const res = await fetch(
         `${API}/api/pipeline/generate?suburb=${encodeURIComponent(suburb)}&days=${days}`
@@ -304,8 +308,25 @@ export default function Pipeline() {
     try {
       data = await attempt()
     } catch (firstErr) {
+      // Visible 35s countdown rather than a silent setTimeout. Tick
+      // every second; bail early if cancelGenerateRef flips.
+      setColdStartSecs(35)
+      let aborted = false
+      for (let s = 35; s > 0; s--) {
+        await new Promise(r => setTimeout(r, 1000))
+        if (cancelGenerateRef.current) { aborted = true; break }
+        setColdStartSecs(s - 1)
+      }
+      setColdStartSecs(0)
+      if (aborted) {
+        setGenerateMsg({
+          type: 'info',
+          text: 'Cancelled. Click Generate to try again.',
+        })
+        setGenerating(false)
+        return
+      }
       try {
-        await new Promise(r => setTimeout(r, 35_000))
         data = await attempt()
       } catch (secondErr) {
         setGenerateMsg({
@@ -513,7 +534,7 @@ export default function Pipeline() {
           </button>
 
           {generating && (
-            <span style={{ fontSize: '12px', color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '12px', color: '#6b7280', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
               <span style={{
                 width: '12px', height: '12px', borderRadius: '50%',
                 border: '2px solid rgba(107,114,128,0.25)',
@@ -521,7 +542,22 @@ export default function Pipeline() {
                 animation: 'sd-spin 0.8s linear infinite',
                 display: 'inline-block',
               }} />
-              Building targets…
+              {coldStartSecs > 0
+                ? `Waking up server… (cold start, ${coldStartSecs}s)`
+                : 'Building targets…'}
+              {coldStartSecs > 0 && (
+                <button
+                  onClick={() => { cancelGenerateRef.current = true }}
+                  style={{
+                    padding: '2px 10px', borderRadius: '4px',
+                    border: '1px solid #6b7280', background: 'white',
+                    color: '#374151', cursor: 'pointer', fontSize: '11px',
+                    fontWeight: 600,
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
             </span>
           )}
           <style>{`@keyframes sd-spin { to { transform: rotate(360deg) } }`}</style>
