@@ -497,13 +497,29 @@ def create_scrape_log(suburb_id):
     return log_id
 
 
+_UPDATE_SCRAPE_LOG_ALLOWED = frozenset({
+    'completed_at', 'forsale_count', 'sold_count',
+    'withdrawn_count', 'new_count', 'updated_count', 'errors',
+})
+
+
 def update_scrape_log(log_id, **kwargs):
+    """Whitelisted UPDATE on scrape_logs. Column names are interpolated
+    into the SQL string — keys outside the allow-list raise ValueError
+    so a future caller can't accidentally turn this into SQL injection
+    by piping request.json straight in."""
     conn = get_db()
     sets = []
     params = []
     for k, v in kwargs.items():
+        if k not in _UPDATE_SCRAPE_LOG_ALLOWED:
+            conn.close()
+            raise ValueError(f"update_scrape_log: column not allowed: {k}")
         sets.append(f"{k} = ?")
         params.append(v)
+    if not sets:
+        conn.close()
+        return
     params.append(log_id)
     conn.execute(f"UPDATE scrape_logs SET {', '.join(sets)} WHERE id = ?", params)
     conn.commit()
