@@ -626,11 +626,30 @@ def register_hot_vendors_routes(app):
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/statuses', methods=['GET'])
     def list_statuses():
+        _user, allowed_names = get_user_allowed_suburb_names()
         conn = get_db()
-        rows = conn.execute(
-            "SELECT normalized_address, status, note, updated_at "
-            "FROM hot_vendor_property_status WHERE status IS NOT NULL"
-        ).fetchall()
+        if allowed_names is None:
+            rows = conn.execute(
+                "SELECT normalized_address, status, note, updated_at "
+                "FROM hot_vendor_property_status WHERE status IS NOT NULL"
+            ).fetchall()
+        elif not allowed_names:
+            conn.close()
+            return jsonify({'statuses': []})
+        else:
+            placeholders = ','.join(['?'] * len(allowed_names))
+            rows = conn.execute(
+                f"SELECT s.normalized_address, s.status, s.note, s.updated_at "
+                f"FROM hot_vendor_property_status s "
+                f"WHERE s.status IS NOT NULL "
+                f"AND EXISTS ("
+                f"  SELECT 1 FROM hot_vendor_properties p "
+                f"  JOIN hot_vendor_uploads u ON p.upload_id = u.id "
+                f"  WHERE p.normalized_address = s.normalized_address "
+                f"  AND LOWER(u.suburb) IN ({placeholders})"
+                f")",
+                list(allowed_names)
+            ).fetchall()
         conn.close()
         return jsonify({'statuses': [dict(r) for r in rows]})
 
