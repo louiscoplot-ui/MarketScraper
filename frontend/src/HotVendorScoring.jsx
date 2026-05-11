@@ -115,6 +115,14 @@ export default function HotVendorScoring() {
   const suburbDropdownRef = useRef(null)
   const [savedUploads, setSavedUploads] = useState([])
   const [savedLoading, setSavedLoading] = useState(true)
+  // Visible feedback when the operator switches between saved reports
+  // (separate from `loading`, which doubles as the upload-in-progress
+  // flag). Drives the small "Loading…" hint next to "Recent reports".
+  const [isLoadingReport, setIsLoadingReport] = useState(false)
+  // In-memory cache of report payloads keyed by upload_id. Switching
+  // back to a report already loaded this session is instant — no
+  // network round-trip. Cleared on hard reload (ref, not localStorage).
+  const reportCache = useRef(new Map())
 
   // Load past uploads on mount so a returning user lands on a list of
   // previously-scored suburbs (latest per suburb) instead of a blank
@@ -156,19 +164,29 @@ export default function HotVendorScoring() {
   const loadSavedUpload = async (uploadId) => {
     const seq = ++loadSeqRef.current
     setError('')
+    // Cache hit → swap data instantly, skip the fetch entirely.
+    if (reportCache.current.has(uploadId)) {
+      setData(reportCache.current.get(uploadId))
+      return
+    }
     setLoading(true)
+    setIsLoadingReport(true)
     try {
       const res = await fetch(`${API}/api/hot-vendors/uploads/${uploadId}`)
       const result = await res.json()
       if (seq !== loadSeqRef.current) return  // a newer click is in flight
       if (!res.ok) throw new Error(result.error || `Load failed (${res.status})`)
+      reportCache.current.set(uploadId, result)
       setData(result)
     } catch (e) {
       if (seq !== loadSeqRef.current) return
       console.error(e)
       setError(e.message || 'Failed to load saved upload')
     } finally {
-      if (seq === loadSeqRef.current) setLoading(false)
+      if (seq === loadSeqRef.current) {
+        setLoading(false)
+        setIsLoadingReport(false)
+      }
     }
   }
 
@@ -612,7 +630,25 @@ export default function HotVendorScoring() {
           loadSeqRef inside loadSavedUpload). */}
       {!savedLoading && savedUploads.length > 0 && (
         <div className="hv-saved">
-          <div className="hv-saved-title">Recent reports</div>
+          <div className="hv-saved-title">
+            Recent reports
+            {isLoadingReport && (
+              <span style={{
+                marginLeft: 10, fontSize: 12, fontWeight: 400,
+                color: '#1E40AF', display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+                <span style={{
+                  width: 11, height: 11, borderRadius: '50%',
+                  border: '2px solid rgba(30, 64, 175, 0.25)',
+                  borderTopColor: '#1E40AF',
+                  animation: 'hv-spin 0.8s linear infinite',
+                  display: 'inline-block',
+                }} />
+                Loading…
+                <style>{`@keyframes hv-spin { to { transform: rotate(360deg) } }`}</style>
+              </span>
+            )}
+          </div>
           <div className="hv-saved-grid">
             {savedUploads.map(u => {
               const isActive = data && (
