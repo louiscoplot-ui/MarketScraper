@@ -236,6 +236,24 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       </div>
 
       <div className="report-tables">
+        {report.withdrawn_listings?.length > 0 && (
+          <div className="report-table-section">
+            <h3>Withdrawn Listings — Prospection Targets</h3>
+            <table>
+              <thead><tr><th>Address</th><th>Suburb</th><th>Price</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
+              <tbody>
+                {report.withdrawn_listings.map((l, i) => (
+                  <tr key={i} className="withdrawn-row">
+                    <td>{l.address}</td><td>{l.suburb}</td><td>{l.price || '-'}</td>
+                    <td>{l.agent || '-'}</td><td>{l.agency || '-'}</td>
+                    <td className="link-cell">{l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a> : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {(report.market_share || []).length > 0 && (
           <div className="report-table-section">
             <h3>Market Share (Active Listings)</h3>
@@ -421,24 +439,6 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                     <td>{l.address}</td><td>{l.suburb}</td><td>{l.price || '-'}</td>
                     <td>{l.agent || '-'}</td><td>{l.agency || '-'}</td>
                     <td className="num stale">{l.dom}</td>
-                    <td className="link-cell">{l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a> : '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {report.withdrawn_listings?.length > 0 && (
-          <div className="report-table-section">
-            <h3>Withdrawn Listings — Prospection Targets</h3>
-            <table>
-              <thead><tr><th>Address</th><th>Suburb</th><th>Price</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
-              <tbody>
-                {report.withdrawn_listings.map((l, i) => (
-                  <tr key={i} className="withdrawn-row">
-                    <td>{l.address}</td><td>{l.suburb}</td><td>{l.price || '-'}</td>
-                    <td>{l.agent || '-'}</td><td>{l.agency || '-'}</td>
                     <td className="link-cell">{l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a> : '-'}</td>
                   </tr>
                 ))}
