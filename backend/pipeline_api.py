@@ -1161,9 +1161,11 @@ def pipeline_recent_sales():
         JOIN suburbs s ON l.suburb_id = s.id
         WHERE l.status = 'sold'
           AND LOWER(s.name) = LOWER(?)
-          AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?
-        ORDER BY COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) DESC,
-                 l.first_seen DESC
+          AND l.sold_date IS NOT NULL
+          AND l.sold_date != ''
+          AND l.sold_date != SUBSTR(l.first_seen, 1, 10)
+          AND l.sold_date >= ?
+        ORDER BY l.sold_date DESC, l.first_seen DESC
         LIMIT 200
         """,
         (suburb, cutoff_date)
