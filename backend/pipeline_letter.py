@@ -230,7 +230,7 @@ def _green_header(doc):
     p = cell.paragraphs[0]
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.space_before = Pt(0)
-    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     if os.path.exists(LOGO_PATH):
         run = p.add_run()
