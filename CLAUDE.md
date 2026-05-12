@@ -127,21 +127,11 @@ Pas de "Co-Authored-By", pas de "Generated with Claude".
 
 ## Bug Tracker — Statut HEAD
 
-### 🔴 Sécurité (cross-tenant leaks) — PRIORITÉ MAX
+### 🔴 Sécurité (cross-tenant leaks)
 
-| ID | Route | Problème | Fichier |
-|----|-------|----------|---------|
-| B1 | `GET /api/scrape/audit` | Dump toutes suburbs sans scope | scrape_api.py |
-| B2 | `GET /api/hot-vendors/lookup` | Leak RP Data sans scope | hot_vendors_api.py |
-| B3 | `PATCH /api/listings/<id>` | Write cross-tenant | listings_api.py |
-| B4 | `PATCH /api/listings/note` | Write cross-tenant | listings_api.py |
-| B5 | `PATCH /api/hot-vendors/note+status` | Write cross-tenant | hot_vendors_api.py |
-| B7 | `/api/scrape/all` + `/api/scrape/cancel` | DoS sans ACL | scrape_api.py |
-| B8 | `/api/scrape/debug/*` | Playwright sans ACL | scrape_api.py |
-| B11 | `POST /api/import/rpdata` | Import cross-tenant | import_api.py |
-| B15 | `GET /api/scrape/logs` | Dump toutes agences | scrape_api.py |
-
-Fix pattern : `resolve_request_scope()` ou `_require_admin()` en tête de route.
+Aucune faille ouverte au HEAD. Les 11 routes B1–B15 sont closes (voir
+✅ Fixés récemment). Garder le pattern pour toute nouvelle route :
+`resolve_request_scope()` ou `_require_admin()` en tête.
 
 ### 🟡 UX dégradée
 
@@ -156,7 +146,6 @@ Fix pattern : `resolve_request_scope()` ou `_require_admin()` en tête de route.
 |----|----------|---------|
 | P1 | `_real_neighbours` LIKE sans index → 6s | database.py |
 | P2 | Double fetch `/api/suburbs` au mount | App.jsx |
-| P3 | Export Excel 5min+ / 3000 lignes | export ou hot_vendors_api.py |
 | P4 | Pipeline lent cold start Render — pipeline_tracking vide avant 5am cron | run_daily_scrape.py |
 
 ### 🔵 Scraper / Data
@@ -170,6 +159,7 @@ Fix pattern : `resolve_request_scope()` ou `_require_admin()` en tête de route.
 
 | Fix | Commit |
 |-----|--------|
+| Sécurité — 11 routes scope-gated (B1-B15) | 572a192…8acb545 |
 | Adresses strata/suffixe lettre OSM (2/80, 110A) | d98981c |
 | Pipeline backfill route admin one-shot | 5066f38 |
 | Pipeline auto-gen dans cron daily 5am | cab84d5 |
