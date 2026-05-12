@@ -20,7 +20,11 @@ export default function Login() {
   const [password, setPassword] = useState('')
 
   const onSubmit = async (e) => {
-    e.preventDefault()
+    // Called both as the (now secondary) "Send login link" button click
+    // and from any legacy code path that still wires this to a form. The
+    // null-event guard lets the magic-link button trigger us without
+    // pretending to be a form submission.
+    if (e && typeof e.preventDefault === 'function') e.preventDefault()
     if (!email.trim() || busy) return
     setBusy(true)
     try {
@@ -119,7 +123,7 @@ export default function Login() {
                 Enter the email your administrator used to invite you.
                 We'll send you a one-click login link.
               </p>
-              <form onSubmit={onSubmit}>
+              <form onSubmit={(e) => { e.preventDefault(); onSubmitDirect() }}>
                 <input
                   type="email"
                   required
@@ -136,18 +140,27 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   style={styles.input}
                 />
+                {/* Primary action — Enter on either input hits this one. */}
                 <button type="submit" disabled={busy} style={styles.btn}>
-                  {busy ? 'Sending…' : 'Send login link'}
+                  Sign in with my email
                 </button>
+                <p style={styles.helperText}>
+                  Instant access if you already have an account
+                </p>
+                {directError && <div style={{ ...styles.err, marginTop: 4, marginBottom: 12 }}>{directError}</div>}
+                {/* Secondary action — magic-link fallback for first-time
+                    sign-in or when a user has forgotten their password. */}
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={onSubmitDirect}
-                  style={{ ...styles.btnSecondary, marginTop: 10 }}
+                  onClick={() => onSubmit()}
+                  style={styles.btnSecondary}
                 >
-                  Sign in with my email
+                  {busy ? 'Sending…' : 'Send login link'}
                 </button>
-                {directError && <div style={{ ...styles.err, marginTop: 10 }}>{directError}</div>}
+                <p style={styles.helperText}>
+                  Email a one-click link (first time signing in)
+                </p>
               </form>
               <p style={styles.fineprint}>
                 No public sign-up. Access is granted by your administrator.
@@ -279,6 +292,13 @@ const styles = {
     fontSize: 14,
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  helperText: {
+    margin: '6px 0 14px',
+    color: '#888',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 1.4,
   },
   err: {
     color: '#b91c1c',
