@@ -439,4 +439,22 @@ def register_admin_routes(app):
             'count': len(ids),
         })
 
+    @app.route('/api/admin/send-digest-test', methods=['POST'])
+    def admin_send_digest_test():
+        """Trigger the morning digest for the calling admin, on demand.
+        Useful for verifying Resend creds + template rendering without
+        waiting for the 5am cron. Sends to the admin's own email only —
+        never fans out to every user."""
+        user, err = _require_admin()
+        if err:
+            return err
+        try:
+            from email_digest import send_digest
+            ok, info = send_digest(user['id'])
+        except Exception as e:
+            return jsonify({'error': f'Digest call crashed: {e}'}), 500
+        if not ok:
+            return jsonify({'error': info or 'unknown failure'}), 500
+        return jsonify({'status': 'sent', 'result': info})
+
     logger.info("Admin routes registered: /api/admin/{me,users[,/<id>[,/suburbs]]}")
