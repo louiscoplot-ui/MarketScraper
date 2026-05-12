@@ -1375,6 +1375,50 @@ def pipeline_osm_status(suburb):
 # Wiring
 # ---------------------------------------------------------------------
 
+def pipeline_admin_backfill():
+    """One-shot admin tool: regenerate pipeline_tracking for every active
+    suburb using a 60-day window. Use case — the GHA daily cron didn't
+    auto-generate pipeline rows until cab84d5, so sales scraped between
+    the format-flip and that fix sit in `listings` with no matching
+    targets. This walks every suburb once to catch them up.
+
+    Synchronous on purpose — admin-only, ad-hoc tool. Expect 1-5 minutes
+    on a 15-suburb deployment depending on OSM cache state."""
+    from admin_api import _require_admin
+    _user, err = _require_admin()
+    if err:
+        return err
+
+    conn = get_db()
+    suburb_rows = conn.execute(
+        "SELECT DISTINCT name FROM suburbs WHERE active = 1 ORDER BY name"
+    ).fetchall()
+    conn.close()
+    names = [r['name'] for r in suburb_rows if r['name']]
+
+    results = []
+    for name in names:
+        try:
+            pg = _generate_pipeline_for_suburb(name, days=60, enforce_acl=False)
+            results.append({
+                'suburb': name,
+                'generated': pg.get('generated', 0),
+                'sold_count': pg.get('sold_count', 0),
+            })
+            logger.info(
+                f"[backfill] {name}: {pg.get('generated', 0)} targets from "
+                f"{pg.get('sold_count', 0)} sales"
+            )
+        except Exception as e:
+            logger.warning(f"[backfill] {name} failed: {e}")
+            results.append({
+                'suburb': name,
+                'error': str(e),
+            })
+
+    return jsonify({'results': results, 'suburbs_processed': len(names)})
+
+
 def register_pipeline_routes(app):
     app.add_url_rule('/api/pipeline/generate', endpoint='pipeline_generate',
                      view_func=pipeline_generate, methods=['GET'])
@@ -1399,6 +1443,9 @@ def register_pipeline_routes(app):
     app.add_url_rule('/api/pipeline/osm-status/<path:suburb>',
                      endpoint='pipeline_osm_status',
                      view_func=pipeline_osm_status, methods=['GET'])
+    app.add_url_rule('/api/admin/pipeline-backfill',
+                     endpoint='pipeline_admin_backfill',
+                     view_func=pipeline_admin_backfill, methods=['POST'])
     logger.info(
         "Pipeline routes: /api/pipeline/{generate,manual-add,tracking,letter/<id>/download,enrich-owners,osm-status/<suburb>}"
     )
