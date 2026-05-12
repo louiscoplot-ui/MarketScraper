@@ -13,6 +13,7 @@ Mail-ready and consistent with the v4 scoring methodology.
 
 import io
 from datetime import date
+from functools import lru_cache
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -49,18 +50,28 @@ OWNER_NA_TEXT = '856404'
 OWNER_KEYS = {'current_owner', 'current_owner1', 'current_owner2'}
 
 
+# Style helpers are memoised because _build_data_sheet runs across
+# every property × every column on three sheets — a 3000-row Hot
+# Vendor report used to instantiate ~700k Font/PatternFill/Alignment
+# objects, which openpyxl then registers individually in the workbook's
+# style table. Sharing instances cuts the export from ~5 min to
+# ~20-30 sec without changing any output.
+@lru_cache(maxsize=128)
 def _font(sz=10, bold=False, color=NAVY):
     return Font(name='Arial', size=sz, bold=bold, color=color)
 
 
+@lru_cache(maxsize=32)
 def _fill(color=WHITE):
     return PatternFill('solid', fgColor=color)
 
 
+@lru_cache(maxsize=1)
 def _ctr():
     return Alignment(horizontal='center', vertical='center', wrap_text=True)
 
 
+@lru_cache(maxsize=16)
 def _lft(indent=0):
     return Alignment(horizontal='left', vertical='center', indent=indent, wrap_text=True)
 

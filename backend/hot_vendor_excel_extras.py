@@ -6,6 +6,8 @@ small and pushable:
   - Market Analysis : suburb profile blocks, score distribution, est. value stats
 """
 
+from functools import lru_cache
+
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
@@ -14,18 +16,24 @@ WHITE = 'FFFFFF'
 ALT = 'EBF5FB'
 
 
+# Memoised to keep openpyxl's style table small — same reason as in
+# hot_vendor_excel.py.
+@lru_cache(maxsize=128)
 def _font(sz=10, bold=False, color=NAVY):
     return Font(name='Arial', size=sz, bold=bold, color=color)
 
 
+@lru_cache(maxsize=32)
 def _fill(color=WHITE):
     return PatternFill('solid', fgColor=color)
 
 
+@lru_cache(maxsize=1)
 def _ctr():
     return Alignment(horizontal='center', vertical='center', wrap_text=True)
 
 
+@lru_cache(maxsize=16)
 def _lft(indent=0):
     return Alignment(horizontal='left', vertical='center', indent=indent, wrap_text=True)
 
