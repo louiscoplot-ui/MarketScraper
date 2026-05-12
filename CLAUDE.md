@@ -147,12 +147,8 @@ Fix pattern : `resolve_request_scope()` ou `_require_admin()` en tête de route.
 
 | ID | Composant | Problème | Fichier |
 |----|-----------|----------|---------|
-| D7 | ScrapeStatus | fetchScrapeStatus via Vercel proxy → timeout | App.jsx |
-| D8 | Letters | downloadLetter via Vercel proxy → timeout | LetterGenerator.jsx |
 | D10 | Admin | saveAssignments ne refresh pas liste users | AdminPanel.jsx |
 | D17 | Listings | saveNote alert tardif sans contexte | ListingsTable.jsx |
-| A4 | HotVendors | Pas de spinner + pas de cache sur switch rapport | HotVendorScoring.jsx |
-| A5 | Listings | Export CSV : pas de feedback bouton | ListingsTable.jsx |
 
 ### 🟠 Performance
 
@@ -161,6 +157,7 @@ Fix pattern : `resolve_request_scope()` ou `_require_admin()` en tête de route.
 | P1 | `_real_neighbours` LIKE sans index → 6s | database.py |
 | P2 | Double fetch `/api/suburbs` au mount | App.jsx |
 | P3 | Export Excel 5min+ / 3000 lignes | export ou hot_vendors_api.py |
+| P4 | Pipeline lent cold start Render — pipeline_tracking vide avant 5am cron | run_daily_scrape.py |
 
 ### 🔵 Scraper / Data
 
@@ -173,6 +170,13 @@ Fix pattern : `resolve_request_scope()` ou `_require_admin()` en tête de route.
 
 | Fix | Commit |
 |-----|--------|
+| Adresses strata/suffixe lettre OSM (2/80, 110A) | d98981c |
+| Pipeline backfill route admin one-shot | 5066f38 |
+| Pipeline auto-gen dans cron daily 5am | cab84d5 |
+| Pipeline day filter (DD/MM/YYYY + ISO dual format) | 2076d62 |
+| fetchScrapeStatus via BACKEND_DIRECT (D7) | 2fe9402 |
+| Excel export 5min → 30s via lru_cache (A6/P3) | 28db44a |
+| HotVendors spinner + cache mémoire switch report (A4) | 61d1d80 |
 | Pipeline sold_date filtre strict + empty state | — |
 | Report.jsx : Withdrawn en premier dans report-tables | 1149e75 |
 | Multi-tenant profiles + suburb scoping | b39871c |
