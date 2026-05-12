@@ -845,6 +845,16 @@ def pipeline_tracking_grouped():
     except ValueError:
         limit = 200
     limit = max(1, min(limit, 1000))
+    # Optional day-window filter on the source sale date. Without it the
+    # tracking table accumulates targets generated months ago and the
+    # 7/14/30 day toggle on the Pipeline page becomes purely cosmetic.
+    days_raw = (request.args.get('days') or '').strip()
+    days = None
+    if days_raw:
+        try:
+            days = max(1, min(int(days_raw), 365))
+        except ValueError:
+            days = None
 
     _, allowed_names = get_user_allowed_suburb_names()
     if suburb and allowed_names is not None and suburb.lower() not in allowed_names:
@@ -866,6 +876,18 @@ def pipeline_tracking_grouped():
         placeholders = ','.join(['?'] * len(allowed_names))
         sql += f" AND source_suburb_lower IN ({placeholders})"
         params.extend(allowed_names)
+    if days is not None:
+        cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+        # Require ISO format (YYYY-MM-DD) so the lexicographic >= is
+        # actually a date comparison. Legacy DD/MM/YYYY rows would
+        # otherwise compare wrong (any "30/09/2024" > any "2026-xx").
+        sql += (
+            " AND source_sold_date IS NOT NULL"
+            " AND source_sold_date != ''"
+            " AND SUBSTR(source_sold_date, 5, 1) = '-'"
+            " AND source_sold_date >= ?"
+        )
+        params.append(cutoff_date)
     sql += " ORDER BY target_address ASC, created_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
