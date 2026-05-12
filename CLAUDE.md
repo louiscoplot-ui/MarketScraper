@@ -220,3 +220,29 @@ try:
 except Exception:
     pass  # déjà existe
 ```
+
+---
+
+## Prompts prêts à exécuter
+
+### A5 — Export CSV feedback bouton
+Lis frontend/src/HotVendorScoring.jsx en entier.
+Ajouter isExportingCSV state (useState false). Au clic export CSV : disabled + "Exporting...".
+Après blob : reset. Copier pattern bouton download existant dans le fichier.
+Ne pas toucher logique fetch+blob. Vite build. Diff. Attends validation.
+
+### A6 — Export Excel trop lent
+Lis le fichier backend qui génère l'export Excel en entier (chercher route /api/export ou /api/hot-vendors/export).
+Problème : 5min+ pour 3000 lignes. Probablement openpyxl cell-by-cell en mode normal.
+Fix : passer en write_only mode + append_row(). Si pandas déjà importé : DataFrame.to_excel().
+Pas de nouvelle dépendance sans accord. py_compile. Diff. Attends validation.
+
+### D7 — fetchScrapeStatus timeout
+Lis App.jsx ou le composant scrape status en entier.
+fetchScrapeStatus passe par Vercel proxy → timeout 25s. Remplacer URL par BACKEND_DIRECT.
+Ne pas changer logique fetch ni gestion erreur. Vite build. Diff. Attends validation.
+
+### D8 — downloadLetter timeout
+Lis LetterGenerator.jsx en entier.
+downloadLetter passe par Vercel proxy → timeout. Remplacer par BACKEND_DIRECT + fetch+blob.
+Pattern : voir bouton Word déjà authentifié dans le même fichier. Vite build. Diff. Attends validation.
