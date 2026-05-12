@@ -878,16 +878,37 @@ def pipeline_tracking_grouped():
         params.extend(allowed_names)
     if days is not None:
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
-        # Require ISO format (YYYY-MM-DD) so the lexicographic >= is
-        # actually a date comparison. Legacy DD/MM/YYYY rows would
-        # otherwise compare wrong (any "30/09/2024" > any "2026-xx").
+        # source_sold_date is stored as TEXT but in two formats across the
+        # life of the table: ISO YYYY-MM-DD (scraper + import_api today)
+        # and legacy DD/MM/YYYY (older pipeline_tracking rows from before
+        # the ISO conversion landed in scraper.py). A plain `>= cutoff`
+        # compare only works for ISO; a SUBSTR-on-position-5 guard that
+        # required '-' was rejecting every legacy row — including ones
+        # actually within the window — which surfaced as an empty
+        # Pipeline page for suburbs where most history predates the
+        # format flip. Handle both formats in one OR clause: ISO rows
+        # compare directly, DD/MM/YYYY rows are reconstructed to ISO
+        # in-SQL via SUBSTR + concat then compared.
         sql += (
             " AND source_sold_date IS NOT NULL"
             " AND source_sold_date != ''"
-            " AND SUBSTR(source_sold_date, 5, 1) = '-'"
-            " AND source_sold_date >= ?"
+            " AND ("
+            "   ("
+            "     SUBSTR(source_sold_date, 5, 1) = '-'"
+            "     AND SUBSTR(source_sold_date, 1, 10) >= ?"
+            "   )"
+            "   OR ("
+            "     SUBSTR(source_sold_date, 3, 1) = '/'"
+            "     AND SUBSTR(source_sold_date, 6, 1) = '/'"
+            "     AND ("
+            "       SUBSTR(source_sold_date, 7, 4) || '-'"
+            "       || SUBSTR(source_sold_date, 4, 2) || '-'"
+            "       || SUBSTR(source_sold_date, 1, 2)"
+            "     ) >= ?"
+            "   )"
+            " )"
         )
-        params.append(cutoff_date)
+        params.extend([cutoff_date, cutoff_date])
     sql += " ORDER BY target_address ASC, created_at DESC"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
