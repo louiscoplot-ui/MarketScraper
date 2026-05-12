@@ -28,6 +28,18 @@ logger = logging.getLogger(__name__)
 
 
 _ADDR_RE = re.compile(r'^(\d+)([A-Za-z]?)\s+(.+)$')
+# Strata / unit prefix: "2/80 Mooro Drive" → drop the "2/" so OSM + the
+# LandGate registry (both keyed on the main house number, not the strata
+# unit) actually find neighbours. Without this strip _parse_address used
+# to early-return None for any unit address, leaving every "N/NN" source
+# sale with zero pipeline targets.
+_UNIT_PREFIX_RE = re.compile(r'^\d+\s*/\s*')
+# Letter-suffix house number: "110A Rochdale Road" → "110 Rochdale Road".
+# The bare regex above (_ADDR_RE) already tolerates a single trailing
+# letter via group 2, but stripping it BEFORE parse keeps the street
+# cache + OSM query keyed on the underlying house, so 110, 110A, 110B
+# all hit the same cache entry instead of three separate ones.
+_LETTER_SUFFIX_RE = re.compile(r'^(\d+)[A-Za-z]+(\s+)')
 INSERT_CHUNK = 50
 NEIGHBOUR_MAX_DISTANCE = 30
 NEIGHBOUR_COUNT = 4
@@ -48,8 +60,13 @@ def _parse_address(addr):
     if not addr:
         return None
     addr = addr.strip()
-    if '/' in addr.split()[0]:
-        return None
+    # Normalise the house-number portion BEFORE the main regex so OSM,
+    # the street cache, and the neighbour-distance maths all see the
+    # underlying integer. Order matters: strip the strata prefix first
+    # (drops everything up to and including "/"), then strip any letter
+    # suffix that remains on the building number.
+    addr = _UNIT_PREFIX_RE.sub('', addr, count=1)
+    addr = _LETTER_SUFFIX_RE.sub(r'\1\2', addr, count=1)
     # "259 259 Curtin Avenue" → "259 Curtin Avenue" (scrape artefact).
     parts = addr.split()
     if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit() and parts[0] == parts[1]:
