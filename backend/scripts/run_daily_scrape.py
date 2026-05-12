@@ -261,6 +261,23 @@ def scrape_one(suburb):
     # bug or with NULL date. ~10s per listing × up to 30 = ~5 min/suburb.
     _backfill_sold_dates(suburb_id, name)
 
+    # Auto-generate pipeline targets from the freshly-scraped sales —
+    # same call the Flask-side scrape worker makes (scrape_runner.py:282).
+    # Without this step the GHA daily cron updates `listings` but never
+    # refreshes `pipeline_tracking`, so the Pipeline page stays frozen
+    # on yesterday's targets until the operator clicks Generate manually.
+    # ACL bypassed because cron has no request context. Errors logged
+    # only — pipeline-gen failure must NEVER fail the suburb's scrape.
+    try:
+        from pipeline_api import _generate_pipeline_for_suburb
+        pg = _generate_pipeline_for_suburb(name, days=30, enforce_acl=False)
+        log.info(
+            f"Pipeline generated for {name}: "
+            f"{pg.get('generated', 0)} targets from {pg.get('sold_count', 0)} sales"
+        )
+    except Exception as e:
+        log.warning(f"[{name}] pipeline auto-gen failed: {e}")
+
     log.info(
         f"[{name}] done — active={len(forsale_urls)} sold={saved_sold} "
         f"withdrawn={withdrawn_count} new={new_count} "
