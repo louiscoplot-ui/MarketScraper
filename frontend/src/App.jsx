@@ -111,7 +111,11 @@ function App() {
   }, [])
 
   const fetchScrapeStatus = useCallback(async () => {
-    const res = await fetch(`${API}/scrape/status`)
+    // BOOT_API (= BACKEND_DIRECT) bypasses Vercel's 25 s edge timeout —
+    // Render cold-starts (30-60 s after hibernation) used to kill the
+    // proxy call, leaving the modal stuck on "loading" until the user
+    // navigated away.
+    const res = await fetch(`${BOOT_API}/scrape/status`)
     if (res.ok) {
       const data = await res.json()
       setScrapeStatus(data)
@@ -120,7 +124,7 @@ function App() {
         setShowScrapeModal(true)
         if (!pollRef.current) {
           pollRef.current = setInterval(async () => {
-            const r = await fetch(`${API}/scrape/status`)
+            const r = await fetch(`${BOOT_API}/scrape/status`)
             if (r.ok) {
               const d = await r.json()
               setScrapeStatus(d)
