@@ -12,7 +12,11 @@ import { apiJson, BACKEND_DIRECT, getAccessKey, readCache, writeCache } from '..
 // Suburb-scoped cache key. Stale-while-revalidate — hydrate the table
 // from localStorage on suburb change, then refresh in the background
 // so the operator never sees an empty spinner after the first visit.
-const RENTAL_CACHE_KEY = (suburb) => `rentals_${(suburb || '').toLowerCase()}`
+// lib/api.js prefixes this with `sd_cache_v3_<16hex>_` so values are
+// scoped per access_key and per cache version. No TTL — entries live
+// until CACHE_VERSION bumps or the user clears storage.
+const RENTAL_CACHE_KEY = (suburb) =>
+  `rentals_${String(suburb || '').trim().toLowerCase()}`
 
 
 // Premium colour system — distinct from sales so an operator never
@@ -242,7 +246,11 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
       const data = await apiJson(`/api/rentals/${encodeURIComponent(suburbName)}`)
       const next = data.listings || []
       setListings(next)
-      writeCache(RENTAL_CACHE_KEY(suburbName), next)
+      const cacheKey = RENTAL_CACHE_KEY(suburbName)
+      writeCache(cacheKey, next)
+      // Diagnostic — verifiable in DevTools. localStorage key under
+      // lib/api's prefix is sd_cache_v3_<16hex>_<this-suffix>.
+      try { console.log('[RentalView] cache WRITE', cacheKey, 'rows:', next.length) } catch {}
     } catch (e) {
       setError(e.message)
       if (!silent) setListings([])
@@ -255,14 +263,28 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
   // when the suburb changes (no blank table while the network round-
   // trips), then refresh in the background. Skip the spinner entirely
   // on a cache hit so the operator perceives the switch as instant.
+  //
+  // Treat any cached Array as a hit — including []. An empty array IS
+  // a valid result for a suburb the scraper hasn't touched yet; the
+  // older `cached.length > 0` predicate forced a visible refetch every
+  // single visit, defeating the cache entirely for those suburbs.
   useEffect(() => {
     if (!suburb) return
-    const cached = readCache(RENTAL_CACHE_KEY(suburb))
-    if (Array.isArray(cached) && cached.length > 0) {
+    const cacheKey = RENTAL_CACHE_KEY(suburb)
+    const cached = readCache(cacheKey)
+    const hit = Array.isArray(cached)
+    try {
+      console.log('[RentalView] cache READ', cacheKey,
+                  hit ? `HIT (${cached.length} rows)` : 'MISS')
+    } catch {}
+    if (hit) {
       setListings(cached)
       fetchListings(suburb, { silent: true })
     } else {
-      setListings([])
+      // Cache miss — keep the previous suburb's data visible (don't
+      // clear to []) so the operator never sees a blank flash before
+      // the new fetch lands. The visible loading flag still fires so
+      // they know a refresh is in flight.
       fetchListings(suburb)
     }
   }, [suburb, fetchListings])
