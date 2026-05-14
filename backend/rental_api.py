@@ -532,6 +532,51 @@ def register_rental_routes(app):
             return jsonify({'error': 'Not found'}), 404
         return jsonify(dict(row))
 
+    @app.route('/api/admin/rental-suburbs/batch', methods=['PATCH'])
+    def admin_batch_patch_rental_suburbs():
+        """Apply many active/inactive flips in one DB round-trip — the
+        admin panel uses this instead of N individual PATCH calls when
+        the operator clicks Save after multi-select edits. Body shape:
+            { "updates": [ { "id": int, "active": bool }, ... ] }
+        Unknown ids silently dropped; partial success returns the count
+        of rows actually touched (rowcount may differ from len(updates)
+        when some ids no longer exist)."""
+        _u, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        updates = body.get('updates') or []
+        if not isinstance(updates, list):
+            return jsonify({'error': 'updates must be a list'}), 400
+        clean = []
+        for u in updates:
+            if not isinstance(u, dict):
+                continue
+            try:
+                sid = int(u.get('id'))
+            except (TypeError, ValueError):
+                continue
+            active_flag = 1 if u.get('active') else 0
+            clean.append((active_flag, sid))
+        if not clean:
+            return jsonify({'updated': 0})
+        conn = get_db()
+        updated = 0
+        try:
+            for active_flag, sid in clean:
+                cur = conn.execute(
+                    "UPDATE rental_suburbs SET active = ? WHERE id = ?",
+                    (active_flag, sid)
+                )
+                if cur.rowcount and cur.rowcount > 0:
+                    updated += cur.rowcount
+            conn.commit()
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'Batch update failed: {e}'}), 500
+        conn.close()
+        return jsonify({'updated': updated})
+
     @app.route('/api/admin/rental-suburbs/<int:sid>', methods=['DELETE'])
     def admin_delete_rental_suburb(sid):
         _u, err = _require_admin()

@@ -380,6 +380,10 @@ def main():
     database.init_db()
 
     conn = get_db()
+    # Suburbs are pulled fresh on every run from the admin allowlist —
+    # any suburb the admin flips to active=1 via /api/admin/rental-
+    # suburbs (or the AdminUsers panel) is picked up by the next 5am
+    # Perth cron automatically. No deploy needed.
     rows = conn.execute(
         "SELECT name FROM rental_suburbs WHERE active = 1 ORDER BY name"
     ).fetchall()

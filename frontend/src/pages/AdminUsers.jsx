@@ -58,6 +58,10 @@ export default function AdminUsers() {
   const [rentalSuburbs, setRentalSuburbs] = useState([])
   const [newRentalSuburb, setNewRentalSuburb] = useState('')
   const [addingRentalSuburb, setAddingRentalSuburb] = useState(false)
+  // Pending checkbox edits — keyed by suburb id, value is the new
+  // active bool. Save button reads this set and POSTs the batch.
+  const [pendingRental, setPendingRental] = useState({})
+  const [savingRentalBatch, setSavingRentalBatch] = useState(false)
 
   // Suburb-assignment modal — keyed by user id
   const [assigning, setAssigning] = useState(null)  // { user, suburb_ids: Set }
@@ -293,16 +297,58 @@ export default function AdminUsers() {
       setAddingRentalSuburb(false)
     }
   }
-  const toggleRentalSuburb = async (s) => {
+  // Stage a checkbox change locally — saved later via Save changes.
+  const toggleRentalCheckbox = (s) => {
+    setPendingRental(prev => {
+      const next = { ...prev }
+      const current = (s.id in next) ? next[s.id] : !!s.active
+      const flipped = !current
+      // If the new value matches the DB-truth, clear the entry so we
+      // don't POST a no-op update.
+      if (flipped === !!s.active) {
+        delete next[s.id]
+      } else {
+        next[s.id] = flipped
+      }
+      return next
+    })
+  }
+  // Treat the pending map as the source of truth when rendering a row.
+  const effectiveActive = (s) =>
+    (s.id in pendingRental) ? pendingRental[s.id] : !!s.active
+  const dirtyCount = Object.keys(pendingRental).length
+  const selectAllRental = () => {
+    setPendingRental(() => {
+      const next = {}
+      for (const s of rentalSuburbs) if (!s.active) next[s.id] = true
+      return next
+    })
+  }
+  const deselectAllRental = () => {
+    setPendingRental(() => {
+      const next = {}
+      for (const s of rentalSuburbs) if (s.active) next[s.id] = false
+      return next
+    })
+  }
+  const saveRentalBatch = async () => {
+    const updates = Object.entries(pendingRental).map(([id, active]) => ({
+      id: Number(id), active,
+    }))
+    if (!updates.length) return
+    setSavingRentalBatch(true)
     try {
-      await apiJson(`/api/admin/rental-suburbs/${s.id}`, {
+      await apiJson('/api/admin/rental-suburbs/batch', {
         method: 'PATCH',
-        body: JSON.stringify({ active: !s.active }),
+        body: JSON.stringify({ updates }),
       })
       const rs = await apiJson('/api/admin/rental-suburbs')
       setRentalSuburbs(rs.suburbs || [])
+      setPendingRental({})
     } catch (e) {
-      alert(`Could not toggle: ${e.message}`)
+      alert(`Save failed: ${e.message}`)
+    } finally {
+      setSavingRentalBatch(false)
     }
   }
   const deleteRentalSuburb = async (s) => {
@@ -580,66 +626,133 @@ export default function AdminUsers() {
       {me && me.role === 'admin' && (
         <div style={{ marginTop: 32 }}>
           <h3>Rental Suburbs</h3>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-            Allowlist for the rental scraper. Toggle a suburb off to skip
-            it on tonight's cron without losing existing data. Delete
-            cascades — it removes every rental_listing + rental_owner row
-            for that suburb.
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Allowlist for the rental scraper. Tick the suburbs to keep
+            active, untick to skip; click Save to apply. Delete cascades
+            — it removes every rental_listing + rental_owner row for
+            that suburb. Use the input below to add a new one.
           </p>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <input
-              type="text"
-              placeholder="Add a rental suburb (e.g. Karrinyup)"
-              value={newRentalSuburb}
-              onChange={(e) => setNewRentalSuburb(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); addRentalSuburb() }
-              }}
-              style={{ flex: 1, padding: '6px 10px', fontSize: 13,
-                       border: '1px solid #d1d5db', borderRadius: 6 }}
-            />
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={addRentalSuburb}
-              disabled={!newRentalSuburb.trim() || addingRentalSuburb}
-            >
-              {addingRentalSuburb ? 'Adding…' : 'Add suburb'}
-            </button>
+
+          {/* Add new suburb — visible block above the list with its
+              own label so it can't be confused with a toolbar item. */}
+          <div style={{
+            border: '1px solid #d1d5db', borderRadius: 8,
+            padding: '10px 12px', marginBottom: 14, background: '#f9fafb',
+          }}>
+            <label style={{
+              display: 'block', fontSize: 11, fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: 0.4,
+              color: '#475569', marginBottom: 6,
+            }}>
+              Add a new rental suburb
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                placeholder="e.g. Karrinyup, Trigg, Burns Beach"
+                value={newRentalSuburb}
+                onChange={(e) => setNewRentalSuburb(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); addRentalSuburb() }
+                }}
+                style={{
+                  flex: 1, padding: '8px 12px', fontSize: 14,
+                  border: '1px solid #cbd5e1', borderRadius: 6,
+                  background: 'white',
+                }}
+              />
+              <button
+                type="button"
+                onClick={addRentalSuburb}
+                disabled={!newRentalSuburb.trim() || addingRentalSuburb}
+                style={{
+                  padding: '8px 18px', fontSize: 14, fontWeight: 600,
+                  background: (!newRentalSuburb.trim() || addingRentalSuburb)
+                    ? '#94a3b8' : '#386351',
+                  color: 'white', border: 'none', borderRadius: 6,
+                  cursor: (!newRentalSuburb.trim() || addingRentalSuburb)
+                    ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {addingRentalSuburb ? 'Adding…' : '+ Add suburb'}
+              </button>
+            </div>
           </div>
+
+          {/* Multi-select toolbar */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            marginBottom: 8, flexWrap: 'wrap',
+          }}>
+            <button type="button" className="btn-link" onClick={selectAllRental}>
+              Select all
+            </button>
+            <span style={{ color: '#cbd5e1' }}>·</span>
+            <button type="button" className="btn-link" onClick={deselectAllRental}>
+              Deselect all
+            </button>
+            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+              {dirtyCount > 0 && (
+                <span style={{ fontSize: 12, color: '#b45309' }}>
+                  {dirtyCount} unsaved change{dirtyCount !== 1 ? 's' : ''}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={saveRentalBatch}
+                disabled={dirtyCount === 0 || savingRentalBatch}
+                style={{
+                  padding: '6px 16px', fontSize: 13, fontWeight: 600,
+                  background: dirtyCount === 0 ? '#cbd5e1' : '#0f766e',
+                  color: 'white', border: 'none', borderRadius: 6,
+                  cursor: dirtyCount === 0 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {savingRentalBatch ? 'Saving…' : 'Save changes'}
+              </button>
+            </span>
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
-                        maxHeight: 320, overflowY: 'auto',
+                        maxHeight: 360, overflowY: 'auto',
                         border: '1px solid #e5e7eb', borderRadius: 6,
-                        padding: 8 }}>
+                        padding: 8, background: 'white' }}>
             {rentalSuburbs.length === 0 && (
               <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>
                 No rental suburbs yet. Add one above.
               </div>
             )}
-            {rentalSuburbs.map(s => (
+            {rentalSuburbs.map(s => {
+              const isActive = effectiveActive(s)
+              const dirty = s.id in pendingRental
+              return (
               <div key={s.id} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '6px 10px', borderRadius: 4,
-                background: s.active ? 'transparent' : '#fafafa',
+                background: dirty ? '#fef3c7' : (isActive ? 'transparent' : '#fafafa'),
               }}>
+                <input
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={() => toggleRentalCheckbox(s)}
+                  style={{ cursor: 'pointer' }}
+                />
                 <span style={{
                   flex: 1, fontSize: 13,
-                  color: s.active ? '#111827' : '#9ca3af',
-                  textDecoration: s.active ? 'none' : 'line-through',
+                  color: isActive ? '#111827' : '#9ca3af',
+                  textDecoration: isActive ? 'none' : 'line-through',
                 }}>
                   {s.name}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => toggleRentalSuburb(s)}
-                  style={{
-                    cursor: 'pointer', border: 'none', padding: '3px 10px',
-                    borderRadius: 10, fontSize: 11, fontWeight: 600,
-                    background: s.active ? '#d1fae5' : '#f3f4f6',
-                    color: s.active ? '#065f46' : '#9ca3af',
-                  }}
-                >
-                  {s.active ? 'ACTIVE' : 'INACTIVE'}
-                </button>
+                {dirty && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: '#b45309',
+                    textTransform: 'uppercase', letterSpacing: 0.4,
+                  }}>
+                    pending
+                  </span>
+                )}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-danger"
@@ -648,8 +761,17 @@ export default function AdminUsers() {
                   Delete
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
+
+          <p style={{
+            fontSize: 12, color: '#0c4a6e',
+            background: '#f0f9ff', border: '1px solid #bae6fd',
+            borderRadius: 6, padding: '8px 12px', marginTop: 12,
+          }}>
+            ℹ️ Active suburbs are automatically scraped daily at 5am Perth time.
+          </p>
         </div>
       )}
 
