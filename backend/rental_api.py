@@ -21,7 +21,7 @@ import logging
 from datetime import datetime
 from flask import request, jsonify
 
-from database import get_db, USE_POSTGRES
+from database import get_db, get_db_conn, USE_POSTGRES
 from admin_api import (
     get_current_user, _require_admin,
     get_user_allowed_suburb_names,
@@ -114,9 +114,8 @@ def register_rental_routes(app):
             return jsonify({'error': 'Unauthenticated — provide X-Access-Key'}), 401
         if scope is False:
             return jsonify({'error': 'Rental access not granted'}), 403
-        conn = get_db()
-        rows = _allowed_rental_suburb_rows(conn, scope)
-        conn.close()
+        with get_db_conn() as conn:
+            rows = _allowed_rental_suburb_rows(conn, scope)
         return jsonify({
             'suburbs': [{'id': r['id'], 'name': r['name']} for r in rows]
         })
@@ -358,31 +357,30 @@ def register_rental_routes(app):
         # Then date_listed DESC so the freshest within each bucket lands
         # at the top. Coalesce owner fields from rental_owners so the UI
         # can render every column without a second round-trip.
-        conn = get_db()
         # SELECT only the columns the UI actually renders — first_seen
         # / last_seen / id are unused on the rental page and trimming
         # them shaves a few KB off the payload on busy suburbs.
-        rows = conn.execute(
-            """
-            SELECT
-              l.address, l.suburb, l.status, l.price_week,
-              l.property_type, l.beds, l.baths, l.cars,
-              l.agency, l.agent, l.date_listed, l.days_on_market,
-              l.date_leased, l.url,
-              COALESCE(o.owner_name, '')  AS owner_name,
-              COALESCE(o.owner_phone, '') AS owner_phone,
-              COALESCE(o.notes, '')       AS notes
-            FROM rental_listings l
-            LEFT JOIN rental_owners o
-              ON o.address = l.address AND o.suburb = l.suburb
-            WHERE LOWER(l.suburb) = LOWER(?)
-            ORDER BY
-              CASE l.status WHEN 'New' THEN 0 WHEN 'Active' THEN 1 ELSE 2 END,
-              l.date_listed DESC
-            """,
-            (suburb_clean,)
-        ).fetchall()
-        conn.close()
+        with get_db_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  l.address, l.suburb, l.status, l.price_week,
+                  l.property_type, l.beds, l.baths, l.cars,
+                  l.agency, l.agent, l.date_listed, l.days_on_market,
+                  l.date_leased, l.url,
+                  COALESCE(o.owner_name, '')  AS owner_name,
+                  COALESCE(o.owner_phone, '') AS owner_phone,
+                  COALESCE(o.notes, '')       AS notes
+                FROM rental_listings l
+                LEFT JOIN rental_owners o
+                  ON o.address = l.address AND o.suburb = l.suburb
+                WHERE LOWER(l.suburb) = LOWER(?)
+                ORDER BY
+                  CASE l.status WHEN 'New' THEN 0 WHEN 'Active' THEN 1 ELSE 2 END,
+                  l.date_listed DESC
+                """,
+                (suburb_clean,)
+            ).fetchall()
         return jsonify({
             'suburb': suburb_clean,
             'count': len(rows),
