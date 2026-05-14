@@ -189,40 +189,59 @@ def register_rental_routes(app):
             return jsonify({'error': 'address and suburb required'}), 400
         if scope is not None and suburb.lower() not in scope:
             return jsonify({'error': 'Not authorised for that suburb'}), 403
-        owner_name = (body.get('owner_name') or '').strip()
-        owner_phone = (body.get('owner_phone') or '').strip()
-        notes = (body.get('notes') or '').strip()
+
+        # Partial-body contract: only the field KEYS present in the
+        # request are written. Without this guard, the frontend's
+        # race-prone "send-all-3-fields-every-blur" pattern wiped
+        # sibling fields with a stale snapshot. We now read each
+        # column's intent from key presence — `notes: ''` is a real
+        # "clear notes" instruction, while omitting `notes` means
+        # "leave notes alone".
+        updates = {}
+        for field in ('owner_name', 'owner_phone', 'notes'):
+            if field in body:
+                v = body[field]
+                updates[field] = (v or '').strip() if isinstance(v, str) else ''
+        if not updates:
+            return jsonify({'error': 'No fields to update'}), 400
 
         conn = get_db()
         try:
-            if USE_POSTGRES:
+            existing = conn.execute(
+                "SELECT id FROM rental_owners WHERE address = ? AND suburb = ?",
+                (address, suburb)
+            ).fetchone()
+            if existing is None:
+                # INSERT — defaults '' for any field the body didn't carry.
                 conn.execute(
                     "INSERT INTO rental_owners "
-                    "(address, suburb, owner_name, owner_phone, notes, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
-                    "ON CONFLICT (address, suburb) DO UPDATE SET "
-                    "owner_name = EXCLUDED.owner_name, "
-                    "owner_phone = EXCLUDED.owner_phone, "
-                    "notes = EXCLUDED.notes, "
-                    "updated_at = CURRENT_TIMESTAMP",
-                    (address, suburb, owner_name, owner_phone, notes)
+                    "(address, suburb, owner_name, owner_phone, notes) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        address, suburb,
+                        updates.get('owner_name', ''),
+                        updates.get('owner_phone', ''),
+                        updates.get('notes', ''),
+                    )
                 )
             else:
+                # UPDATE — dynamic SET on only the fields actually sent.
+                sets = [f"{k} = ?" for k in updates.keys()]
+                params = list(updates.values())
+                if USE_POSTGRES:
+                    sets.append("updated_at = CURRENT_TIMESTAMP")
+                else:
+                    sets.append("updated_at = datetime('now')")
+                params.extend([address, suburb])
                 conn.execute(
-                    "INSERT INTO rental_owners "
-                    "(address, suburb, owner_name, owner_phone, notes, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, datetime('now')) "
-                    "ON CONFLICT(address, suburb) DO UPDATE SET "
-                    "owner_name = excluded.owner_name, "
-                    "owner_phone = excluded.owner_phone, "
-                    "notes = excluded.notes, "
-                    "updated_at = datetime('now')",
-                    (address, suburb, owner_name, owner_phone, notes)
+                    f"UPDATE rental_owners SET {', '.join(sets)} "
+                    "WHERE address = ? AND suburb = ?",
+                    params
                 )
             conn.commit()
         finally:
             conn.close()
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'updated_fields': list(updates.keys())})
 
     # ------------------------------------------------------------------
     # POST /api/rentals/import — multipart Excel bulk merge

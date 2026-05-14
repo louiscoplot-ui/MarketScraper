@@ -62,10 +62,14 @@ function App() {
   // sales user simply gets [] back and the rental sidebar (which only
   // renders when view === 'rentals' anyway) stays empty.
   const [rentalSuburbs, setRentalSuburbs] = useState([])
-  // Multi-select: an empty Set means "show all suburbs" (same convention
-  // the sales sidebar's `selectedSuburbs` uses). A non-empty Set lists
-  // the suburb NAMES the operator has explicitly ticked.
+  // Multi-select with EXPLICIT semantics: the Set holds exactly the
+  // suburb names currently being shown. Empty Set = nothing selected
+  // (table renders "Select a suburb" empty state — no implicit "All"
+  // shortcut, that confused operators who couldn't tell whether they
+  // were filtered or not). Default-fills with every suburb on first
+  // load so a fresh visit shows data, not an empty page.
   const [rentalSelected, setRentalSelected] = useState(new Set())
+  const rentalDefaultedRef = useRef(false)
   useEffect(() => {
     fetch('/api/rentals/suburbs', {
       headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' }
@@ -74,6 +78,13 @@ function App() {
       .then(d => {
         const arr = (d && d.suburbs) || []
         setRentalSuburbs(arr)
+        // First successful load → seed the selection with every
+        // suburb so the operator lands on populated data. After
+        // that, the user's explicit picks own the state.
+        if (!rentalDefaultedRef.current && arr.length > 0) {
+          rentalDefaultedRef.current = true
+          setRentalSelected(new Set(arr.map(s => s.name)))
+        }
       })
       .catch(() => {})
   }, [])
@@ -85,11 +96,9 @@ function App() {
       return next
     })
   }
-  // Derived view of "the suburbs currently being shown" — empty Set
-  // expands to every suburb (the "All" affordance).
-  const rentalShownNames = rentalSelected.size === 0
-    ? rentalSuburbs.map(s => s.name)
-    : [...rentalSelected]
+  // Derived list of names currently being shown — straight read of
+  // the explicit Set.
+  const rentalShownNames = [...rentalSelected]
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError, setReportError] = useState(false)
@@ -491,6 +500,25 @@ function App() {
                 </span>
               )}
             </h2>
+            {/* Select-all / Deselect-all — mirrors the sales sidebar
+                .check-actions block at App.jsx:566-568. Explicit
+                semantics: Set holds exactly the names shown. */}
+            {rentalSuburbs.length > 0 && (
+              <div className="check-actions">
+                <button
+                  className="btn-link"
+                  onClick={() => setRentalSelected(new Set(rentalSuburbs.map(s => s.name)))}
+                >
+                  Select all
+                </button>
+                <button
+                  className="btn-link"
+                  onClick={() => setRentalSelected(new Set())}
+                >
+                  Deselect all
+                </button>
+              </div>
+            )}
             <div className="suburb-list">
               {rentalSuburbs.length === 0 && (
                 <div className="suburb-item suburb-loading">
@@ -499,24 +527,8 @@ function App() {
                   </span>
                 </div>
               )}
-              {rentalSuburbs.length > 0 && (
-                <div
-                  className={`suburb-item suburb-item-all ${rentalSelected.size === 0 ? 'selected' : ''}`}
-                  onClick={() => setRentalSelected(new Set())}
-                >
-                  <span className="suburb-name">
-                    All suburbs <span className="suburb-name-meta">({rentalSuburbs.length})</span>
-                  </span>
-                </div>
-              )}
               {rentalSuburbs.map(s => {
-                // When the set is empty (All mode) every suburb is
-                // effectively shown — render checked. Once the user
-                // ticks any suburb the set becomes the explicit allow-
-                // list and we go off the "All" affordance.
-                const checked = rentalSelected.size === 0
-                  ? true
-                  : rentalSelected.has(s.name)
+                const checked = rentalSelected.has(s.name)
                 return (
                   <div
                     key={s.id}

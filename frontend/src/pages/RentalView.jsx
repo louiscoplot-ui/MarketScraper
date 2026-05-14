@@ -248,11 +248,24 @@ export default function RentalView({ selectedNames } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Single-suburb fetch + cache write. Used as a primitive by the
-  // multi-suburb effect below — Promise.all fans this out across
-  // every currently-selected suburb in parallel.
-  const fetchOne = useCallback(async (suburbName) => {
-    const data = await apiJson(`/api/rentals/${encodeURIComponent(suburbName)}`)
+  // Surfaced in the header so the operator can see how many of the
+  // selected suburbs successfully responded — { loaded, total } pair.
+  // total === 0 hides the indicator entirely (single-suburb or empty
+  // selection case).
+  const [loadProgress, setLoadProgress] = useState({ loaded: 0, total: 0 })
+
+  // Single-suburb fetch + cache write. AbortSignal-aware so the
+  // sequential batch can be cancelled mid-run when the selection
+  // changes. apiJson doesn't accept a signal, so we go to raw fetch
+  // here.
+  const fetchOne = useCallback(async (suburbName, signal) => {
+    const key = getAccessKey()
+    const res = await fetch(`/api/rentals/${encodeURIComponent(suburbName)}`, {
+      headers: key ? { 'X-Access-Key': key } : {},
+      signal,
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${suburbName}`)
+    const data = await res.json()
     const rows = data.listings || []
     const cacheKey = RENTAL_CACHE_KEY(suburbName)
     writeCache(cacheKey, rows)
@@ -273,18 +286,31 @@ export default function RentalView({ selectedNames } = {}) {
     })
   }
 
-  // Multi-suburb stale-while-revalidate. Joining `activeNames` into
-  // the effect's dep key collapses the array identity into a string
-  // so re-renders with the same logical selection don't refetch.
+  // Multi-suburb stale-while-revalidate.
+  //
+  // Why NOT Promise.all on N suburbs: a 15-suburb selection used to
+  // fan out 15 concurrent requests against the Render free dyno; the
+  // dyno saturated, some responses never landed, the try/finally
+  // never resolved on those promises, and setLoading(false) never
+  // fired → spinner forever.
+  //
+  // Sequential batching of 3 with a 500 ms gap between batches keeps
+  // the dyno breathing, and the try/finally fires PER REQUEST so a
+  // single suburb timeout can never trap the whole load. Per-suburb
+  // failures are counted, not raised — the table renders what
+  // succeeded plus a "Loaded X / Y" badge for the rest.
   const activeKey = activeNames.join('|')
   useEffect(() => {
     if (!activeNames.length) {
       setListings([])
+      setLoadProgress({ loaded: 0, total: 0 })
+      setLoading(false)
       return
     }
-    // Cache pass: pull whatever's already on disk for every selected
-    // suburb. Treat any Array (including []) as a hit — empty results
-    // ARE valid for suburbs the scraper hasn't touched yet.
+
+    // Cache pass: stream-render whatever's already on disk for every
+    // selected suburb. Treat any Array (including []) as a hit — empty
+    // results ARE valid for suburbs the scraper hasn't touched yet.
     const cached = []
     let allHit = true
     for (const name of activeNames) {
@@ -299,36 +325,80 @@ export default function RentalView({ selectedNames } = {}) {
     if (cached.length > 0 || allHit) {
       setListings(sortMerged(cached))
     }
-    // Network refresh — silent if we had a full cache, visible
-    // otherwise. Promise.all rather than sequential so a 10-suburb
-    // selection lands in ~one round-trip, not ten.
-    let cancelled = false
+
+    const controller = new AbortController()
+    const signal = controller.signal
     if (!allHit) setLoading(true)
     setError('')
+    setLoadProgress({ loaded: 0, total: activeNames.length })
+
     ;(async () => {
+      const all = []
+      const BATCH = 3
+      const BATCH_PAUSE_MS = 500
+      let loaded = 0
       try {
-        const results = await Promise.all(activeNames.map(n => fetchOne(n)))
-        if (cancelled) return
-        setListings(sortMerged(results.flat()))
-      } catch (e) {
-        if (!cancelled) setError(e.message)
+        for (let i = 0; i < activeNames.length; i += BATCH) {
+          if (signal.aborted) return
+          const slice = activeNames.slice(i, i + BATCH)
+          // Inside each batch we can run in parallel — 3 concurrent
+          // requests is well within Render's comfort zone even mid-
+          // cold-start. The pause between batches is what matters.
+          const settled = await Promise.allSettled(
+            slice.map(n => fetchOne(n, signal))
+          )
+          if (signal.aborted) return
+          for (let j = 0; j < settled.length; j++) {
+            const r = settled[j]
+            if (r.status === 'fulfilled') {
+              all.push(...r.value)
+              loaded += 1
+            } else {
+              // Don't bubble — log + skip so one bad suburb doesn't
+              // sink the whole table. AbortError is silent (it's a
+              // cancel, not a failure).
+              const err = r.reason
+              if (err && err.name !== 'AbortError') {
+                console.warn('[RentalView] suburb fetch failed:',
+                             slice[j], err.message || err)
+              }
+            }
+          }
+          setLoadProgress({ loaded, total: activeNames.length })
+          // Live-update the table on each batch so the operator sees
+          // rows stream in instead of waiting for the full set.
+          setListings(sortMerged(all))
+          if (i + BATCH < activeNames.length) {
+            await new Promise(r => setTimeout(r, BATCH_PAUSE_MS))
+          }
+        }
+        if (loaded === 0 && activeNames.length > 0) {
+          setError('All suburb fetches failed — check connection and retry.')
+        }
       } finally {
-        if (!cancelled) setLoading(false)
+        // ALWAYS clear the spinner — even on abort, mid-batch error,
+        // or empty result. This is the bug that produced the
+        // "spinner infini" report.
+        if (!signal.aborted) setLoading(false)
       }
     })()
-    return () => { cancelled = true }
+
+    return () => { controller.abort() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, fetchOne])
 
   const patchOwner = useCallback(async (row, field, value) => {
+    // Send ONLY the field that changed — backend rental_api's PATCH
+    // route is now partial-body aware (key-presence drives the SET
+    // list). The previous "send-all-3-fields" pattern raced: a fast
+    // tab from owner_name to owner_phone made the phone PATCH carry
+    // a stale owner_name back to the server.
     await apiJson('/api/rentals/owner', {
       method: 'PATCH',
       body: JSON.stringify({
         address: row.address,
         suburb: row.suburb,
-        owner_name: field === 'owner_name' ? value : (row.owner_name || ''),
-        owner_phone: field === 'owner_phone' ? value : (row.owner_phone || ''),
-        notes: field === 'notes' ? value : (row.notes || ''),
+        [field]: value,
       }),
     })
     // Optimistic update + cache write so the saved value survives a
@@ -415,8 +485,18 @@ export default function RentalView({ selectedNames } = {}) {
       // the operator is in single- or multi-suburb mode.
       if (activeNames.length) {
         try {
-          const fresh = await Promise.all(activeNames.map(n => fetchOne(n)))
-          setListings(sortMerged(fresh.flat()))
+          // Use the same fetchOne primitive (no AbortSignal needed —
+          // import refresh is a one-shot user action, not on a
+          // suburb-switch race path). Promise.allSettled so a single
+          // failed suburb doesn't sink the post-import refresh.
+          const settled = await Promise.allSettled(
+            activeNames.map(n => fetchOne(n))
+          )
+          const fresh = []
+          for (const r of settled) {
+            if (r.status === 'fulfilled') fresh.push(...r.value)
+          }
+          setListings(sortMerged(fresh))
         } catch (e) {
           setError(`Refresh failed after import: ${e.message}`)
         }
@@ -470,6 +550,19 @@ export default function RentalView({ selectedNames } = {}) {
             <span><strong style={{ color: '#0f172a' }}>{counts.leased}</strong> leased</span>
             <span style={{ color: '#cbd5e1' }}>·</span>
             <span><strong style={{ color: '#0f172a' }}>{suburbs.length}</strong> suburb{suburbs.length !== 1 ? 's' : ''}</span>
+            {/* Show "Loaded X / Y" only when a multi-suburb load is in
+                flight OR when fewer suburbs succeeded than were
+                requested (partial-failure visibility). */}
+            {loadProgress.total > 1 && (loading || loadProgress.loaded < loadProgress.total) && (
+              <>
+                <span style={{ color: '#cbd5e1' }}>·</span>
+                <span style={{
+                  color: loadProgress.loaded < loadProgress.total && !loading ? '#b45309' : '#64748b',
+                }}>
+                  Loaded <strong style={{ color: '#0f172a' }}>{loadProgress.loaded}</strong> / {loadProgress.total} suburbs
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -629,7 +722,7 @@ export default function RentalView({ selectedNames } = {}) {
                         ? 'Adjust the status filters above to see the other rows.'
                         : activeNames.length
                           ? "Tonight's scrape will load them, or import an Excel file."
-                          : 'Pick a suburb in the sidebar.'}
+                          : 'Select a suburb to view listings.'}
                     </div>
                   </td>
                 </tr>

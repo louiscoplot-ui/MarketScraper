@@ -53,6 +53,12 @@ PAGE_DELAY = (1.0, 2.0)
 SUBURB_DELAY = (5.0, 7.0)
 MAX_PAGES = 20  # REIWA shows ~20 rentals/page — covers any inner-west suburb
 
+# Minimum existing-active threshold below which the "0 cards scraped"
+# scenario IS allowed to mark rows Leased (genuinely small suburb /
+# brand-new allowlist entry). At or above this threshold an empty
+# scrape is treated as a parser fault and the merge is skipped.
+RENTAL_SCRAPE_ABORT_THRESHOLD = 5
+
 PROPERTY_TYPES = (
     'House', 'Unit', 'Apartment', 'Townhouse',
     'Villa', 'Studio', 'Duplex', 'Terrace',
@@ -283,7 +289,11 @@ def _merge_into_db(suburb_name, scraped):
     """Apply New/Active/Leased status transitions for one suburb. Inserts
     new addresses, updates seen ones, and flips disappeared rows to
     'Leased'. rental_owners is NEVER written here — operator data stays
-    pristine through every scrape."""
+    pristine through every scrape.
+
+    Returns (new_count, active_count, leased_count). The tuple
+    (0, 0, 0) is also returned when the safety guard trips (empty
+    scrape + non-trivial existing inventory)."""
     conn = get_db()
     try:
         existing_rows = conn.execute(
@@ -292,6 +302,25 @@ def _merge_into_db(suburb_name, scraped):
         ).fetchall()
         existing_by_key = {dict(r)['address'].strip().lower(): dict(r)
                            for r in existing_rows}
+
+        # Guard against REIWA DOM changes / single-page timeouts wiping
+        # an entire suburb. If the scraper returned no cards but the DB
+        # has a non-trivial pool of New/Active rentals, refuse to mark
+        # them all Leased — almost certainly a parse failure on our
+        # side, not a genuine "everyone leased today" event. Log loudly
+        # so the cron output flags the suburb for manual review.
+        existing_active = sum(
+            1 for r in existing_by_key.values()
+            if (r.get('status') or '') != 'Leased'
+        )
+        if not scraped and existing_active >= RENTAL_SCRAPE_ABORT_THRESHOLD:
+            log.error(
+                "ABORT Leased sweep for %s — 0 cards scraped but %d "
+                "active listings in DB. Likely DOM change on REIWA or "
+                "page-load timeout. Skipping merge for this suburb.",
+                suburb_name, existing_active
+            )
+            return (0, 0, 0)
 
         seen_keys = set()
         new_count = 0
