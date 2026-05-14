@@ -28,22 +28,26 @@ const STATUS_STYLES = {
 
 // Visible columns in their canonical order. owner_* / notes are
 // tagged so we can render the cream tint without an extra prop drill.
+// `width` is the target column width in px — assigned through a <col>
+// element so the table can shrink long agency/agent strings (ellipsis)
+// while keeping the numeric columns tight. Total target: ~1240 px,
+// fits a 1366-wide viewport with the sidebar open.
 const COLS = [
-  { key: 'status',        label: 'Status' },
-  { key: 'address',       label: 'Address',     bold: true },
-  { key: 'price_week',    label: 'Price / Week' },
-  { key: 'property_type', label: 'Type' },
-  { key: 'beds',          label: 'Beds',    num: true },
-  { key: 'baths',         label: 'Baths',   num: true },
-  { key: 'cars',          label: 'Cars',    num: true },
-  { key: 'agency',        label: 'Agency' },
-  { key: 'agent',         label: 'Agent' },
-  { key: 'date_listed',   label: 'Date Listed' },
-  { key: 'days_on_market', label: 'DOM',   num: true },
-  { key: 'owner_name',    label: 'Owner Name',  owner: true },
-  { key: 'owner_phone',   label: 'Owner Phone', owner: true },
-  { key: 'notes',         label: 'Notes',       owner: true },
-  { key: 'url',           label: 'Link' },
+  { key: 'status',         label: 'Status',      width: 80 },
+  { key: 'address',        label: 'Address',     width: 200, bold: true },
+  { key: 'price_week',     label: 'Price/wk',    width: 90 },
+  { key: 'property_type',  label: 'Type',        width: 80 },
+  { key: 'beds',           label: 'Bd',          width: 42, num: true },
+  { key: 'baths',          label: 'Ba',          width: 42, num: true },
+  { key: 'cars',           label: 'Pk',          width: 42, num: true },
+  { key: 'agency',         label: 'Agency',      width: 130, truncate: true },
+  { key: 'agent',          label: 'Agent',       width: 110, truncate: true },
+  { key: 'date_listed',    label: 'Listed',      width: 90 },
+  { key: 'days_on_market', label: 'DOM',         width: 56, num: true },
+  { key: 'owner_name',     label: 'Owner Name',  width: 130, owner: true },
+  { key: 'owner_phone',    label: 'Owner Phone', width: 120, owner: true },
+  { key: 'notes',          label: 'Notes',       width: 170, owner: true },
+  { key: 'url',            label: 'Link',        width: 60 },
 ]
 
 
@@ -191,6 +195,15 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
   const [showAvailable, setShowAvailable] = useState(true)  // New + Active
   const [showLeased,    setShowLeased]    = useState(true)
 
+  // Agency / agent dropdowns — populated from the loaded listings.
+  // Agent options are scoped by the selected agency so an operator
+  // doesn't have to scroll through 200 names from other agencies.
+  // Selecting an agency resets the agent (a stale agent name from a
+  // different agency would yield zero rows).
+  const [selectedAgency, setSelectedAgency] = useState('')
+  const [selectedAgent,  setSelectedAgent]  = useState('')
+  useEffect(() => { setSelectedAgent('') }, [selectedAgency])
+
   // Persist compact preference so the operator's density choice
   // survives reloads — same key family as the other tables
   // (listings_compact, hv_compact).
@@ -289,13 +302,30 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     return { avail, leased }
   }, [listings])
 
+  // Build the two dropdowns from the already-loaded data — no extra
+  // API call. Agents are filtered by selectedAgency so the dropdown
+  // stays manageable on suburbs with 20+ agencies.
+  const uniqueAgencies = useMemo(
+    () => [...new Set(listings.map(r => r.agency).filter(Boolean))].sort(),
+    [listings]
+  )
+  const uniqueAgents = useMemo(() => {
+    const pool = selectedAgency
+      ? listings.filter(r => r.agency === selectedAgency)
+      : listings
+    return [...new Set(pool.map(r => r.agent).filter(Boolean))].sort()
+  }, [listings, selectedAgency])
+
   const filtered = useMemo(() => {
     return listings.filter(r => {
       const isLeased = r.status === 'Leased'
-      if (isLeased) return showLeased
-      return showAvailable
+      if (isLeased && !showLeased) return false
+      if (!isLeased && !showAvailable) return false
+      if (selectedAgency && r.agency !== selectedAgency) return false
+      if (selectedAgent && r.agent !== selectedAgent) return false
+      return true
     })
-  }, [listings, showAvailable, showLeased])
+  }, [listings, showAvailable, showLeased, selectedAgency, selectedAgent])
 
   const onImportClick = () => fileInputRef.current?.click()
   const onFileChange = async (e) => {
@@ -331,8 +361,8 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
   // ----------------------------------------------------------------
   // Render
   // ----------------------------------------------------------------
-  const pad = compact ? '5px 8px' : '9px 12px'
-  const fontSize = compact ? 12 : 13
+  const pad = compact ? '3px 6px' : '8px 10px'
+  const fontSize = compact ? 11.5 : 13
 
   return (
     <div>
@@ -391,6 +421,30 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
             label={`Leased (${counts.leased})`}
             colorOn="#475569" bgOn="#e2e8f0"
           />
+          <select
+            value={selectedAgency}
+            onChange={(e) => setSelectedAgency(e.target.value)}
+            title={selectedAgency || 'Filter by agency'}
+            style={{
+              padding: '6px 8px', fontSize: 12, maxWidth: 160,
+              border: '1px solid #cbd5e1', borderRadius: 6, background: 'white',
+            }}
+          >
+            <option value="">All Agencies</option>
+            {uniqueAgencies.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <select
+            value={selectedAgent}
+            onChange={(e) => setSelectedAgent(e.target.value)}
+            title={selectedAgent || 'Filter by agent'}
+            style={{
+              padding: '6px 8px', fontSize: 12, maxWidth: 160,
+              border: '1px solid #cbd5e1', borderRadius: 6, background: 'white',
+            }}
+          >
+            <option value="">All Agents</option>
+            {uniqueAgents.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
           <button
             type="button"
             onClick={() => setCompact(c => !c)}
@@ -451,14 +505,23 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
         <div style={{ overflowX: 'auto' }}>
           <table style={{
             width: '100%', borderCollapse: 'collapse', fontSize,
-            background: 'white',
+            background: 'white', tableLayout: 'fixed',
           }}>
+            {/* Explicit column widths so long agency / agent strings
+                truncate with ellipsis instead of pushing Notes off-
+                screen. tableLayout:'fixed' makes the browser honour
+                them. */}
+            <colgroup>
+              {COLS.map(c => (
+                <col key={c.key} style={{ width: c.width ? `${c.width}px` : 'auto' }} />
+              ))}
+            </colgroup>
             <thead>
               <tr style={{ background: '#1e293b' }}>
                 {COLS.map(c => (
                   <th key={c.key} style={{
                     textAlign: c.num ? 'center' : 'left',
-                    padding: compact ? '7px 8px' : '10px 12px',
+                    padding: compact ? '5px 6px' : '10px 10px',
                     fontWeight: 600, fontSize: 10.5, color: '#cbd5e1',
                     textTransform: 'uppercase', letterSpacing: 0.6,
                     whiteSpace: 'nowrap',
@@ -497,6 +560,7 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
                     >
                       {COLS.map(c => {
                         const ownerTint = c.owner ? '#fefce8' : undefined
+                        const truncate = c.truncate
                         const cellStyle = {
                           padding: pad,
                           verticalAlign: 'middle',
@@ -504,7 +568,9 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
                           textAlign: c.num ? 'center' : 'left',
                           color: c.bold ? '#0f172a' : '#334155',
                           fontWeight: c.bold ? 600 : 400,
-                          whiteSpace: c.key === 'address' || c.key === 'notes' ? 'normal' : 'nowrap',
+                          whiteSpace: (c.key === 'address' || c.key === 'notes') ? 'normal' : 'nowrap',
+                          overflow: truncate ? 'hidden' : 'visible',
+                          textOverflow: truncate ? 'ellipsis' : 'clip',
                         }
                         if (c.key === 'status') {
                           return <td key={c.key} style={cellStyle}><StatusBadge status={r.status} /></td>
@@ -543,7 +609,14 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
                             </td>
                           )
                         }
-                        return <td key={c.key} style={cellStyle}>{r[c.key] || '—'}</td>
+                        const cellValue = r[c.key] || '—'
+                        return (
+                          <td
+                            key={c.key}
+                            style={cellStyle}
+                            title={truncate && r[c.key] ? r[c.key] : undefined}
+                          >{cellValue}</td>
+                        )
                       })}
                     </tr>
                   )
