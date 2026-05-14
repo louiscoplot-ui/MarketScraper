@@ -100,9 +100,16 @@ function EditableCell({ value, onSave }) {
 }
 
 
-export default function RentalView() {
+export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbProp } = {}) {
+  // When App.jsx drives the sidebar selection it passes (suburbProp,
+  // setSuburbProp); fall back to fully-internal state if a future
+  // caller mounts RentalView standalone. The dropdown also hides when
+  // controlled to avoid the duplicate-selector confusion.
+  const controlled = typeof suburbProp === 'string' && typeof setSuburbProp === 'function'
   const [suburbs, setSuburbs] = useState([])
-  const [suburb, setSuburb] = useState('')
+  const [internalSuburb, setInternalSuburb] = useState('')
+  const suburb = controlled ? suburbProp : internalSuburb
+  const setSuburb = controlled ? setSuburbProp : setInternalSuburb
   const [listings, setListings] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -206,20 +213,27 @@ export default function RentalView() {
         display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
         flexWrap: 'wrap',
       }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Rentals</h2>
-        <select
-          value={suburb}
-          onChange={(e) => setSuburb(e.target.value)}
-          style={{
-            padding: '6px 10px', fontSize: 14,
-            border: '1px solid #d1d5db', borderRadius: 6, background: 'white',
-          }}
-        >
-          {!suburbs.length && <option value="">No suburbs available</option>}
-          {suburbs.map(s => (
-            <option key={s.id} value={s.name}>{s.name}</option>
-          ))}
-        </select>
+        <h2 style={{ margin: 0, fontSize: 20 }}>
+          Rentals{suburb ? ` — ${suburb}` : ''}
+        </h2>
+        {/* Hide the dropdown when the parent (App.jsx sidebar) is
+            driving the selection — two selectors for the same value
+            confuses operators and lets them desync. */}
+        {!controlled && (
+          <select
+            value={suburb}
+            onChange={(e) => setSuburb(e.target.value)}
+            style={{
+              padding: '6px 10px', fontSize: 14,
+              border: '1px solid #d1d5db', borderRadius: 6, background: 'white',
+            }}
+          >
+            {!suburbs.length && <option value="">No suburbs available</option>}
+            {suburbs.map(s => (
+              <option key={s.id} value={s.name}>{s.name}</option>
+            ))}
+          </select>
+        )}
         <span style={{ fontSize: 12, color: '#6b7280' }}>
           {listings.length} listing{listings.length !== 1 ? 's' : ''}
         </span>
