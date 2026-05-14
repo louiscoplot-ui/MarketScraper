@@ -630,6 +630,12 @@ def init_db():
             ON rental_listings(suburb);
         CREATE INDEX IF NOT EXISTS idx_rental_listings_status
             ON rental_listings(status);
+        -- Composite for the per-suburb page-load query: filters by
+        -- suburb, sorts by status (New/Active/Leased buckets), then
+        -- date_listed. With ~100-500 rows/suburb the planner can read
+        -- the bucket in order instead of a full sort.
+        CREATE INDEX IF NOT EXISTS idx_rental_listings_suburb_status
+            ON rental_listings(suburb, status);
 
         CREATE TABLE IF NOT EXISTS rental_owners (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

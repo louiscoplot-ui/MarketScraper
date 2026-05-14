@@ -141,13 +141,16 @@ def register_rental_routes(app):
         # at the top. Coalesce owner fields from rental_owners so the UI
         # can render every column without a second round-trip.
         conn = get_db()
+        # SELECT only the columns the UI actually renders — first_seen
+        # / last_seen / id are unused on the rental page and trimming
+        # them shaves a few KB off the payload on busy suburbs.
         rows = conn.execute(
             """
             SELECT
-              l.id, l.address, l.suburb, l.status, l.price_week,
+              l.address, l.suburb, l.status, l.price_week,
               l.property_type, l.beds, l.baths, l.cars,
               l.agency, l.agent, l.date_listed, l.days_on_market,
-              l.date_leased, l.url, l.first_seen, l.last_seen,
+              l.date_leased, l.url,
               COALESCE(o.owner_name, '')  AS owner_name,
               COALESCE(o.owner_phone, '') AS owner_phone,
               COALESCE(o.notes, '')       AS notes

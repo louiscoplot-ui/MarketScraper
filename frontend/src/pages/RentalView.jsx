@@ -5,8 +5,14 @@
 // debounced PATCH on cell blur with save-flash, contextual sidebar
 // drives the suburb selection from App.jsx.
 
-import { useState, useEffect, useMemo, useRef } from 'react'
-import { apiJson, BACKEND_DIRECT, getAccessKey } from '../lib/api'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { apiJson, BACKEND_DIRECT, getAccessKey, readCache, writeCache } from '../lib/api'
+
+
+// Suburb-scoped cache key. Stale-while-revalidate — hydrate the table
+// from localStorage on suburb change, then refresh in the background
+// so the operator never sees an empty spinner after the first visit.
+const RENTAL_CACHE_KEY = (suburb) => `rentals_${(suburb || '').toLowerCase()}`
 
 
 // Premium colour system — distinct from sales so an operator never
@@ -215,26 +221,40 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const fetchListings = async (suburbName) => {
+  const fetchListings = useCallback(async (suburbName, { silent = false } = {}) => {
     if (!suburbName) return
-    setLoading(true)
+    if (!silent) setLoading(true)
     setError('')
     try {
       const data = await apiJson(`/api/rentals/${encodeURIComponent(suburbName)}`)
-      setListings(data.listings || [])
+      const next = data.listings || []
+      setListings(next)
+      writeCache(RENTAL_CACHE_KEY(suburbName), next)
     } catch (e) {
       setError(e.message)
-      setListings([])
+      if (!silent) setListings([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }
+  }, [])
 
+  // Stale-while-revalidate: render the cached snapshot synchronously
+  // when the suburb changes (no blank table while the network round-
+  // trips), then refresh in the background. Skip the spinner entirely
+  // on a cache hit so the operator perceives the switch as instant.
   useEffect(() => {
-    if (suburb) fetchListings(suburb)
-  }, [suburb])
+    if (!suburb) return
+    const cached = readCache(RENTAL_CACHE_KEY(suburb))
+    if (Array.isArray(cached) && cached.length > 0) {
+      setListings(cached)
+      fetchListings(suburb, { silent: true })
+    } else {
+      setListings([])
+      fetchListings(suburb)
+    }
+  }, [suburb, fetchListings])
 
-  const patchOwner = async (row, field, value) => {
+  const patchOwner = useCallback(async (row, field, value) => {
     await apiJson('/api/rentals/owner', {
       method: 'PATCH',
       body: JSON.stringify({
@@ -245,12 +265,18 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
         notes: field === 'notes' ? value : (row.notes || ''),
       }),
     })
-    setListings(prev => prev.map(r =>
-      (r.address === row.address && r.suburb === row.suburb)
-        ? { ...r, [field]: value }
-        : r
-    ))
-  }
+    // Optimistic update + cache write so the saved value survives a
+    // tab switch without a refetch.
+    setListings(prev => {
+      const next = prev.map(r =>
+        (r.address === row.address && r.suburb === row.suburb)
+          ? { ...r, [field]: value }
+          : r
+      )
+      writeCache(RENTAL_CACHE_KEY(row.suburb), next)
+      return next
+    })
+  }, [])
 
   // Counters drive the toggle pill labels. Cheap to recompute — the
   // backend caps rental_listings per suburb at REIWA's natural ceiling.
