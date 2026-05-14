@@ -69,37 +69,36 @@ def _user_has_rental_access(user):
 
 
 def _resolve_rental_scope():
-    """(user, allowed_names_or_None). None = admin (no filter). Empty
-    set = rental_access user with no overlapping sales suburbs (sees
-    nothing). Honours the rental_access gate — non-rental users get
-    (user, None_with_403_intent) which the caller must convert."""
+    """Three-state return:
+      (user, None)  → rental-eligible (admin OR users.rental_access=1)
+                      with full access to every active rental_suburb.
+      (user, False) → authenticated but no rental_access flag — caller
+                      should return 403.
+      (None, None)  → unauthenticated.
+
+    Rental coverage NO LONGER intersects with the sales user_suburbs
+    table — there's no rental_user_suburbs allowlist yet, so any user
+    granted rental_access sees every active rental_suburb. When per-
+    user scoping is needed, add a rental_user_suburbs join table and
+    branch here."""
     user = get_current_user()
     if not user:
         return None, None
     if (user.get('role') or '').lower() == 'admin':
         return user, None
     if not _user_has_rental_access(user):
-        return user, False  # signal "denied, not just empty"
-    _, sales_names = get_user_allowed_suburb_names()
-    return user, sales_names or set()
+        return user, False
+    return user, None
 
 
 def _allowed_rental_suburb_rows(conn, scope_names):
-    """Filter rental_suburbs (active=1) by scope. scope_names is None
-    for admin (no filter), else a lower-cased set of suburb names the
-    user's sales scope grants — rental coverage piggy-backs on sales
-    coverage. Returns list of dicts {id, name, active}."""
-    if scope_names is None:
-        rows = conn.execute(
-            "SELECT id, name, active FROM rental_suburbs WHERE active = 1 ORDER BY name"
-        ).fetchall()
-    elif not scope_names:
-        return []
-    else:
-        rows = conn.execute(
-            "SELECT id, name, active FROM rental_suburbs WHERE active = 1 ORDER BY name"
-        ).fetchall()
-        rows = [r for r in rows if dict(r)['name'].strip().lower() in scope_names]
+    """Returns every active rental_suburb as a list of dicts {id, name,
+    active}. `scope_names` is kept in the signature for forward-compat
+    when per-user rental scoping lands — today it's effectively
+    ignored (None for all eligible users)."""
+    rows = conn.execute(
+        "SELECT id, name, active FROM rental_suburbs WHERE active = 1 ORDER BY name"
+    ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -121,6 +120,224 @@ def register_rental_routes(app):
         return jsonify({
             'suburbs': [{'id': r['id'], 'name': r['name']} for r in rows]
         })
+
+    # ------------------------------------------------------------------
+    # GET /api/rentals/export — multi-sheet Excel download
+    # Registered BEFORE the /<path:suburb> route so Flask doesn't
+    # route "/api/rentals/export" into the per-suburb handler with
+    # suburb='export'.
+    # ------------------------------------------------------------------
+    @app.route('/api/rentals/export', methods=['GET'])
+    def rentals_export_excel():
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from flask import send_file
+        from datetime import date as _date
+
+        user, scope = _resolve_rental_scope()
+        if not user:
+            return jsonify({'error': 'Unauthenticated — provide X-Access-Key'}), 401
+        if scope is False:
+            return jsonify({'error': 'Rental access not granted'}), 403
+
+        single_suburb = (request.args.get('suburb') or '').strip()
+
+        # Style palette — same family as export_api.py so the workbook
+        # feels like part of the same product. Status colours diverge
+        # from sales (sales uses green/amber/grey/red on listing
+        # statuses; rental uses blue/teal/slate to match RentalView).
+        HEADER_FILL = PatternFill('solid', fgColor='1E293B')
+        HEADER_FONT = Font(name='Calibri', bold=True, color='FFFFFF', size=11)
+        HEADER_ALIGN = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        BAND_FILL = PatternFill('solid', fgColor='F8FAFC')
+        BODY_FONT = Font(name='Calibri', size=10)
+        BODY_ALIGN_LEFT = Alignment(horizontal='left', vertical='center', indent=1)
+        BODY_ALIGN_CENTER = Alignment(horizontal='center', vertical='center')
+        SUBTLE_BORDER = Border(bottom=Side(style='thin', color='E2E8F0'))
+        STATUS_STYLE = {
+            'New':    (PatternFill('solid', fgColor='EFF6FF'),
+                       Font(name='Calibri', size=10, color='1E40AF', bold=True)),
+            'Active': (PatternFill('solid', fgColor='F0FDFA'),
+                       Font(name='Calibri', size=10, color='0F766E', bold=True)),
+            'Leased': (PatternFill('solid', fgColor='F8FAFC'),
+                       Font(name='Calibri', size=10, color='64748B', italic=True)),
+        }
+
+        COLS = [
+            ('status',         'Status',       12),
+            ('address',        'Address',      32),
+            ('suburb',         'Suburb',       18),
+            ('price_week',     'Price/Week',   12),
+            ('property_type',  'Type',         12),
+            ('beds',           'Beds',         6),
+            ('baths',          'Baths',        6),
+            ('cars',           'Cars',         6),
+            ('agency',         'Agency',       22),
+            ('agent',          'Agent',        20),
+            ('date_listed',    'Date Listed',  13),
+            ('days_on_market', 'DOM',          7),
+            ('date_leased',    'Date Leased',  13),
+            ('owner_name',     'Owner Name',   22),
+            ('owner_phone',    'Owner Phone',  16),
+            ('notes',          'Notes',        34),
+            ('url',            'Link',         16),
+        ]
+
+        conn = get_db()
+        try:
+            # Resolve the list of suburbs to include.
+            if single_suburb:
+                rows = conn.execute(
+                    "SELECT name FROM rental_suburbs WHERE active = 1 "
+                    "AND LOWER(name) = LOWER(?)",
+                    (single_suburb,)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT name FROM rental_suburbs WHERE active = 1 ORDER BY name"
+                ).fetchall()
+            suburb_names = [dict(r)['name'] for r in rows]
+            if not suburb_names:
+                return jsonify({'error': 'No matching active rental suburbs.'}), 404
+
+            # Pull each suburb's joined data — one query per sheet so
+            # the workbook can stream large suburbs without holding
+            # everything in memory at once. Same JOIN as the table
+            # endpoint, identical ORDER BY.
+            wb = Workbook()
+            wb.remove(wb.active)
+
+            # SUMMARY sheet — running tallies. Always present so the
+            # operator can sanity-check counts before reading the
+            # detail tabs.
+            summary = wb.create_sheet('SUMMARY')
+            summary_headers = ['Suburb', 'Total', 'New', 'Active', 'Leased']
+            for ci, h in enumerate(summary_headers, 1):
+                c = summary.cell(row=1, column=ci, value=h)
+                c.fill = HEADER_FILL
+                c.font = HEADER_FONT
+                c.alignment = HEADER_ALIGN
+            summary.row_dimensions[1].height = 24
+            for ci, w in enumerate([22, 10, 10, 10, 10], 1):
+                summary.column_dimensions[chr(64 + ci)].width = w
+
+            sum_row = 2
+            grand = {'total': 0, 'New': 0, 'Active': 0, 'Leased': 0}
+
+            for name in suburb_names:
+                listings = conn.execute(
+                    """
+                    SELECT
+                      l.address, l.suburb, l.status, l.price_week,
+                      l.property_type, l.beds, l.baths, l.cars,
+                      l.agency, l.agent, l.date_listed, l.days_on_market,
+                      l.date_leased, l.url,
+                      COALESCE(o.owner_name, '')  AS owner_name,
+                      COALESCE(o.owner_phone, '') AS owner_phone,
+                      COALESCE(o.notes, '')       AS notes
+                    FROM rental_listings l
+                    LEFT JOIN rental_owners o
+                      ON o.address = l.address AND o.suburb = l.suburb
+                    WHERE LOWER(l.suburb) = LOWER(?)
+                    ORDER BY
+                      CASE l.status WHEN 'New' THEN 0 WHEN 'Active' THEN 1 ELSE 2 END,
+                      l.date_listed DESC
+                    """,
+                    (name,)
+                ).fetchall()
+                listings = [dict(r) for r in listings]
+
+                # Summary tally for this suburb.
+                per_status = {'New': 0, 'Active': 0, 'Leased': 0}
+                for r in listings:
+                    s = (r.get('status') or '').strip()
+                    if s in per_status:
+                        per_status[s] += 1
+                total = len(listings)
+                summary.cell(row=sum_row, column=1, value=name).alignment = BODY_ALIGN_LEFT
+                summary.cell(row=sum_row, column=2, value=total).alignment = BODY_ALIGN_CENTER
+                summary.cell(row=sum_row, column=3, value=per_status['New']).alignment = BODY_ALIGN_CENTER
+                summary.cell(row=sum_row, column=4, value=per_status['Active']).alignment = BODY_ALIGN_CENTER
+                summary.cell(row=sum_row, column=5, value=per_status['Leased']).alignment = BODY_ALIGN_CENTER
+                for ci in range(1, 6):
+                    summary.cell(row=sum_row, column=ci).font = BODY_FONT
+                if sum_row % 2 == 0:
+                    for ci in range(1, 6):
+                        summary.cell(row=sum_row, column=ci).fill = BAND_FILL
+                sum_row += 1
+                grand['total'] += total
+                for k in ('New', 'Active', 'Leased'):
+                    grand[k] += per_status[k]
+
+                # Suburb sheet. Excel limits sheet names to 31 chars
+                # and forbids `/ : * ? [ ] \`; rental suburb names are
+                # short clean strings so a simple slice is enough.
+                safe_sheet = name[:31].replace('/', '_').replace('\\', '_')
+                ws = wb.create_sheet(safe_sheet)
+                for ci, (_k, label, width) in enumerate(COLS, 1):
+                    c = ws.cell(row=1, column=ci, value=label)
+                    c.fill = HEADER_FILL
+                    c.font = HEADER_FONT
+                    c.alignment = HEADER_ALIGN
+                    ws.column_dimensions[ws.cell(row=1, column=ci).column_letter].width = width
+                ws.row_dimensions[1].height = 26
+                ws.freeze_panes = 'A2'
+
+                for ri, rec in enumerate(listings, start=2):
+                    status = (rec.get('status') or '').strip()
+                    status_fill, status_font = STATUS_STYLE.get(status, (None, None))
+                    for ci, (key, _label, _w) in enumerate(COLS, 1):
+                        val = rec.get(key)
+                        if val is None:
+                            val = ''
+                        c = ws.cell(row=ri, column=ci, value=val)
+                        c.font = BODY_FONT
+                        c.border = SUBTLE_BORDER
+                        if key == 'status' and status_fill is not None:
+                            c.fill = status_fill
+                            c.font = status_font
+                            c.alignment = BODY_ALIGN_CENTER
+                        elif key in ('beds', 'baths', 'cars', 'days_on_market'):
+                            c.alignment = BODY_ALIGN_CENTER
+                            if ri % 2 == 0:
+                                c.fill = BAND_FILL
+                        else:
+                            c.alignment = BODY_ALIGN_LEFT
+                            if ri % 2 == 0:
+                                c.fill = BAND_FILL
+        finally:
+            conn.close()
+
+        # Grand-total row on SUMMARY — yellow band so it stands out.
+        TOTAL_FILL = PatternFill('solid', fgColor='FEF3C7')
+        TOTAL_FONT = Font(name='Calibri', bold=True, color='1E293B', size=11)
+        summary.cell(row=sum_row, column=1, value='TOTAL').font = TOTAL_FONT
+        summary.cell(row=sum_row, column=2, value=grand['total']).font = TOTAL_FONT
+        summary.cell(row=sum_row, column=3, value=grand['New']).font = TOTAL_FONT
+        summary.cell(row=sum_row, column=4, value=grand['Active']).font = TOTAL_FONT
+        summary.cell(row=sum_row, column=5, value=grand['Leased']).font = TOTAL_FONT
+        for ci in range(1, 6):
+            summary.cell(row=sum_row, column=ci).fill = TOTAL_FILL
+            summary.cell(row=sum_row, column=ci).alignment = (
+                BODY_ALIGN_LEFT if ci == 1 else BODY_ALIGN_CENTER
+            )
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        date_str = _date.today().strftime('%Y-%m-%d')
+        if single_suburb:
+            safe = single_suburb.replace(' ', '_').replace('/', '_')
+            filename = f'rental_export_{safe}_{date_str}.xlsx'
+        else:
+            filename = f'rental_export_{date_str}.xlsx'
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename,
+        )
 
     # ------------------------------------------------------------------
     # GET /api/rentals/<suburb> — table content

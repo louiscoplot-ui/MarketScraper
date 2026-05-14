@@ -368,6 +368,11 @@ export default function RentalView({ selectedNames } = {}) {
           // Live-update the table on each batch so the operator sees
           // rows stream in instead of waiting for the full set.
           setListings(sortMerged(all))
+          // Clear the visible spinner as soon as the FIRST batch
+          // returns ANY rows — the remaining batches keep loading
+          // silently in the background. Avoids the "stare at a
+          // spinner while 12 more suburbs trickle in" UX.
+          if (loaded > 0 && !signal.aborted) setLoading(false)
           if (i + BATCH < activeNames.length) {
             await new Promise(r => setTimeout(r, BATCH_PAUSE_MS))
           }
@@ -449,6 +454,56 @@ export default function RentalView({ selectedNames } = {}) {
       return true
     })
   }, [listings, showAvailable, showLeased, selectedAgency, selectedAgent])
+
+  // Export Excel — multi-sheet workbook served from the rental_api
+  // export route. Goes through BACKEND_DIRECT (Vercel proxy would
+  // 504 on a 15-suburb workbook build during cold start). Streams
+  // straight to disk via blob, no JSON round-trip.
+  const [exporting, setExporting] = useState(false)
+  const onExportExcel = async () => {
+    if (exporting) return
+    setExporting(true)
+    setError('')
+    try {
+      // When exactly one suburb is selected we narrow the export to
+      // that suburb; otherwise we export everything the user can see
+      // (the backend re-resolves scope anyway, so this is just a UX
+      // convenience, not an authz boundary).
+      const qs = activeNames.length === 1
+        ? `?suburb=${encodeURIComponent(activeNames[0])}`
+        : ''
+      const res = await fetch(`${BACKEND_DIRECT}/api/rentals/export${qs}`, {
+        headers: { 'X-Access-Key': getAccessKey() || '' },
+      })
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`
+        try {
+          const j = await res.json()
+          if (j && j.error) msg = j.error
+        } catch {}
+        throw new Error(msg)
+      }
+      const blob = await res.blob()
+      // Pull the filename out of Content-Disposition so date / suburb
+      // labelling matches the backend's choice.
+      let filename = 'rental_export.xlsx'
+      const cd = res.headers.get('Content-Disposition') || ''
+      const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i)
+      if (m) filename = decodeURIComponent(m[1])
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(`Export failed: ${e.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const onImportClick = () => fileInputRef.current?.click()
   const onFileChange = async (e) => {
@@ -642,6 +697,26 @@ export default function RentalView({ selectedNames } = {}) {
             style={{ display: 'none' }}
             onChange={onFileChange}
           />
+          <button
+            type="button"
+            onClick={onExportExcel}
+            disabled={exporting || activeNames.length === 0}
+            title={activeNames.length === 0
+              ? 'Select at least one suburb in the sidebar'
+              : (activeNames.length === 1
+                  ? `Export ${activeNames[0]} as .xlsx`
+                  : `Export all ${activeNames.length} selected suburbs`)}
+            style={{
+              padding: '7px 14px', fontSize: 13, fontWeight: 600,
+              background: (exporting || activeNames.length === 0)
+                ? '#94a3b8' : '#0f766e',
+              color: 'white', border: 'none', borderRadius: 6,
+              cursor: (exporting || activeNames.length === 0)
+                ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {exporting ? '⏳ Exporting…' : '⬇ Export Excel'}
+          </button>
           <button
             type="button"
             onClick={onImportClick}
