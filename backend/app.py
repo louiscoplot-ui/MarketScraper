@@ -467,6 +467,13 @@ def debug_scrape_detail():
 @app.route('/api/scrape/compare/<int:suburb_id>', methods=['GET'])
 def compare_scrape(suburb_id):
     """Compare REIWA's live listings vs our DB for a suburb."""
+    # SECURITY: gate per-suburb access exactly like /api/scrape/logs
+    # (app.py:638-645). Without this any authenticated user could
+    # probe the scrape state of every suburb in the system.
+    from admin_api import resolve_request_scope
+    _user, allowed_ids = resolve_request_scope()
+    if allowed_ids is not None and suburb_id not in allowed_ids:
+        return jsonify({'error': 'Not authorised for that suburb'}), 403
     conn = get_db()
     suburb = conn.execute("SELECT * FROM suburbs WHERE id = ?", (suburb_id,)).fetchone()
     if not suburb:

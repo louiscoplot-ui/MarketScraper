@@ -17,6 +17,7 @@ import re
 import sqlite3
 import shutil
 import os
+import contextlib
 from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'reiwa.db')
@@ -191,6 +192,29 @@ def get_db():
     raw.execute("PRAGMA journal_mode=WAL")
     raw.execute("PRAGMA foreign_keys=ON")
     return _Conn(raw, 'sqlite')
+
+
+@contextlib.contextmanager
+def get_db_conn():
+    """Context-managed get_db() — guarantees conn.close() even when the
+    body raises. Use in routes:
+
+        with get_db_conn() as conn:
+            rows = conn.execute(...).fetchall()
+
+    Audit follow-up to the codebase-wide `conn = get_db(); ...;
+    conn.close()` pattern where any .execute() exception leaked a
+    Neon connection. With every route using this helper, a query
+    failure rolls the connection back into the pool instead of
+    pinning it open until gunicorn-restart."""
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 # init_db lives in db_schema.py — re-export so existing callers

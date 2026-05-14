@@ -1107,9 +1107,11 @@ def pipeline_tracking_clear():
 
 def pipeline_letter_download(id):
     conn = get_db()
-    # Make sure the letter uses the freshest owner name from hot_vendor data
-    _enrich_owner_names(conn, None)
-
+    # SECURITY: do NOT call _enrich_owner_names(conn, None) here — that
+    # would run a global UPDATE across every tenant's pipeline_tracking
+    # rows before we'd even verified the caller owns this letter. The
+    # enrich happens AFTER the ACL check below, scoped to the caller's
+    # source_suburb.
     row = conn.execute(
         "SELECT * FROM pipeline_tracking WHERE id = ?", (id,)
     ).fetchone()
@@ -1124,6 +1126,10 @@ def pipeline_letter_download(id):
     if not user_can_access_suburb(source_suburb):
         conn.close()
         return jsonify({'error': 'Not authorised for that suburb'}), 403
+
+    # Now safe — caller has access to this suburb, so enriching the
+    # owner names for THIS suburb only is in scope.
+    _enrich_owner_names(conn, source_suburb)
 
     sources = _gather_sources_for_target(conn, target_address, source_suburb)
     conn.close()
