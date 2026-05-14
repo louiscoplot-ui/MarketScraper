@@ -54,6 +54,11 @@ export default function AdminUsers() {
   const [saving, setSaving] = useState(false)
   const [newKey, setNewKey] = useState(null)
 
+  // Rental module: separate admin allowlist + per-user toggle.
+  const [rentalSuburbs, setRentalSuburbs] = useState([])
+  const [newRentalSuburb, setNewRentalSuburb] = useState('')
+  const [addingRentalSuburb, setAddingRentalSuburb] = useState(false)
+
   // Suburb-assignment modal — keyed by user id
   const [assigning, setAssigning] = useState(null)  // { user, suburb_ids: Set }
   const [assignSaving, setAssignSaving] = useState(false)
@@ -94,6 +99,10 @@ export default function AdminUsers() {
           headers: { 'X-Access-Key': getAccessKey() }
         }).then(r => r.json())
         setAllSuburbs(Array.isArray(subRes) ? subRes : [])
+        try {
+          const rs = await apiJson('/api/admin/rental-suburbs')
+          setRentalSuburbs(rs.suburbs || [])
+        } catch { /* rental tables not initialised yet — silent skip */ }
       } catch (e) {
         if (meRes.user?.role === 'admin') throw e
       }
@@ -252,6 +261,64 @@ export default function AdminUsers() {
     }
   }
 
+  // Per-user rental_access toggle — flips the column in users table.
+  const toggleRentalAccess = async (u) => {
+    const next = !u.rental_access
+    try {
+      await apiJson(`/api/admin/users/${u.id}/rental-access`, {
+        method: 'PATCH',
+        body: JSON.stringify({ rental_access: next }),
+      })
+      refresh()
+    } catch (e) {
+      alert(`Could not toggle rental access: ${e.message}`)
+    }
+  }
+
+  // Rental Suburbs allowlist — separate from sales suburbs.
+  const addRentalSuburb = async () => {
+    const name = newRentalSuburb.trim()
+    if (!name) return
+    setAddingRentalSuburb(true)
+    try {
+      await apiJson('/api/admin/rental-suburbs', {
+        method: 'POST', body: JSON.stringify({ name }),
+      })
+      const rs = await apiJson('/api/admin/rental-suburbs')
+      setRentalSuburbs(rs.suburbs || [])
+      setNewRentalSuburb('')
+    } catch (e) {
+      alert(`Could not add rental suburb: ${e.message}`)
+    } finally {
+      setAddingRentalSuburb(false)
+    }
+  }
+  const toggleRentalSuburb = async (s) => {
+    try {
+      await apiJson(`/api/admin/rental-suburbs/${s.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active: !s.active }),
+      })
+      const rs = await apiJson('/api/admin/rental-suburbs')
+      setRentalSuburbs(rs.suburbs || [])
+    } catch (e) {
+      alert(`Could not toggle: ${e.message}`)
+    }
+  }
+  const deleteRentalSuburb = async (s) => {
+    const yes = window.confirm(
+      `Delete rental suburb "${s.name}"? This also removes every rental_listing + rental_owner row for that suburb. Cannot be undone.`
+    )
+    if (!yes) return
+    try {
+      await apiJson(`/api/admin/rental-suburbs/${s.id}`, { method: 'DELETE' })
+      const rs = await apiJson('/api/admin/rental-suburbs')
+      setRentalSuburbs(rs.suburbs || [])
+    } catch (e) {
+      alert(`Could not delete: ${e.message}`)
+    }
+  }
+
   const [keyInput, setKeyInput] = useState(getAccessKey())
   const saveKey = () => {
     setAccessKey(keyInput.trim())
@@ -403,7 +470,8 @@ export default function AdminUsers() {
         <thead>
           <tr>
             <th>Email</th><th>Name</th><th>Phone</th>
-            <th>Role</th><th>Suburbs</th><th>Last seen</th><th>Created</th><th></th>
+            <th>Role</th><th>Suburbs</th><th>Rental</th>
+            <th>Last seen</th><th>Created</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -460,6 +528,27 @@ export default function AdminUsers() {
                   </button>
                 )}
               </td>
+              <td style={{ textAlign: 'center' }}>
+                {u.role === 'admin' ? (
+                  <span title="Admins always have rental access" style={{
+                    fontSize: 11, color: '#6b7280',
+                  }}>auto</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleRentalAccess(u)}
+                    title={u.rental_access ? 'Click to revoke rental access' : 'Click to grant rental access'}
+                    style={{
+                      cursor: 'pointer', border: 'none', padding: '3px 10px',
+                      borderRadius: 10, fontSize: 11, fontWeight: 600,
+                      background: u.rental_access ? '#d1fae5' : '#f3f4f6',
+                      color: u.rental_access ? '#065f46' : '#9ca3af',
+                    }}
+                  >
+                    {u.rental_access ? 'ON' : 'OFF'}
+                  </button>
+                )}
+              </td>
               <td>{u.last_seen ? fmtPerthDateTime(u.last_seen) : 'Never'}</td>
               <td>{u.created_at ? fmtPerthDate(u.created_at) : '-'}</td>
               <td className="admin-row-actions">
@@ -483,10 +572,86 @@ export default function AdminUsers() {
             </tr>
           ))}
           {!users.length && !loading && (
-            <tr><td colSpan="8" className="empty">No users yet. Add one above.</td></tr>
+            <tr><td colSpan="9" className="empty">No users yet. Add one above.</td></tr>
           )}
         </tbody>
       </table>
+
+      {me && me.role === 'admin' && (
+        <div style={{ marginTop: 32 }}>
+          <h3>Rental Suburbs</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+            Allowlist for the rental scraper. Toggle a suburb off to skip
+            it on tonight's cron without losing existing data. Delete
+            cascades — it removes every rental_listing + rental_owner row
+            for that suburb.
+          </p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <input
+              type="text"
+              placeholder="Add a rental suburb (e.g. Karrinyup)"
+              value={newRentalSuburb}
+              onChange={(e) => setNewRentalSuburb(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); addRentalSuburb() }
+              }}
+              style={{ flex: 1, padding: '6px 10px', fontSize: 13,
+                       border: '1px solid #d1d5db', borderRadius: 6 }}
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={addRentalSuburb}
+              disabled={!newRentalSuburb.trim() || addingRentalSuburb}
+            >
+              {addingRentalSuburb ? 'Adding…' : 'Add suburb'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
+                        maxHeight: 320, overflowY: 'auto',
+                        border: '1px solid #e5e7eb', borderRadius: 6,
+                        padding: 8 }}>
+            {rentalSuburbs.length === 0 && (
+              <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>
+                No rental suburbs yet. Add one above.
+              </div>
+            )}
+            {rentalSuburbs.map(s => (
+              <div key={s.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '6px 10px', borderRadius: 4,
+                background: s.active ? 'transparent' : '#fafafa',
+              }}>
+                <span style={{
+                  flex: 1, fontSize: 13,
+                  color: s.active ? '#111827' : '#9ca3af',
+                  textDecoration: s.active ? 'none' : 'line-through',
+                }}>
+                  {s.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleRentalSuburb(s)}
+                  style={{
+                    cursor: 'pointer', border: 'none', padding: '3px 10px',
+                    borderRadius: 10, fontSize: 11, fontWeight: 600,
+                    background: s.active ? '#d1fae5' : '#f3f4f6',
+                    color: s.active ? '#065f46' : '#9ca3af',
+                  }}
+                >
+                  {s.active ? 'ACTIVE' : 'INACTIVE'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm btn-danger"
+                  onClick={() => deleteRentalSuburb(s)}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {assigning && (
         // Backdrop is non-interactive — clicking outside the modal does

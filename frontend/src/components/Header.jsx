@@ -49,6 +49,9 @@ const TABS = [
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'report', label: 'Market Report' },
   { id: 'hot-vendors', label: 'Hot Vendors' },
+  // The 'rentals' tab is appended dynamically based on me.rental_access
+  // / role inside the component — keeps the constant array static
+  // while still gating the new module behind a per-user flag.
   { id: 'logs', label: 'History' },
   { id: 'admin', label: 'Admin' },
 ]
@@ -61,7 +64,23 @@ export default function Header({
   isAnyScraping, scrapeSelected, setShowScrapeModal,
   setReportSuburbs, fetchReport, reportSuburbs, hasReport,
   setShowThemeModal,
+  me,
 }) {
+  // Insert "Rental" between Hot Vendors and History when the caller has
+  // access. Admin (role) implicitly has access. rental_access is a 0/1
+  // INTEGER from SQLite / bool from psycopg2 — `!!` coerces both.
+  const visibleTabs = (() => {
+    const hasRental = !!me && (
+      (me.role || '').toLowerCase() === 'admin' || !!me.rental_access
+    )
+    if (!hasRental) return TABS
+    const out = []
+    for (const t of TABS) {
+      out.push(t)
+      if (t.id === 'hot-vendors') out.push({ id: 'rentals', label: 'Rental' })
+    }
+    return out
+  })()
   const handleTabClick = (id) => {
     if (id === 'report') {
       setView('report')
@@ -126,7 +145,7 @@ export default function Header({
       </a>
 
       <nav className="tabs" aria-label="Primary">
-        {TABS.map(t => (
+        {visibleTabs.map(t => (
           <button
             key={t.id}
             className={`tab header-tab${view === t.id ? ' active' : ''}`}
