@@ -596,5 +596,102 @@ def init_db():
         try: conn.rollback()
         except Exception: pass
 
+    # ------------------------------------------------------------------
+    # Rental module — separate scraper + DB rows from the sales pipeline.
+    # rental_suburbs is its own allowlist so an agency can be assigned
+    # rental coverage independent of their sales suburbs. rental_owners
+    # is split from rental_listings so the scraper's nightly UPDATE on
+    # listings never clobbers the operator-typed owner_name / phone /
+    # notes — same separation pattern as listing_notes for sales.
+    # ------------------------------------------------------------------
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS rental_listings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            address TEXT NOT NULL,
+            suburb TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Active',
+            price_week TEXT,
+            property_type TEXT,
+            beds TEXT,
+            baths TEXT,
+            cars TEXT,
+            agency TEXT,
+            agent TEXT,
+            date_listed TEXT,
+            days_on_market TEXT,
+            date_leased TEXT,
+            url TEXT,
+            first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+            last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS rental_listings_address_suburb
+            ON rental_listings(address, suburb);
+        CREATE INDEX IF NOT EXISTS idx_rental_listings_suburb
+            ON rental_listings(suburb);
+        CREATE INDEX IF NOT EXISTS idx_rental_listings_status
+            ON rental_listings(status);
+
+        CREATE TABLE IF NOT EXISTS rental_owners (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            address TEXT NOT NULL,
+            suburb TEXT NOT NULL,
+            owner_name TEXT NOT NULL DEFAULT '',
+            owner_phone TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(address, suburb)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rental_owners_suburb
+            ON rental_owners(suburb);
+
+        CREATE TABLE IF NOT EXISTS rental_suburbs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
+    # Per-user rental access flag — controlled in the admin panel.
+    # Mirrors the role/access_key pattern already on `users`. Default
+    # FALSE so existing users stay invisible to the rental module
+    # until an admin explicitly opts them in.
+    for col_sql in [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS rental_access INTEGER NOT NULL DEFAULT 0",
+    ]:
+        try:
+            conn.execute(col_sql)
+        except Exception:
+            try:
+                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
+            except Exception:
+                conn.commit()
+
+    # Seed rental_suburbs once on first init — Perth WA inner-west +
+    # western suburbs corridor the agency works. Idempotent: skipped
+    # whenever the table already has rows.
+    try:
+        existing = conn.execute(
+            "SELECT COUNT(*) AS n FROM rental_suburbs"
+        ).fetchone()
+        if existing and dict(existing).get('n', 0) == 0:
+            for name in (
+                'Subiaco', 'Daglish', 'Shenton Park', 'Jolimont', 'Karrakatta',
+                'Nedlands', 'Crawley', 'Dalkeith', 'Mount Claremont', 'Claremont',
+                'Swanbourne', 'Cottesloe', 'Peppermint Grove', 'Mosman Park',
+                'North Fremantle',
+            ):
+                try:
+                    conn.execute(
+                        "INSERT INTO rental_suburbs (name) VALUES (?)", (name,)
+                    )
+                except Exception:
+                    # Race with a concurrent init OR a manual pre-seed — fine.
+                    pass
+            conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception: pass
+
     conn.commit()
     conn.close()
