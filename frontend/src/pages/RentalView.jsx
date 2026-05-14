@@ -326,9 +326,9 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
             marginTop: 6, fontSize: 12, color: '#64748b',
             display: 'flex', gap: 14, flexWrap: 'wrap',
           }}>
-            <span><strong style={{ color: '#0f172a' }}>{counts.avail}</strong> à louer</span>
+            <span><strong style={{ color: '#0f172a' }}>{counts.avail}</strong> for rent</span>
             <span style={{ color: '#cbd5e1' }}>·</span>
-            <span><strong style={{ color: '#0f172a' }}>{counts.leased}</strong> loués</span>
+            <span><strong style={{ color: '#0f172a' }}>{counts.leased}</strong> leased</span>
             <span style={{ color: '#cbd5e1' }}>·</span>
             <span><strong style={{ color: '#0f172a' }}>{suburbs.length}</strong> suburb{suburbs.length !== 1 ? 's' : ''}</span>
           </div>
@@ -356,13 +356,13 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
           <PillToggle
             on={showAvailable}
             onClick={() => setShowAvailable(v => !v)}
-            label={`À louer (${counts.avail})`}
+            label={`For Rent (${counts.avail})`}
             colorOn="#0f766e" bgOn="#ccfbf1"
           />
           <PillToggle
             on={showLeased}
             onClick={() => setShowLeased(v => !v)}
-            label={`Loué (${counts.leased})`}
+            label={`Leased (${counts.leased})`}
             colorOn="#475569" bgOn="#e2e8f0"
           />
           <button
@@ -450,13 +450,13 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
                   }}>
                     <div style={{ fontSize: 36, marginBottom: 8, lineHeight: 1 }}>🏠</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                      Aucun listing rental pour ce suburb
+                      No rental listings for this suburb
                     </div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>
                       {listings.length > 0
-                        ? 'Ajustez les filtres status ci-dessus pour voir les autres lignes.'
+                        ? 'Adjust the status filters above to see the other rows.'
                         : suburb
-                          ? 'Tonight\'s scrape les chargera, ou importez un Excel.'
+                          ? "Tonight's scrape will load them, or import an Excel file."
                           : 'Pick a suburb in the sidebar.'}
                     </div>
                   </td>
