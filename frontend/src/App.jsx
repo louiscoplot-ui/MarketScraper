@@ -62,7 +62,10 @@ function App() {
   // sales user simply gets [] back and the rental sidebar (which only
   // renders when view === 'rentals' anyway) stays empty.
   const [rentalSuburbs, setRentalSuburbs] = useState([])
-  const [rentalSuburb, setRentalSuburb] = useState('')
+  // Multi-select: an empty Set means "show all suburbs" (same convention
+  // the sales sidebar's `selectedSuburbs` uses). A non-empty Set lists
+  // the suburb NAMES the operator has explicitly ticked.
+  const [rentalSelected, setRentalSelected] = useState(new Set())
   useEffect(() => {
     fetch('/api/rentals/suburbs', {
       headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' }
@@ -71,10 +74,22 @@ function App() {
       .then(d => {
         const arr = (d && d.suburbs) || []
         setRentalSuburbs(arr)
-        setRentalSuburb(prev => prev || (arr[0] && arr[0].name) || '')
       })
       .catch(() => {})
   }, [])
+  const toggleRentalSelection = (name) => {
+    setRentalSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+  // Derived view of "the suburbs currently being shown" — empty Set
+  // expands to every suburb (the "All" affordance).
+  const rentalShownNames = rentalSelected.size === 0
+    ? rentalSuburbs.map(s => s.name)
+    : [...rentalSelected]
   const [report, setReport] = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError, setReportError] = useState(false)
@@ -459,14 +474,23 @@ function App() {
       <div className="layout">
         {view === 'rentals' ? (
           // Rental sidebar — same shell (.sidebar / .suburb-list) so it
-          // inherits the existing styles, but stripped down to a
-          // selection list. No add form (suburbs are admin-managed via
-          // /api/admin/rental-suburbs), no scrape controls (the rental
-          // scraper runs nightly only), no per-row stats (rental_listings
-          // doesn't carry the same counts). Click → setRentalSuburb,
-          // which drives the RentalView table.
+          // inherits the existing styles, but stripped down to a multi-
+          // select list. Empty selection Set = "All suburbs" (one click
+          // on the All row clears the set; one click on a suburb adds
+          // /removes it). Header counter shows X / Y, where X reflects
+          // the effective count (all when set is empty).
           <aside className="sidebar">
-            <h2>Rental Suburbs</h2>
+            <h2>
+              Rental Suburbs
+              {rentalSuburbs.length > 0 && (
+                <span style={{
+                  marginLeft: 8, fontSize: 12, fontWeight: 400,
+                  color: '#6b7280',
+                }}>
+                  {rentalShownNames.length} / {rentalSuburbs.length}
+                </span>
+              )}
+            </h2>
             <div className="suburb-list">
               {rentalSuburbs.length === 0 && (
                 <div className="suburb-item suburb-loading">
@@ -475,14 +499,37 @@ function App() {
                   </span>
                 </div>
               )}
+              {rentalSuburbs.length > 0 && (
+                <div
+                  className={`suburb-item suburb-item-all ${rentalSelected.size === 0 ? 'selected' : ''}`}
+                  onClick={() => setRentalSelected(new Set())}
+                >
+                  <span className="suburb-name">
+                    All suburbs <span className="suburb-name-meta">({rentalSuburbs.length})</span>
+                  </span>
+                </div>
+              )}
               {rentalSuburbs.map(s => {
-                const isViewing = rentalSuburb === s.name
+                // When the set is empty (All mode) every suburb is
+                // effectively shown — render checked. Once the user
+                // ticks any suburb the set becomes the explicit allow-
+                // list and we go off the "All" affordance.
+                const checked = rentalSelected.size === 0
+                  ? true
+                  : rentalSelected.has(s.name)
                 return (
                   <div
                     key={s.id}
-                    className={`suburb-item ${isViewing ? 'selected' : ''}`}
-                    onClick={() => setRentalSuburb(s.name)}
+                    className={`suburb-item ${checked ? 'selected' : ''}`}
+                    onClick={() => toggleRentalSelection(s.name)}
                   >
+                    <input
+                      type="checkbox"
+                      className="suburb-check"
+                      checked={checked}
+                      onChange={() => toggleRentalSelection(s.name)}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                     <div className="suburb-info">
                       <span className="suburb-name">{s.name}</span>
                     </div>
@@ -610,7 +657,7 @@ function App() {
               setAutoGeneratedFor={setPipelineAutoGenerated}
             />
           ) : view === 'hot-vendors' ? null : view === 'rentals' ? (
-            <RentalView suburb={rentalSuburb} setSuburb={setRentalSuburb} />
+            <RentalView selectedNames={rentalShownNames} />
           ) : view === 'admin' ? (
             <AdminUsers />
           ) : view === 'report' && report ? (

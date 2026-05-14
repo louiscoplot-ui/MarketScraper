@@ -177,15 +177,20 @@ function SkeletonRows({ count = 5, cols = COLS.length + 1 }) {
 }
 
 
-export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbProp } = {}) {
-  // When App.jsx drives the sidebar selection it passes (suburbProp,
-  // setSuburbProp); fall back to fully-internal state when mounted
-  // standalone (the dropdown re-appears in that mode).
-  const controlled = typeof suburbProp === 'string' && typeof setSuburbProp === 'function'
+export default function RentalView({ selectedNames } = {}) {
+  // App.jsx drives the suburb selection by passing an array of names
+  // (multi-select). When the array is missing / not an array, the
+  // component falls back to a self-contained mode with a single-suburb
+  // dropdown so standalone mounts (e.g. a future direct route) still
+  // work without props.
+  const controlled = Array.isArray(selectedNames)
   const [suburbs, setSuburbs] = useState([])
   const [internalSuburb, setInternalSuburb] = useState('')
-  const suburb = controlled ? suburbProp : internalSuburb
-  const setSuburb = controlled ? setSuburbProp : setInternalSuburb
+  // Canonical list of suburb names this view is rendering data for.
+  // Empty array = nothing to fetch / nothing to show.
+  const activeNames = controlled
+    ? selectedNames
+    : (internalSuburb ? [internalSuburb] : [])
 
   const [listings, setListings] = useState([])
   const [loading, setLoading] = useState(false)
@@ -221,6 +226,9 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     try { localStorage.setItem('rentals_compact', compact ? '1' : '0') } catch {}
   }, [compact])
 
+  // Internal suburb list — only used to populate the standalone-mode
+  // dropdown. Controlled mode reads the list from App.jsx via the
+  // sidebar so this effect is a no-op cost for that path.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -229,7 +237,9 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
         if (cancelled) return
         const arr = data.suburbs || []
         setSuburbs(arr)
-        if (arr.length > 0 && !suburb) setSuburb(arr[0].name)
+        if (!controlled && arr.length > 0 && !internalSuburb) {
+          setInternalSuburb(arr[0].name)
+        }
       } catch (e) {
         if (!cancelled) setError(e.message)
       }
@@ -238,56 +248,77 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const fetchListings = useCallback(async (suburbName, { silent = false } = {}) => {
-    if (!suburbName) return
-    if (!silent) setLoading(true)
-    setError('')
-    try {
-      const data = await apiJson(`/api/rentals/${encodeURIComponent(suburbName)}`)
-      const next = data.listings || []
-      setListings(next)
-      const cacheKey = RENTAL_CACHE_KEY(suburbName)
-      writeCache(cacheKey, next)
-      // Diagnostic — verifiable in DevTools. localStorage key under
-      // lib/api's prefix is sd_cache_v3_<16hex>_<this-suffix>.
-      try { console.log('[RentalView] cache WRITE', cacheKey, 'rows:', next.length) } catch {}
-    } catch (e) {
-      setError(e.message)
-      if (!silent) setListings([])
-    } finally {
-      if (!silent) setLoading(false)
-    }
+  // Single-suburb fetch + cache write. Used as a primitive by the
+  // multi-suburb effect below — Promise.all fans this out across
+  // every currently-selected suburb in parallel.
+  const fetchOne = useCallback(async (suburbName) => {
+    const data = await apiJson(`/api/rentals/${encodeURIComponent(suburbName)}`)
+    const rows = data.listings || []
+    const cacheKey = RENTAL_CACHE_KEY(suburbName)
+    writeCache(cacheKey, rows)
+    try { console.log('[RentalView] cache WRITE', cacheKey, 'rows:', rows.length) } catch {}
+    return rows
   }, [])
 
-  // Stale-while-revalidate: render the cached snapshot synchronously
-  // when the suburb changes (no blank table while the network round-
-  // trips), then refresh in the background. Skip the spinner entirely
-  // on a cache hit so the operator perceives the switch as instant.
-  //
-  // Treat any cached Array as a hit — including []. An empty array IS
-  // a valid result for a suburb the scraper hasn't touched yet; the
-  // older `cached.length > 0` predicate forced a visible refetch every
-  // single visit, defeating the cache entirely for those suburbs.
+  // Stable status order — same one the backend SQL applies, kept in
+  // sync here so the multi-suburb merge sort matches single-suburb
+  // ordering exactly.
+  const STATUS_RANK = { New: 0, Active: 1, Leased: 2 }
+  const sortMerged = (rows) => {
+    return [...rows].sort((a, b) => {
+      const sa = STATUS_RANK[a.status] ?? 3
+      const sb = STATUS_RANK[b.status] ?? 3
+      if (sa !== sb) return sa - sb
+      return (b.date_listed || '').localeCompare(a.date_listed || '')
+    })
+  }
+
+  // Multi-suburb stale-while-revalidate. Joining `activeNames` into
+  // the effect's dep key collapses the array identity into a string
+  // so re-renders with the same logical selection don't refetch.
+  const activeKey = activeNames.join('|')
   useEffect(() => {
-    if (!suburb) return
-    const cacheKey = RENTAL_CACHE_KEY(suburb)
-    const cached = readCache(cacheKey)
-    const hit = Array.isArray(cached)
-    try {
-      console.log('[RentalView] cache READ', cacheKey,
-                  hit ? `HIT (${cached.length} rows)` : 'MISS')
-    } catch {}
-    if (hit) {
-      setListings(cached)
-      fetchListings(suburb, { silent: true })
-    } else {
-      // Cache miss — keep the previous suburb's data visible (don't
-      // clear to []) so the operator never sees a blank flash before
-      // the new fetch lands. The visible loading flag still fires so
-      // they know a refresh is in flight.
-      fetchListings(suburb)
+    if (!activeNames.length) {
+      setListings([])
+      return
     }
-  }, [suburb, fetchListings])
+    // Cache pass: pull whatever's already on disk for every selected
+    // suburb. Treat any Array (including []) as a hit — empty results
+    // ARE valid for suburbs the scraper hasn't touched yet.
+    const cached = []
+    let allHit = true
+    for (const name of activeNames) {
+      const c = readCache(RENTAL_CACHE_KEY(name))
+      if (Array.isArray(c)) cached.push(...c)
+      else allHit = false
+    }
+    try {
+      console.log('[RentalView] cache READ', activeKey,
+                  allHit ? `HIT (${cached.length} merged rows)` : 'MISS')
+    } catch {}
+    if (cached.length > 0 || allHit) {
+      setListings(sortMerged(cached))
+    }
+    // Network refresh — silent if we had a full cache, visible
+    // otherwise. Promise.all rather than sequential so a 10-suburb
+    // selection lands in ~one round-trip, not ten.
+    let cancelled = false
+    if (!allHit) setLoading(true)
+    setError('')
+    ;(async () => {
+      try {
+        const results = await Promise.all(activeNames.map(n => fetchOne(n)))
+        if (cancelled) return
+        setListings(sortMerged(results.flat()))
+      } catch (e) {
+        if (!cancelled) setError(e.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKey, fetchOne])
 
   const patchOwner = useCallback(async (row, field, value) => {
     await apiJson('/api/rentals/owner', {
@@ -379,7 +410,17 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
         `✓ ${ins} listings added, ${enr} enriched across ${subN} suburb${subN !== 1 ? 's' : ''}`
         + (sk ? ` — ${sk} skipped` : '')
       )
-      if (suburb) fetchListings(suburb)
+      // Refresh every currently-displayed suburb so freshly-imported
+      // rows appear without a manual reload, regardless of whether
+      // the operator is in single- or multi-suburb mode.
+      if (activeNames.length) {
+        try {
+          const fresh = await Promise.all(activeNames.map(n => fetchOne(n)))
+          setListings(sortMerged(fresh.flat()))
+        } catch (e) {
+          setError(`Refresh failed after import: ${e.message}`)
+        }
+      }
       setTimeout(() => setImportMsg(''), 8000)
     } catch (err) {
       setError(`Import failed: ${err.message}`)
@@ -406,7 +447,19 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
             margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a',
             letterSpacing: -0.3,
           }}>
-            Rental{suburb ? <span style={{ color: '#64748b', fontWeight: 500 }}> — {suburb}</span> : ''}
+            Rental{(() => {
+              // Header reflects the multi-select state:
+              //   1 name  → "Rental — Cottesloe"
+              //   N names → "Rental — N suburbs"
+              //   0       → just "Rental"
+              if (activeNames.length === 1) {
+                return <span style={{ color: '#64748b', fontWeight: 500 }}> — {activeNames[0]}</span>
+              }
+              if (activeNames.length > 1) {
+                return <span style={{ color: '#64748b', fontWeight: 500 }}> — {activeNames.length} suburbs</span>
+              }
+              return ''
+            })()}
           </h2>
           <div style={{
             marginTop: 6, fontSize: 12, color: '#64748b',
@@ -425,8 +478,8 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
               parent (App.jsx sidebar) controls the selection. */}
           {!controlled && (
             <select
-              value={suburb}
-              onChange={(e) => setSuburb(e.target.value)}
+              value={internalSuburb}
+              onChange={(e) => setInternalSuburb(e.target.value)}
               style={{
                 padding: '7px 10px', fontSize: 13,
                 border: '1px solid #d1d5db', borderRadius: 6, background: 'white',
@@ -574,7 +627,7 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
                     <div style={{ fontSize: 12, marginTop: 4 }}>
                       {listings.length > 0
                         ? 'Adjust the status filters above to see the other rows.'
-                        : suburb
+                        : activeNames.length
                           ? "Tonight's scrape will load them, or import an Excel file."
                           : 'Pick a suburb in the sidebar.'}
                     </div>
