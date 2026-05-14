@@ -699,5 +699,22 @@ def init_db():
         try: conn.commit()
         except Exception: pass
 
+    # Per-user rental suburb assignment — mirrors user_suburbs for
+    # sales but keyed by suburb_name (TEXT) rather than rental_suburbs.id
+    # so the assignments survive a rename of a rental_suburb row.
+    # Empty for a given user = "no scope set" → fallback to all active
+    # suburbs (see _resolve_rental_scope in rental_api.py).
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS rental_user_suburbs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            suburb_name TEXT NOT NULL,
+            UNIQUE(user_id, suburb_name),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_rental_user_suburbs_user
+            ON rental_user_suburbs(user_id);
+    """)
+
     conn.commit()
     conn.close()

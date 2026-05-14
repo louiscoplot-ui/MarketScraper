@@ -69,18 +69,19 @@ def _user_has_rental_access(user):
 
 
 def _resolve_rental_scope():
-    """Three-state return:
-      (user, None)  → rental-eligible (admin OR users.rental_access=1)
-                      with full access to every active rental_suburb.
-      (user, False) → authenticated but no rental_access flag — caller
-                      should return 403.
-      (None, None)  → unauthenticated.
-
-    Rental coverage NO LONGER intersects with the sales user_suburbs
-    table — there's no rental_user_suburbs allowlist yet, so any user
-    granted rental_access sees every active rental_suburb. When per-
-    user scoping is needed, add a rental_user_suburbs join table and
-    branch here."""
+    """Four-state return:
+      (user, None)         → admin (no filter, full access).
+      (user, set([...]))   → rental-eligible user with explicit
+                             rental_user_suburbs assignments —
+                             lower-cased suburb names.
+      (user, None) again   → rental-eligible user with NO entries in
+                             rental_user_suburbs → fallback to "all"
+                             for backwards-compat with users seeded
+                             before the per-user table existed.
+      (user, False)        → authenticated but no rental_access flag
+                             — caller should return 403.
+      (None, None)         → unauthenticated.
+    """
     user = get_current_user()
     if not user:
         return None, None
@@ -88,18 +89,37 @@ def _resolve_rental_scope():
         return user, None
     if not _user_has_rental_access(user):
         return user, False
-    return user, None
+    # Per-user rental allowlist. Empty rowset = no explicit
+    # assignment → grant access to every active rental_suburb
+    # (legacy / first-deploy behaviour).
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT suburb_name FROM rental_user_suburbs WHERE user_id = ?",
+            (user['id'],)
+        ).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return user, None
+    return user, {(dict(r)['suburb_name'] or '').strip().lower() for r in rows}
 
 
 def _allowed_rental_suburb_rows(conn, scope_names):
-    """Returns every active rental_suburb as a list of dicts {id, name,
-    active}. `scope_names` is kept in the signature for forward-compat
-    when per-user rental scoping lands — today it's effectively
-    ignored (None for all eligible users)."""
+    """Returns rental_suburbs (active=1) filtered by `scope_names`:
+       None       → no filter (admin or fallback "all").
+       set(...)   → keep only suburbs whose lower-name is in the set.
+       empty set  → returns [] (user explicitly assigned zero suburbs).
+    """
     rows = conn.execute(
         "SELECT id, name, active FROM rental_suburbs WHERE active = 1 ORDER BY name"
     ).fetchall()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    if scope_names is None:
+        return out
+    if not scope_names:
+        return []
+    return [r for r in out if (r['name'] or '').strip().lower() in scope_names]
 
 
 def register_rental_routes(app):
@@ -860,8 +880,98 @@ def register_rental_routes(app):
         conn.close()
         return jsonify({'user_id': user_id, 'rental_access': bool(flag)})
 
+    # ------------------------------------------------------------------
+    # Per-user rental suburb assignments — mirrors the user_suburbs
+    # admin routes for sales (admin_api.py:372-441) but keyed on
+    # suburb_name (TEXT) and using add/remove instead of put-replace.
+    # ------------------------------------------------------------------
+    @app.route('/api/admin/users/<int:user_id>/rental-suburbs', methods=['GET'])
+    def admin_get_user_rental_suburbs(user_id):
+        _u, err = _require_admin()
+        if err:
+            return err
+        with get_db_conn() as conn:
+            assigned_rows = conn.execute(
+                "SELECT suburb_name FROM rental_user_suburbs WHERE user_id = ? "
+                "ORDER BY suburb_name",
+                (user_id,)
+            ).fetchall()
+            all_rows = conn.execute(
+                "SELECT name FROM rental_suburbs WHERE active = 1 ORDER BY name"
+            ).fetchall()
+        assigned = [dict(r)['suburb_name'] for r in assigned_rows]
+        available = [dict(r)['name'] for r in all_rows]
+        return jsonify({
+            'user_id': user_id,
+            'assigned': assigned,
+            'available': available,
+        })
+
+    @app.route('/api/admin/users/<int:user_id>/rental-suburbs', methods=['POST'])
+    def admin_add_user_rental_suburb(user_id):
+        _u, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        name = (body.get('suburb_name') or '').strip()
+        if not name:
+            return jsonify({'error': 'suburb_name required'}), 400
+        with get_db_conn() as conn:
+            # Sanity: the assigned suburb must exist as an active
+            # rental_suburb. Silent admin error otherwise — leaves no
+            # way for the admin to spot a typo.
+            exists = conn.execute(
+                "SELECT 1 FROM rental_suburbs WHERE LOWER(name) = LOWER(?) AND active = 1",
+                (name,)
+            ).fetchone()
+            if not exists:
+                return jsonify({
+                    'error': f'No active rental suburb named "{name}"'
+                }), 404
+            user_row = conn.execute(
+                "SELECT id FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            if not user_row:
+                return jsonify({'error': 'User not found'}), 404
+            try:
+                if USE_POSTGRES:
+                    conn.execute(
+                        "INSERT INTO rental_user_suburbs (user_id, suburb_name) "
+                        "VALUES (?, ?) ON CONFLICT (user_id, suburb_name) DO NOTHING",
+                        (user_id, name)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO rental_user_suburbs "
+                        "(user_id, suburb_name) VALUES (?, ?)",
+                        (user_id, name)
+                    )
+                conn.commit()
+            except Exception as e:
+                return jsonify({'error': f'Insert failed: {e}'}), 500
+        return jsonify({'success': True, 'user_id': user_id, 'suburb_name': name})
+
+    @app.route('/api/admin/users/<int:user_id>/rental-suburbs/<path:suburb_name>',
+               methods=['DELETE'])
+    def admin_remove_user_rental_suburb(user_id, suburb_name):
+        _u, err = _require_admin()
+        if err:
+            return err
+        name = (suburb_name or '').strip()
+        if not name:
+            return jsonify({'error': 'suburb_name required'}), 400
+        with get_db_conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM rental_user_suburbs WHERE user_id = ? AND suburb_name = ?",
+                (user_id, name)
+            )
+            conn.commit()
+            removed = cur.rowcount or 0
+        return jsonify({'success': True, 'removed': removed})
+
     logger.info(
-        "Rental routes: /api/rentals/{suburbs,<suburb>,owner,import} + "
+        "Rental routes: /api/rentals/{suburbs,<suburb>,owner,import,export} + "
         "/api/admin/rental-suburbs[/<id>] + "
-        "/api/admin/users/<id>/rental-access"
+        "/api/admin/users/<id>/rental-access + "
+        "/api/admin/users/<id>/rental-suburbs"
     )
