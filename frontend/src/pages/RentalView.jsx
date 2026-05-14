@@ -1,35 +1,43 @@
 // Rental module — table of REIWA rental listings per suburb, with an
 // inline-editable owner column (operator data lives in rental_owners,
 // the nightly scraper never touches it). Mirrors ListingsView's
-// patterns: stale-while-revalidate cache, BACKEND_DIRECT for the
-// Excel upload (Vercel's 25s edge timeout would kill a 5 MB upload
-// mid-buffer), debounced PATCH on cell blur.
+// patterns: localStorage compact-mode toggle, BACKEND_DIRECT upload,
+// debounced PATCH on cell blur with save-flash, contextual sidebar
+// drives the suburb selection from App.jsx.
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { apiJson, BACKEND_DIRECT, getAccessKey } from '../lib/api'
 
 
+// Premium colour system — distinct from sales so an operator never
+// confuses a leased rental with a sold sale. Saffron + teal + slate
+// palette, all in the same lightness band so contrast against the
+// dark table header reads cleanly.
 const STATUS_STYLES = {
-  New:    { bg: '#dbeafe', color: '#1e3a8a', label: 'New' },
-  Active: { bg: '#d1fae5', color: '#065f46', label: 'Active' },
-  Leased: { bg: '#e5e7eb', color: '#6b7280', label: 'Leased', italic: true },
+  New:    { bg: '#eff6ff', color: '#1e40af', label: 'New' },
+  Active: { bg: '#f0fdfa', color: '#0f766e', label: 'Active' },
+  Leased: { bg: '#f8fafc', color: '#64748b', label: 'Leased', italic: true },
 }
 
+
+// Visible columns in their canonical order. owner_* / notes are
+// tagged so we can render the cream tint without an extra prop drill.
 const COLS = [
-  ['status', 'Status'],
-  ['address', 'Address'],
-  ['price_week', 'Price/Week'],
-  ['property_type', 'Type'],
-  ['beds', 'Beds'],
-  ['baths', 'Baths'],
-  ['cars', 'Cars'],
-  ['agency', 'Agency'],
-  ['agent', 'Agent'],
-  ['date_listed', 'Date Listed'],
-  ['days_on_market', 'DOM'],
-  ['owner_name', 'Owner Name'],
-  ['owner_phone', 'Owner Phone'],
-  ['notes', 'Notes'],
+  { key: 'status',        label: 'Status' },
+  { key: 'address',       label: 'Address',     bold: true },
+  { key: 'price_week',    label: 'Price / Week' },
+  { key: 'property_type', label: 'Type' },
+  { key: 'beds',          label: 'Beds',    num: true },
+  { key: 'baths',         label: 'Baths',   num: true },
+  { key: 'cars',          label: 'Cars',    num: true },
+  { key: 'agency',        label: 'Agency' },
+  { key: 'agent',         label: 'Agent' },
+  { key: 'date_listed',   label: 'Date Listed' },
+  { key: 'days_on_market', label: 'DOM',   num: true },
+  { key: 'owner_name',    label: 'Owner Name',  owner: true },
+  { key: 'owner_phone',   label: 'Owner Phone', owner: true },
+  { key: 'notes',         label: 'Notes',       owner: true },
+  { key: 'url',           label: 'Link' },
 ]
 
 
@@ -37,9 +45,10 @@ function StatusBadge({ status }) {
   const s = STATUS_STYLES[status] || { bg: '#f3f4f6', color: '#374151', label: status || '—' }
   return (
     <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: 10,
-      fontSize: 12, fontWeight: 600, background: s.bg, color: s.color,
+      display: 'inline-block', padding: '2px 9px', borderRadius: 10,
+      fontSize: 11, fontWeight: 700, background: s.bg, color: s.color,
       fontStyle: s.italic ? 'italic' : 'normal',
+      letterSpacing: 0.3, whiteSpace: 'nowrap',
     }}>
       {s.label}
     </span>
@@ -47,13 +56,31 @@ function StatusBadge({ status }) {
 }
 
 
-function EditableCell({ value, onSave }) {
+// DOM badge — green ≤14, orange ≤30, red >30. Empty / NaN → muted "—".
+function DomBadge({ days }) {
+  const n = parseInt(days, 10)
+  if (!days || isNaN(n)) return <span style={{ color: '#9ca3af' }}>—</span>
+  let bg = '#dcfce7', color = '#166534'  // fresh
+  if (n > 30)      { bg = '#fee2e2'; color = '#991b1b' }  // stale
+  else if (n > 14) { bg = '#ffedd5'; color = '#9a3412' }  // warming up
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 8px', borderRadius: 8,
+      fontSize: 11, fontWeight: 700, background: bg, color,
+      minWidth: 28, textAlign: 'center',
+    }}>{n}</span>
+  )
+}
+
+
+// Reusable inline editor — applied to owner_name / owner_phone / notes.
+// Hover shows a dotted underline; focus turns the cell into a real
+// input with a cream background; commit on blur or Enter; revert on
+// Esc; save-flash green for 1.2s. Matches the sales saveNote pattern.
+function EditableCell({ value, onSave, compact }) {
   const [draft, setDraft] = useState(value || '')
   const [saving, setSaving] = useState(false)
-  const [savedFlash, setSavedFlash] = useState(false)
-  // Sync from parent whenever the row's value changes (refresh after
-  // upload, suburb switch, etc.). Skip during active edit so we don't
-  // clobber what the operator is typing.
+  const [flash, setFlash] = useState(false)
   const focusedRef = useRef(false)
   useEffect(() => {
     if (!focusedRef.current) setDraft(value || '')
@@ -64,8 +91,8 @@ function EditableCell({ value, onSave }) {
     setSaving(true)
     try {
       await onSave(draft)
-      setSavedFlash(true)
-      setTimeout(() => setSavedFlash(false), 1200)
+      setFlash(true)
+      setTimeout(() => setFlash(false), 1200)
     } catch (e) {
       alert(`Save failed: ${e.message}`)
       setDraft(value || '')
@@ -81,41 +108,95 @@ function EditableCell({ value, onSave }) {
       onFocus={() => { focusedRef.current = true }}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') { e.target.blur() }
+        if (e.key === 'Enter') e.target.blur()
         if (e.key === 'Escape') { setDraft(value || ''); e.target.blur() }
       }}
       disabled={saving}
       style={{
         width: '100%', boxSizing: 'border-box',
-        padding: '4px 6px', fontSize: 13,
+        padding: compact ? '2px 4px' : '4px 6px',
+        fontSize: compact ? 12 : 13,
         border: '1px solid transparent',
-        background: savedFlash ? '#dcfce7' : 'transparent',
-        borderRadius: 4,
-        transition: 'background 0.4s',
+        borderBottom: '1px dashed transparent',
+        background: flash ? '#dcfce7' : 'transparent',
+        borderRadius: 3,
+        transition: 'background 0.4s, border-color 0.15s',
+        color: '#111827',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.border = '1px solid #d1d5db' }}
-      onMouseLeave={(e) => { if (!focusedRef.current) e.currentTarget.style.border = '1px solid transparent' }}
+      onMouseEnter={(e) => {
+        if (!focusedRef.current) e.currentTarget.style.borderBottom = '1px dashed #9ca3af'
+      }}
+      onMouseLeave={(e) => {
+        if (!focusedRef.current) e.currentTarget.style.borderBottom = '1px dashed transparent'
+      }}
     />
+  )
+}
+
+
+function SkeletonRows({ count = 5, cols = COLS.length + 1 }) {
+  // Placeholder rows during the initial fetch — keeps the table
+  // skeleton in place so the header / filters don't jump.
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+          {Array.from({ length: cols }).map((_, j) => (
+            <td key={j} style={{ padding: '10px' }}>
+              <div style={{
+                height: 12, background: '#e5e7eb', borderRadius: 4,
+                animation: 'rental-pulse 1.4s ease-in-out infinite',
+                width: j === 1 ? '85%' : `${40 + ((i + j) % 4) * 12}%`,
+              }} />
+            </td>
+          ))}
+        </tr>
+      ))}
+      <style>{`
+        @keyframes rental-pulse {
+          0%, 100% { opacity: 0.6; }
+          50%      { opacity: 1; }
+        }
+      `}</style>
+    </>
   )
 }
 
 
 export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbProp } = {}) {
   // When App.jsx drives the sidebar selection it passes (suburbProp,
-  // setSuburbProp); fall back to fully-internal state if a future
-  // caller mounts RentalView standalone. The dropdown also hides when
-  // controlled to avoid the duplicate-selector confusion.
+  // setSuburbProp); fall back to fully-internal state when mounted
+  // standalone (the dropdown re-appears in that mode).
   const controlled = typeof suburbProp === 'string' && typeof setSuburbProp === 'function'
   const [suburbs, setSuburbs] = useState([])
   const [internalSuburb, setInternalSuburb] = useState('')
   const suburb = controlled ? suburbProp : internalSuburb
   const setSuburb = controlled ? setSuburbProp : setInternalSuburb
+
   const [listings, setListings] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState('')
   const fileInputRef = useRef(null)
+
+  // Status filter toggles — both ON by default = show everything.
+  // Pure client-side filter on already-loaded rows, no refetch.
+  const [showAvailable, setShowAvailable] = useState(true)  // New + Active
+  const [showLeased,    setShowLeased]    = useState(true)
+
+  // Persist compact preference so the operator's density choice
+  // survives reloads — same key family as the other tables
+  // (listings_compact, hv_compact).
+  const [compact, setCompact] = useState(() => {
+    try {
+      const v = localStorage.getItem('rentals_compact')
+      return v === null ? false : v === '1'
+    } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('rentals_compact', compact ? '1' : '0') } catch {}
+  }, [compact])
 
   useEffect(() => {
     let cancelled = false
@@ -164,8 +245,6 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
         notes: field === 'notes' ? value : (row.notes || ''),
       }),
     })
-    // Optimistic in-place patch so the user sees their edit persist
-    // without a full refetch (refetch flicker = annoying on a table).
     setListings(prev => prev.map(r =>
       (r.address === row.address && r.suburb === row.suburb)
         ? { ...r, [field]: value }
@@ -173,10 +252,29 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     ))
   }
 
+  // Counters drive the toggle pill labels. Cheap to recompute — the
+  // backend caps rental_listings per suburb at REIWA's natural ceiling.
+  const counts = useMemo(() => {
+    let avail = 0, leased = 0
+    for (const r of listings) {
+      if (r.status === 'Leased') leased++
+      else avail++  // 'New' + 'Active' (and anything weird falls into avail)
+    }
+    return { avail, leased }
+  }, [listings])
+
+  const filtered = useMemo(() => {
+    return listings.filter(r => {
+      const isLeased = r.status === 'Leased'
+      if (isLeased) return showLeased
+      return showAvailable
+    })
+  }, [listings, showAvailable, showLeased])
+
   const onImportClick = () => fileInputRef.current?.click()
   const onFileChange = async (e) => {
     const f = e.target.files?.[0]
-    e.target.value = ''  // allow re-upload of the same file
+    e.target.value = ''
     if (!f) return
     setImporting(true)
     setImportMsg('')
@@ -184,8 +282,7 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     try {
       const fd = new FormData()
       fd.append('file', f)
-      // BACKEND_DIRECT — Excel uploads of 1-5 MB would hit Vercel's 25s
-      // edge timeout while buffering, same trick HotVendor uploads use.
+      // BACKEND_DIRECT — Vercel 25s edge timeout would kill big sheets.
       const res = await fetch(`${BACKEND_DIRECT}/api/rentals/import`, {
         method: 'POST',
         headers: { 'X-Access-Key': getAccessKey() },
@@ -196,8 +293,6 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
       setImportMsg(`✓ ${data.imported} listings imported across ${
         (data.suburbs || []).length} suburb sheet(s)${
         data.skipped ? ` — ${data.skipped} sheet(s) skipped` : ''}`)
-      // Refresh the current suburb table so freshly-imported rows
-      // appear without a manual reload.
       if (suburb) fetchListings(suburb)
       setTimeout(() => setImportMsg(''), 8000)
     } catch (err) {
@@ -207,37 +302,83 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
     }
   }
 
+  // ----------------------------------------------------------------
+  // Render
+  // ----------------------------------------------------------------
+  const pad = compact ? '5px 8px' : '9px 12px'
+  const fontSize = compact ? 12 : 13
+
   return (
     <div>
+      {/* Header band ------------------------------------------------ */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16,
-        flexWrap: 'wrap',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+        gap: 16, marginBottom: 14, flexWrap: 'wrap',
       }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>
-          Rentals{suburb ? ` — ${suburb}` : ''}
-        </h2>
-        {/* Hide the dropdown when the parent (App.jsx sidebar) is
-            driving the selection — two selectors for the same value
-            confuses operators and lets them desync. */}
-        {!controlled && (
-          <select
-            value={suburb}
-            onChange={(e) => setSuburb(e.target.value)}
+        <div>
+          <h2 style={{
+            margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a',
+            letterSpacing: -0.3,
+          }}>
+            Rental{suburb ? <span style={{ color: '#64748b', fontWeight: 500 }}> — {suburb}</span> : ''}
+          </h2>
+          <div style={{
+            marginTop: 6, fontSize: 12, color: '#64748b',
+            display: 'flex', gap: 14, flexWrap: 'wrap',
+          }}>
+            <span><strong style={{ color: '#0f172a' }}>{counts.avail}</strong> à louer</span>
+            <span style={{ color: '#cbd5e1' }}>·</span>
+            <span><strong style={{ color: '#0f172a' }}>{counts.leased}</strong> loués</span>
+            <span style={{ color: '#cbd5e1' }}>·</span>
+            <span><strong style={{ color: '#0f172a' }}>{suburbs.length}</strong> suburb{suburbs.length !== 1 ? 's' : ''}</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Standalone-mount fallback dropdown — hidden when the
+              parent (App.jsx sidebar) controls the selection. */}
+          {!controlled && (
+            <select
+              value={suburb}
+              onChange={(e) => setSuburb(e.target.value)}
+              style={{
+                padding: '7px 10px', fontSize: 13,
+                border: '1px solid #d1d5db', borderRadius: 6, background: 'white',
+              }}
+            >
+              {!suburbs.length && <option value="">No suburbs available</option>}
+              {suburbs.map(s => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+          )}
+
+          <PillToggle
+            on={showAvailable}
+            onClick={() => setShowAvailable(v => !v)}
+            label={`À louer (${counts.avail})`}
+            colorOn="#0f766e" bgOn="#ccfbf1"
+          />
+          <PillToggle
+            on={showLeased}
+            onClick={() => setShowLeased(v => !v)}
+            label={`Loué (${counts.leased})`}
+            colorOn="#475569" bgOn="#e2e8f0"
+          />
+          <button
+            type="button"
+            onClick={() => setCompact(c => !c)}
+            title="Toggle compact density"
             style={{
-              padding: '6px 10px', fontSize: 14,
-              border: '1px solid #d1d5db', borderRadius: 6, background: 'white',
+              padding: '6px 12px', fontSize: 12, fontWeight: 600,
+              background: compact ? '#0f172a' : 'white',
+              color: compact ? 'white' : '#0f172a',
+              border: '1px solid #0f172a',
+              borderRadius: 6, cursor: 'pointer',
             }}
           >
-            {!suburbs.length && <option value="">No suburbs available</option>}
-            {suburbs.map(s => (
-              <option key={s.id} value={s.name}>{s.name}</option>
-            ))}
-          </select>
-        )}
-        <span style={{ fontSize: 12, color: '#6b7280' }}>
-          {listings.length} listing{listings.length !== 1 ? 's' : ''}
-        </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {compact ? '⊟ Compact' : '⊞ Compact'}
+          </button>
           <input
             type="file"
             ref={fileInputRef}
@@ -246,13 +387,14 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
             onChange={onFileChange}
           />
           <button
+            type="button"
             onClick={onImportClick}
             disabled={importing}
             style={{
-              padding: '8px 14px', fontSize: 13,
-              background: importing ? '#9ca3af' : '#386351',
+              padding: '7px 14px', fontSize: 13, fontWeight: 600,
+              background: importing ? '#94a3b8' : '#386351',
               color: 'white', border: 'none', borderRadius: 6,
-              cursor: importing ? 'progress' : 'pointer', fontWeight: 600,
+              cursor: importing ? 'progress' : 'pointer',
             }}
           >
             {importing ? '⏳ Importing…' : '⬆ Import Excel'}
@@ -265,70 +407,149 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
           padding: '10px 14px', marginBottom: 12,
           background: '#dcfce7', color: '#065f46',
           border: '1px solid #86efac', borderRadius: 6, fontSize: 13,
-        }}>
-          {importMsg}
-        </div>
+        }}>{importMsg}</div>
       )}
       {error && (
         <div style={{
           padding: '10px 14px', marginBottom: 12,
           background: '#fee2e2', color: '#991b1b',
           border: '1px solid #fca5a5', borderRadius: 6, fontSize: 13,
-        }}>
-          {error}
-        </div>
+        }}>{error}</div>
       )}
 
-      {loading ? (
-        <div style={{ padding: 24, color: '#6b7280' }}>Loading…</div>
-      ) : !listings.length ? (
-        <div style={{ padding: 24, color: '#6b7280', fontSize: 14 }}>
-          {suburb ? `No rentals yet in ${suburb}. Run a scrape or import an Excel file.` : 'Pick a suburb.'}
-        </div>
-      ) : (
-        <div style={{ overflowX: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      {/* Table ----------------------------------------------------- */}
+      <div style={{
+        border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
+        boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+      }}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{
+            width: '100%', borderCollapse: 'collapse', fontSize,
+            background: 'white',
+          }}>
             <thead>
-              <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                {COLS.map(([k, label]) => (
-                  <th key={k} style={{
-                    textAlign: 'left', padding: '8px 10px', fontWeight: 600,
-                    color: '#374151', fontSize: 11, textTransform: 'uppercase',
-                    letterSpacing: 0.4,
-                  }}>{label}</th>
+              <tr style={{ background: '#1e293b' }}>
+                {COLS.map(c => (
+                  <th key={c.key} style={{
+                    textAlign: c.num ? 'center' : 'left',
+                    padding: compact ? '7px 8px' : '10px 12px',
+                    fontWeight: 600, fontSize: 10.5, color: '#cbd5e1',
+                    textTransform: 'uppercase', letterSpacing: 0.6,
+                    whiteSpace: 'nowrap',
+                  }}>{c.label}</th>
                 ))}
-                <th style={{ padding: '8px 10px' }}></th>
               </tr>
             </thead>
             <tbody>
-              {listings.map((r) => (
-                <tr key={`${r.suburb}|${r.address}`} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                  {COLS.map(([k]) => (
-                    <td key={k} style={{ padding: '6px 10px', verticalAlign: 'middle' }}>
-                      {k === 'status' ? <StatusBadge status={r.status} />
-                       : k === 'owner_name' || k === 'owner_phone' || k === 'notes' ? (
-                         <EditableCell
-                           value={r[k]}
-                           onSave={(v) => patchOwner(r, k, v)}
-                         />
-                       )
-                       : (r[k] || '—')}
-                    </td>
-                  ))}
-                  <td style={{ padding: '6px 10px' }}>
-                    {r.url && (
-                      <a href={r.url} target="_blank" rel="noopener noreferrer"
-                         style={{ fontSize: 12, color: '#386351' }}>
-                        REIWA ↗
-                      </a>
-                    )}
+              {loading ? (
+                <SkeletonRows count={5} />
+              ) : !filtered.length ? (
+                <tr>
+                  <td colSpan={COLS.length} style={{
+                    padding: '48px 24px', textAlign: 'center', color: '#64748b',
+                  }}>
+                    <div style={{ fontSize: 36, marginBottom: 8, lineHeight: 1 }}>🏠</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                      Aucun listing rental pour ce suburb
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 4 }}>
+                      {listings.length > 0
+                        ? 'Ajustez les filtres status ci-dessus pour voir les autres lignes.'
+                        : suburb
+                          ? 'Tonight\'s scrape les chargera, ou importez un Excel.'
+                          : 'Pick a suburb in the sidebar.'}
+                    </div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filtered.map((r, idx) => {
+                  const zebra = idx % 2 === 1 ? '#f8fafc' : 'white'
+                  return (
+                    <tr
+                      key={`${r.suburb}|${r.address}`}
+                      style={{ borderBottom: '1px solid #f1f5f9', background: zebra }}
+                    >
+                      {COLS.map(c => {
+                        const ownerTint = c.owner ? '#fefce8' : undefined
+                        const cellStyle = {
+                          padding: pad,
+                          verticalAlign: 'middle',
+                          background: ownerTint,
+                          textAlign: c.num ? 'center' : 'left',
+                          color: c.bold ? '#0f172a' : '#334155',
+                          fontWeight: c.bold ? 600 : 400,
+                          whiteSpace: c.key === 'address' || c.key === 'notes' ? 'normal' : 'nowrap',
+                        }
+                        if (c.key === 'status') {
+                          return <td key={c.key} style={cellStyle}><StatusBadge status={r.status} /></td>
+                        }
+                        if (c.key === 'days_on_market') {
+                          return <td key={c.key} style={cellStyle}><DomBadge days={r.days_on_market} /></td>
+                        }
+                        if (c.owner) {
+                          return (
+                            <td key={c.key} style={cellStyle}>
+                              <EditableCell
+                                value={r[c.key]}
+                                onSave={(v) => patchOwner(r, c.key, v)}
+                                compact={compact}
+                              />
+                            </td>
+                          )
+                        }
+                        if (c.key === 'url') {
+                          if (!r.url) return <td key={c.key} style={{ ...cellStyle, color: '#cbd5e1' }}>—</td>
+                          return (
+                            <td key={c.key} style={cellStyle}>
+                              <a
+                                href={r.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open on REIWA"
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                                  color: '#386351', fontWeight: 600, textDecoration: 'none',
+                                  fontSize: 12,
+                                }}
+                              >
+                                REIWA <span aria-hidden="true">↗</span>
+                              </a>
+                            </td>
+                          )
+                        }
+                        return <td key={c.key} style={cellStyle}>{r[c.key] || '—'}</td>
+                      })}
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>
-      )}
+      </div>
     </div>
+  )
+}
+
+
+function PillToggle({ on, onClick, label, colorOn = '#386351', bgOn = '#d1fae5' }) {
+  // Match the sales filter-btn look (rounded rect, soft fill when
+  // active, outline when off) without pulling in the global CSS class —
+  // keeps RentalView self-contained for now.
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: '6px 12px', fontSize: 12, fontWeight: 600,
+        border: `1px solid ${on ? colorOn : '#cbd5e1'}`,
+        background: on ? bgOn : 'white',
+        color: on ? colorOn : '#64748b',
+        borderRadius: 999, cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </button>
   )
 }
