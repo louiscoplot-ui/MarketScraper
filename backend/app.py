@@ -26,6 +26,7 @@ from report_api import register_report_routes
 from export_api import register_export_routes
 from admin_api import register_admin_routes, seed_admin_if_needed
 from auth_api import register_auth_routes
+from rental_api import register_rental_routes
 from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
 
 app = Flask(__name__)
@@ -60,6 +61,7 @@ register_report_routes(app)
 register_export_routes(app)
 register_admin_routes(app)
 register_auth_routes(app)
+register_rental_routes(app)
 
 
 # --- GLOBAL AUTH GATE ---
