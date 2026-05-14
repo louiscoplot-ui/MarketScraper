@@ -53,3 +53,13 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python scripts/run_daily_scrape.py
+
+      # Rental scrape runs after sales — same DB, same Playwright install,
+      # same DATABASE_URL secret. Standalone module: a failure here is
+      # confined to rental_* tables and never affects the sales pass.
+      - name: Scrape rental listings
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python rental_scraper.py
