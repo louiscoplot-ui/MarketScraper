@@ -346,9 +346,17 @@ export default function RentalView({ suburb: suburbProp, setSuburb: setSuburbPro
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      setImportMsg(`✓ ${data.imported} listings imported across ${
-        (data.suburbs || []).length} suburb sheet(s)${
-        data.skipped ? ` — ${data.skipped} sheet(s) skipped` : ''}`)
+      // Non-destructive merge response: backend now distinguishes
+      // brand-new rows from existing-but-enriched ones, so the toast
+      // can be precise about what actually changed.
+      const ins = data.inserted ?? data.imported ?? 0
+      const enr = data.enriched ?? 0
+      const sk = data.skipped ?? 0
+      const subN = (data.suburbs || []).length
+      setImportMsg(
+        `✓ ${ins} listings added, ${enr} enriched across ${subN} suburb${subN !== 1 ? 's' : ''}`
+        + (sk ? ` — ${sk} skipped` : '')
+      )
       if (suburb) fetchListings(suburb)
       setTimeout(() => setImportMsg(''), 8000)
     } catch (err) {

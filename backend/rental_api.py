@@ -18,6 +18,7 @@ Routes:
 
 import io
 import logging
+from datetime import datetime
 from flask import request, jsonify
 
 from database import get_db, USE_POSTGRES
@@ -253,7 +254,26 @@ def register_rental_routes(app):
         except Exception as e:
             return jsonify({'error': f'Could not parse workbook: {e}'}), 400
 
-        imported = 0
+        # Non-destructive merge counters surfaced in the toast:
+        #   inserted = brand-new rental_listings rows
+        #   enriched = existing rows where AT LEAST ONE empty field
+        #              (listing or owner) got filled by this import
+        #   skipped  = invalid row (no address) OR fully-populated row
+        #              that this Excel had nothing new to add to.
+        # Listing columns that can be filled (status / price_week etc.).
+        # `status` is included so a 'Leased' row from the Excel can
+        # populate an existing 'Active' row IF the existing row's
+        # status field is empty — which it shouldn't be in practice
+        # (the scraper writes one of New/Active/Leased on every row),
+        # so this is effectively a no-op safety net.
+        FILLABLE = (
+            'status', 'price_week', 'property_type', 'beds', 'baths',
+            'cars', 'agency', 'agent', 'date_listed', 'days_on_market',
+            'date_leased', 'url',
+        )
+
+        inserted = 0
+        enriched = 0
         skipped = 0
         suburbs_seen = []
         conn = get_db()
@@ -280,10 +300,13 @@ def register_rental_routes(app):
                                 col_map[_EXCEL_COLUMNS[cell]] = j
                         break
                 if header_idx is None:
+                    # Sheet has no usable header — count once as skipped
+                    # so the operator sees a non-zero number explaining
+                    # the missing rows.
                     skipped += 1
                     continue
                 suburbs_seen.append(sheet_name)
-                inserted_here = 0
+
                 for row in rows_iter[header_idx + 1:]:
                     def cell(key):
                         idx = col_map.get(key)
@@ -295,90 +318,131 @@ def register_rental_routes(app):
                     addr = cell('address')
                     sub = cell('suburb') or sheet_name.strip()
                     if not addr or not sub:
+                        skipped += 1
                         continue
 
-                    listing_payload = (
-                        cell('status') or 'Active',
-                        cell('price_week'),
-                        cell('property_type'),
-                        cell('beds'),
-                        cell('baths'),
-                        cell('cars'),
-                        cell('agency'),
-                        cell('agent'),
-                        cell('date_listed'),
-                        cell('days_on_market'),
-                        cell('date_leased'),
-                        cell('url'),
-                    )
-                    # UPSERT rental_listings — but owner fields stay out
-                    # so the listings UPSERT can never overwrite operator
-                    # data (rental_owners has its own UPSERT below).
-                    if USE_POSTGRES:
-                        conn.execute(
-                            "INSERT INTO rental_listings "
-                            "(address, suburb, status, price_week, property_type, "
-                            " beds, baths, cars, agency, agent, date_listed, "
-                            " days_on_market, date_leased, url, first_seen, last_seen) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                            "        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
-                            "ON CONFLICT (address, suburb) DO UPDATE SET "
-                            "status = EXCLUDED.status, "
-                            "price_week = EXCLUDED.price_week, "
-                            "property_type = EXCLUDED.property_type, "
-                            "beds = EXCLUDED.beds, baths = EXCLUDED.baths, cars = EXCLUDED.cars, "
-                            "agency = EXCLUDED.agency, agent = EXCLUDED.agent, "
-                            "date_listed = EXCLUDED.date_listed, "
-                            "days_on_market = EXCLUDED.days_on_market, "
-                            "date_leased = EXCLUDED.date_leased, "
-                            "url = EXCLUDED.url, "
-                            "last_seen = CURRENT_TIMESTAMP",
-                            (addr, sub) + listing_payload
-                        )
-                    else:
-                        conn.execute(
-                            "INSERT INTO rental_listings "
-                            "(address, suburb, status, price_week, property_type, "
-                            " beds, baths, cars, agency, agent, date_listed, "
-                            " days_on_market, date_leased, url, first_seen, last_seen) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                            "        datetime('now'), datetime('now')) "
-                            "ON CONFLICT(address, suburb) DO UPDATE SET "
-                            "status = excluded.status, "
-                            "price_week = excluded.price_week, "
-                            "property_type = excluded.property_type, "
-                            "beds = excluded.beds, baths = excluded.baths, cars = excluded.cars, "
-                            "agency = excluded.agency, agent = excluded.agent, "
-                            "date_listed = excluded.date_listed, "
-                            "days_on_market = excluded.days_on_market, "
-                            "date_leased = excluded.date_leased, "
-                            "url = excluded.url, "
-                            "last_seen = datetime('now')",
-                            (addr, sub) + listing_payload
-                        )
-                    inserted_here += 1
+                    # Snapshot of the existing listing — drives the
+                    # field-level "fill empty only" merge below. None
+                    # means we'll INSERT.
+                    existing = conn.execute(
+                        "SELECT status, price_week, property_type, beds, baths, "
+                        "       cars, agency, agent, date_listed, days_on_market, "
+                        "       date_leased, url FROM rental_listings "
+                        "WHERE address = ? AND suburb = ?",
+                        (addr, sub)
+                    ).fetchone()
 
-                    # rental_owners: ONLY if the Excel row carries owner
-                    # data AND the DB doesn't already have something —
-                    # operator-typed-in-UI notes always win over a stale
-                    # Excel sheet.
+                    row_inserted = False
+                    row_enriched = False
+
+                    if existing is None:
+                        # Brand-new row — full INSERT. status defaults to
+                        # 'Active' when the Excel didn't carry one so the
+                        # NOT NULL constraint stays satisfied.
+                        conn.execute(
+                            "INSERT INTO rental_listings "
+                            "(address, suburb, status, price_week, property_type, "
+                            " beds, baths, cars, agency, agent, date_listed, "
+                            " days_on_market, date_leased, url) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                addr, sub,
+                                cell('status') or 'Active',
+                                cell('price_week'), cell('property_type'),
+                                cell('beds'), cell('baths'), cell('cars'),
+                                cell('agency'), cell('agent'),
+                                cell('date_listed'), cell('days_on_market'),
+                                cell('date_leased'), cell('url'),
+                            )
+                        )
+                        row_inserted = True
+                    else:
+                        # Field-level merge — only fill columns the DB
+                        # has as NULL or empty. Never overwrite a
+                        # populated cell. status is in FILLABLE but
+                        # rental_listings.status defaults 'Active', so
+                        # the DB value is virtually always non-empty
+                        # and the status column stays untouched here.
+                        existing_d = dict(existing)
+                        sets = []
+                        params = []
+                        for field in FILLABLE:
+                            db_val = (existing_d.get(field) or '').strip()
+                            if db_val:
+                                continue
+                            excel_val = cell(field)
+                            if not excel_val:
+                                continue
+                            sets.append(f"{field} = ?")
+                            params.append(excel_val)
+                        if sets:
+                            # last_seen bumps because we touched the row,
+                            # so the listings UI sorts the freshly-merged
+                            # rows toward the recent end.
+                            sets.append("last_seen = ?")
+                            params.append(datetime.utcnow().isoformat())
+                            params.extend([addr, sub])
+                            conn.execute(
+                                f"UPDATE rental_listings SET {', '.join(sets)} "
+                                "WHERE address = ? AND suburb = ?",
+                                params
+                            )
+                            row_enriched = True
+
+                    # rental_owners — same fill-empty-only contract,
+                    # field by field. Operator-typed values in the UI
+                    # are sacred; the Excel only writes into gaps.
                     owner_name = cell('owner_name')
                     owner_phone = cell('owner_phone')
                     notes_text = cell('notes')
                     if owner_name or owner_phone or notes_text:
-                        existing = conn.execute(
+                        o_row = conn.execute(
                             "SELECT owner_name, owner_phone, notes FROM rental_owners "
                             "WHERE address = ? AND suburb = ?",
                             (addr, sub)
                         ).fetchone()
-                        if existing is None:
+                        if o_row is None:
                             conn.execute(
                                 "INSERT INTO rental_owners "
                                 "(address, suburb, owner_name, owner_phone, notes) "
                                 "VALUES (?, ?, ?, ?, ?)",
                                 (addr, sub, owner_name, owner_phone, notes_text)
                             )
-                imported += inserted_here
+                            row_enriched = True
+                        else:
+                            od = dict(o_row)
+                            o_sets = []
+                            o_params = []
+                            for field, val in (
+                                ('owner_name',  owner_name),
+                                ('owner_phone', owner_phone),
+                                ('notes',       notes_text),
+                            ):
+                                if not val:
+                                    continue
+                                if (od.get(field) or '').strip():
+                                    continue
+                                o_sets.append(f"{field} = ?")
+                                o_params.append(val)
+                            if o_sets:
+                                if USE_POSTGRES:
+                                    o_sets.append("updated_at = CURRENT_TIMESTAMP")
+                                else:
+                                    o_sets.append("updated_at = datetime('now')")
+                                o_params.extend([addr, sub])
+                                conn.execute(
+                                    f"UPDATE rental_owners SET {', '.join(o_sets)} "
+                                    "WHERE address = ? AND suburb = ?",
+                                    o_params
+                                )
+                                row_enriched = True
+
+                    if row_inserted:
+                        inserted += 1
+                    elif row_enriched:
+                        enriched += 1
+                    else:
+                        skipped += 1
             conn.commit()
         except Exception as e:
             logger.exception("Rental import failed")
@@ -386,7 +450,8 @@ def register_rental_routes(app):
         finally:
             conn.close()
         return jsonify({
-            'imported': imported,
+            'inserted': inserted,
+            'enriched': enriched,
             'skipped': skipped,
             'suburbs': suburbs_seen,
         })
