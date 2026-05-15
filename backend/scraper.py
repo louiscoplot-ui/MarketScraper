@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup
 
 from scraper_utils import (
     REIWA_BASE, MAX_PAGES, UA, DETAIL_TABS, CHROMIUM_PATH,
+    EXTRA_HTTP_HEADERS, pick_user_agent,
     _clean_listing_url, _build_url, _build_sold_url, _listing_id, _normalise_agency,
 )
 from scraper_dates import _parse_date_text, _extract_date
@@ -64,9 +65,10 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(
-            user_agent=UA,
+            user_agent=pick_user_agent(),
             viewport={'width': 1280, 'height': 800},
             locale='en-AU',
+            extra_http_headers=EXTRA_HTTP_HEADERS,
         )
 
         listing_page = context.new_page()

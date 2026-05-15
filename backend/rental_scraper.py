@@ -36,7 +36,9 @@ from bs4 import BeautifulSoup  # noqa: E402
 
 import database  # noqa: E402
 from database import get_db  # noqa: E402
-from scraper_utils import REIWA_BASE, UA, CHROMIUM_PATH  # noqa: E402
+from scraper_utils import (  # noqa: E402
+    REIWA_BASE, UA, CHROMIUM_PATH, EXTRA_HTTP_HEADERS, pick_user_agent,
+)
 
 
 logging.basicConfig(
@@ -234,9 +236,10 @@ def scrape_suburb(suburb_name):
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(
-            user_agent=UA,
+            user_agent=pick_user_agent(),
             viewport={'width': 1280, 'height': 800},
             locale='en-AU',
+            extra_http_headers=EXTRA_HTTP_HEADERS,
         )
         page = context.new_page()
         # Skip heavy assets — same trick the sales detail-fetcher uses.

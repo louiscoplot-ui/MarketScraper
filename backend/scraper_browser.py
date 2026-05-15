@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from scraper_utils import (
     UA, CHROMIUM_PATH, MAX_PAGES, build_url, clean_listing_url,
+    EXTRA_HTTP_HEADERS, pick_user_agent,
 )
 from scraper_detail import fetch_detail
 
@@ -125,9 +126,10 @@ def debug_page(suburb_slug):
             if CHROMIUM_PATH:
                 launch_opts['executable_path'] = CHROMIUM_PATH
             browser = p.chromium.launch(**launch_opts)
-            context = browser.new_context(user_agent=UA,
+            context = browser.new_context(user_agent=pick_user_agent(),
                                           viewport={'width': 1280, 'height': 800},
-                                          locale='en-AU')
+                                          locale='en-AU',
+                                          extra_http_headers=EXTRA_HTTP_HEADERS)
             page = context.new_page()
 
             load_listing_page(page, url)
@@ -172,9 +174,10 @@ def compare_suburb(suburb_slug, db_urls):
             if CHROMIUM_PATH:
                 launch_opts['executable_path'] = CHROMIUM_PATH
             browser = p.chromium.launch(**launch_opts)
-            context = browser.new_context(user_agent=UA,
+            context = browser.new_context(user_agent=pick_user_agent(),
                                           viewport={'width': 1280, 'height': 800},
-                                          locale='en-AU')
+                                          locale='en-AU',
+                                          extra_http_headers=EXTRA_HTTP_HEADERS)
             page = context.new_page()
 
             all_reiwa_urls = set()
