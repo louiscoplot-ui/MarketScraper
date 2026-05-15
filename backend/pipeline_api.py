@@ -635,6 +635,10 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
         seen.add(key)
         if _osm_street_numbers_cached(conn, street, r['suburb_name']) is None:
             streets_to_fetch.append((street, r['suburb_name']))
+    # Defensive dedup — `seen` above already collapses (street, suburb)
+    # duplicates within sold_rows, but tuples are hashable so dict.fromkeys
+    # is cheap and protects against any future caller that bypasses `seen`.
+    streets_to_fetch = list(dict.fromkeys(streets_to_fetch))
     if streets_to_fetch:
         logger.info(f"[pipeline] pre-warming OSM cache for {len(streets_to_fetch)} streets in parallel")
         def _warm(pair):
@@ -1300,6 +1304,10 @@ def _osm_prefetch_worker(suburb):
             streets = _streets_in_suburb(conn, suburb)
             todo = [s for s in streets
                     if _osm_street_numbers_cached(conn, s, suburb) is None]
+            # Defensive dedup — _streets_in_suburb already returns a set,
+            # but if a future caller passes a non-set iterable the executor
+            # would happily fire the same Overpass query N times.
+            todo = list(dict.fromkeys(todo))
             if todo:
                 logger.info(f"[osm-prefetch] {suburb}: warming {len(todo)} streets")
                 with ThreadPoolExecutor(max_workers=6) as ex:
