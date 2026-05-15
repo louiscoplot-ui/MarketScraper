@@ -32,16 +32,18 @@ Agents spécialisés dans `.claude/` — lire avant chaque intervention.
 
 ---
 
-## Règle branches — TOUJOURS pousser sur 2 branches
+## Règle branches — Push sur PlwVM UNIQUEMENT
 
 ```bash
 git push origin HEAD:claude/fix-scraper-missing-listings-PlwVM
-git push origin HEAD:<branche-courante-de-session>
 ```
 
-La branche courante change à chaque session Claude Code (ex: `claude/fix-scraper-listings-2WFqJ`).
-Vérifier avec `git branch --show-current` avant de pusher.
-Si `main` bloqué en 403 → skip sans bloquer.
+**`main` est une branche orpheline archivée — ne jamais pusher dessus.**
+Historiques divergents : `git merge-base HEAD origin/main` retourne vide.
+Tout push sur `main` (normal ou `--force`) est interdit.
+
+La branche courante de session (ex: `claude/fix-sprint-handoff-path-XXXX`) peut
+être poussée en miroir si utile, mais PlwVM est la seule branche prod.
 
 ---
 
