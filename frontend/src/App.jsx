@@ -49,13 +49,23 @@ function App() {
   // to show the Rental tab (gated by rental_access / admin role) and
   // RentalView can branch on it too. Refresh-free; if the admin
   // toggles flags they need to reload to see the new tabs.
-  const [me, setMe] = useState(null)
+  // Stale-while-revalidate: hydrate `me` from localStorage on the very
+  // first render so the Header gates (Rental tab, Admin tab) are decided
+  // synchronously instead of flashing without the tab while /admin/me
+  // is in flight. The cache key is access-key-scoped so signing out as
+  // one user and in as another doesn't leak the previous role/flags.
+  const [me, setMe] = useState(() => readCache('admin_me'))
   useEffect(() => {
     fetchWithRetry(`${BOOT_API}/admin/me`, {
       headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' }
     }, 4)
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d && d.user) setMe(d.user) })
+      .then(d => {
+        if (d && d.user) {
+          setMe(d.user)
+          writeCache('admin_me', d.user)
+        }
+      })
       .catch(() => {})
   }, [])
   // Rental sidebar state — lifted out of RentalView so the left
@@ -64,7 +74,7 @@ function App() {
   // /api/rentals/suburbs's own rental_access check, so a regular
   // sales user simply gets [] back and the rental sidebar (which only
   // renders when view === 'rentals' anyway) stays empty.
-  const [rentalSuburbs, setRentalSuburbs] = useState([])
+  const [rentalSuburbs, setRentalSuburbs] = useState(() => readCache('rental_suburbs') || [])
   // Multi-select with EXPLICIT semantics: the Set holds exactly the
   // suburb names currently being shown. Empty Set = nothing selected
   // (table renders "Select a suburb" empty state — no implicit "All"
@@ -81,6 +91,7 @@ function App() {
       .then(d => {
         const arr = (d && d.suburbs) || []
         setRentalSuburbs(arr)
+        writeCache('rental_suburbs', arr)
         // First successful load → seed the selection with every
         // suburb so the operator lands on populated data. After
         // that, the user's explicit picks own the state.
