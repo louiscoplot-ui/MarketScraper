@@ -346,6 +346,51 @@ def _match_hot_vendor(conn, target_address):
         return None, None
 
 
+def _build_hv_lookup(conn):
+    """One-shot in-memory dict {normalized_address -> (owner, score)}
+    so the per-target loop in pipeline generation doesn't fire N+1
+    SELECT queries. Keeps the same "highest final_score wins per
+    address" rule as _match_hot_vendor.
+
+    Returns an empty dict on any failure — callers can still proceed
+    with owner=None, score=None per row (same fallback _match_hot_vendor
+    has in its except clause)."""
+    try:
+        rows = conn.execute(
+            "SELECT normalized_address, current_owner, final_score "
+            "FROM hot_vendor_properties "
+            "WHERE normalized_address IS NOT NULL "
+            "AND final_score IS NOT NULL"
+        ).fetchall()
+    except Exception:
+        return {}
+    out = {}
+    for r in rows:
+        d = dict(r)
+        na = (d.get('normalized_address') or '').strip()
+        if not na:
+            continue
+        score = d.get('final_score') or 0
+        prev = out.get(na)
+        if not prev or score > (prev[1] or 0):
+            out[na] = (d.get('current_owner'), d.get('final_score'))
+    return out
+
+
+def _lookup_hot_vendor(hv_lookup, target_address):
+    """O(1) replacement for _match_hot_vendor(conn, target) — pass the
+    dict returned by _build_hv_lookup."""
+    if not hv_lookup:
+        return None, None
+    norm = normalize_address(target_address)
+    if not norm:
+        return None, None
+    hit = hv_lookup.get(norm)
+    if not hit:
+        return None, None
+    return hit[0], hit[1]
+
+
 def _enrich_owner_names(conn, suburb=None):
     """Back-fill pipeline_tracking.target_owner_name from
     hot_vendor_properties.current_owner whenever the pipeline row
@@ -605,6 +650,11 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
 
     conn = get_db()
     has_hv = _hot_vendors_table_exists(conn)
+    # Pre-fetch HV scores once (instead of N+1 per-target queries). On
+    # busy suburbs the loop below ran 200-800 SELECTs just to look up
+    # owner/score, blowing past the Vercel 25s budget. One IN-memory
+    # dict is O(1) per lookup.
+    hv_lookup = _build_hv_lookup(conn) if has_hv else {}
 
     sold_rows = conn.execute(
         """
@@ -677,7 +727,7 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
             continue
         for target in targets:
             if has_hv:
-                owner, score = _match_hot_vendor(conn, target)
+                owner, score = _lookup_hot_vendor(hv_lookup, target)
             else:
                 owner, score = None, None
             insert_rows.append((
@@ -772,6 +822,7 @@ def pipeline_manual_add():
 
     conn = get_db()
     has_hv = _hot_vendors_table_exists(conn)
+    hv_lookup = _build_hv_lookup(conn) if has_hv else {}
 
     if explicit_targets:
         targets = explicit_targets
@@ -790,7 +841,7 @@ def pipeline_manual_add():
     insert_rows = []
     for target in targets:
         if has_hv:
-            owner, score = _match_hot_vendor(conn, target)
+            owner, score = _lookup_hot_vendor(hv_lookup, target)
         else:
             owner, score = None, None
         insert_rows.append((
