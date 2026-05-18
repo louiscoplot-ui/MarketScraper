@@ -73,6 +73,14 @@ export default function AdminUsers() {
   // Suburb-assignment modal — keyed by user id
   const [assigning, setAssigning] = useState(null)  // { user, suburb_ids: Set }
   const [assignSaving, setAssignSaving] = useState(false)
+
+  // Unified Manage Access modal — sales suburbs + rental access +
+  // rental suburbs + digest, all in one save. Shape:
+  // { user, sales_suburb_ids: Set<int>, rental_access: bool,
+  //   rental_assigned: Set<string>, rental_available: string[],
+  //   digest_enabled: bool, loading: bool, saving: bool,
+  //   message: string|null, error: string|null }
+  const [managing, setManaging] = useState(null)
   // Inline "add new suburb" input inside the assign modal — lets the
   // admin set up the suburb for an agent without leaving the modal
   // (the new suburb auto-checks for them; nightly scrape picks it up).
@@ -373,6 +381,124 @@ export default function AdminUsers() {
       refresh()
     } catch (e) {
       alert(`Could not toggle morning digest: ${e.message}`)
+    }
+  }
+
+  // Unified Manage Access modal — opens with optimistic placeholder
+  // state (from the user row that's already in the table) then patches
+  // in the authoritative server state once the two fetches return.
+  const openManage = async (u) => {
+    const optimisticDigest = u.digest_enabled !== 0 && u.digest_enabled !== false
+    setManaging({
+      user: u,
+      sales_suburb_ids: new Set(),
+      rental_access: !!u.rental_access,
+      rental_assigned: new Set(),
+      rental_available: [],
+      digest_enabled: optimisticDigest,
+      loading: true,
+      saving: false,
+      message: null,
+      error: null,
+    })
+    try {
+      const [salesRes, rentalRes] = await Promise.all([
+        apiJson(`/api/admin/users/${u.id}/suburbs`),
+        apiJson(`/api/admin/users/${u.id}/rental-suburbs`),
+      ])
+      setManaging(prev => prev && prev.user.id === u.id ? {
+        ...prev,
+        sales_suburb_ids: new Set(salesRes.suburb_ids || []),
+        rental_assigned: new Set(rentalRes.assigned || []),
+        rental_available: rentalRes.available || [],
+        loading: false,
+      } : prev)
+    } catch (e) {
+      setManaging(prev => prev && prev.user.id === u.id
+        ? { ...prev, loading: false, error: `Load failed: ${e.message}` }
+        : prev)
+    }
+  }
+
+  const updateManaging = (patch) => setManaging(m => m ? { ...m, ...patch } : m)
+
+  const toggleManagingSales = (sid) => setManaging(m => {
+    if (!m) return m
+    const next = new Set(m.sales_suburb_ids)
+    if (next.has(sid)) next.delete(sid); else next.add(sid)
+    return { ...m, sales_suburb_ids: next }
+  })
+
+  const toggleManagingRental = (name) => setManaging(m => {
+    if (!m) return m
+    const next = new Set(m.rental_assigned)
+    if (next.has(name)) next.delete(name); else next.add(name)
+    return { ...m, rental_assigned: next }
+  })
+
+  // One Save button does everything: PUT sales, PATCH flags, then
+  // POST/DELETE per rental-suburb diff. Stops early on the PUT/PATCH
+  // failures (they're the user-scope flags); soldiers through rental
+  // failures and reports a count so the operator can retry.
+  const saveManagement = async () => {
+    if (!managing) return
+    updateManaging({ saving: true, error: null, message: null })
+    const m = managing
+    const userId = m.user.id
+    try {
+      // 1) Sales suburb assignment — full replace
+      await apiJson(`/api/admin/users/${userId}/suburbs`, {
+        method: 'PUT',
+        body: JSON.stringify({ suburb_ids: Array.from(m.sales_suburb_ids) }),
+      })
+      // 2) Feature flags — rental_access + digest_enabled in one PATCH
+      await apiJson(`/api/admin/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          rental_access: m.rental_access,
+          digest_enabled: m.digest_enabled,
+        }),
+      })
+      // 3) Rental suburb diff — only when rental access is on, otherwise
+      //    skip the per-name calls entirely (the rental_access=false
+      //    above effectively hides everything).
+      let failures = 0
+      if (m.rental_access) {
+        const fresh = await apiJson(`/api/admin/users/${userId}/rental-suburbs`)
+        const currentSet = new Set(fresh.assigned || [])
+        const desired = m.rental_assigned
+        const toAdd = [...desired].filter(n => !currentSet.has(n))
+        const toRemove = [...currentSet].filter(n => !desired.has(n))
+        for (const name of toAdd) {
+          try {
+            await apiJson(`/api/admin/users/${userId}/rental-suburbs`, {
+              method: 'POST',
+              body: JSON.stringify({ suburb_name: name }),
+            })
+          } catch (e) {
+            console.warn(`Add ${name} failed:`, e.message)
+            failures++
+          }
+        }
+        for (const name of toRemove) {
+          try {
+            await apiJson(
+              `/api/admin/users/${userId}/rental-suburbs/${encodeURIComponent(name)}`,
+              { method: 'DELETE' }
+            )
+          } catch (e) {
+            console.warn(`Remove ${name} failed:`, e.message)
+            failures++
+          }
+        }
+      }
+      const msg = failures > 0
+        ? `Saved with ${failures} rental suburb error(s) — retry to fix.`
+        : 'Saved.'
+      updateManaging({ saving: false, message: msg })
+      refresh()
+    } catch (e) {
+      updateManaging({ saving: false, error: `Save failed: ${e.message}` })
     }
   }
 
@@ -727,24 +853,14 @@ export default function AdminUsers() {
               <td>{u.created_at ? fmtPerthDate(u.created_at) : '-'}</td>
               <td className="admin-row-actions">
                 <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => openAssign(u)}
+                  className="btn btn-primary btn-sm"
+                  onClick={() => openManage(u)}
                   disabled={u.role === 'admin'}
-                  title={u.role === 'admin' ? 'Admins see all suburbs automatically' : 'Manage suburb access'}
+                  title={u.role === 'admin'
+                    ? 'Admins see every suburb / rental / digest automatically'
+                    : 'Manage sales suburbs, rental access and notifications in one place'}
                 >
-                  Suburbs
-                </button>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => openRentalAssign(u)}
-                  disabled={u.role === 'admin' || !u.rental_access}
-                  title={
-                    u.role === 'admin' ? 'Admins see all rental suburbs automatically'
-                    : !u.rental_access ? 'Toggle Rental access on first'
-                    : 'Manage rental suburb access'
-                  }
-                >
-                  Rental
+                  Manage Access
                 </button>
                 <button
                   className="btn btn-ghost btn-sm btn-danger"
@@ -912,6 +1028,154 @@ export default function AdminUsers() {
           }}>
             ℹ️ Active suburbs are automatically scraped daily at 5am Perth time.
           </p>
+        </div>
+      )}
+
+      {managing && (
+        <div className="note-modal-overlay">
+          <div className="note-modal admin-assign-modal">
+            <div className="note-modal-header">
+              <div>
+                <div className="note-modal-title">Manage Access</div>
+                <div className="note-modal-sub">
+                  {[managing.user.first_name, managing.user.last_name].filter(Boolean).join(' ') || managing.user.email}
+                  {' — '}{managing.user.email}
+                  {' · Role: '}{managing.user.role}
+                </div>
+              </div>
+              <button className="btn-icon" onClick={() => setManaging(null)} title="Close">×</button>
+            </div>
+
+            {managing.loading && (
+              <div className="admin-assign-hint">Loading current access…</div>
+            )}
+
+            {/* Sales suburbs */}
+            <div style={{ marginTop: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <strong style={{ fontSize: 13 }}>Sales suburbs</strong>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    type="button" className="btn btn-ghost btn-sm"
+                    onClick={() => updateManaging({ sales_suburb_ids: new Set(allSuburbs.map(s => s.id)) })}
+                    disabled={managing.saving || managing.loading}
+                  >Select all</button>
+                  <button
+                    type="button" className="btn btn-ghost btn-sm"
+                    onClick={() => updateManaging({ sales_suburb_ids: new Set() })}
+                    disabled={managing.saving || managing.loading}
+                  >Clear all</button>
+                </div>
+              </div>
+              <div className="admin-assign-grid">
+                {allSuburbs.map(s => (
+                  <label key={s.id} className="admin-assign-row">
+                    <input
+                      type="checkbox"
+                      checked={managing.sales_suburb_ids.has(s.id)}
+                      onChange={() => toggleManagingSales(s.id)}
+                      disabled={managing.saving || managing.loading}
+                    />
+                    <span className="admin-assign-name">{s.name}</span>
+                  </label>
+                ))}
+                {!allSuburbs.length && <div className="empty">No sales suburbs in the system yet.</div>}
+              </div>
+            </div>
+
+            {/* Rental access + suburbs */}
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={managing.rental_access}
+                  onChange={(e) => updateManaging({ rental_access: e.target.checked })}
+                  disabled={managing.saving || managing.loading}
+                />
+                Rental enabled
+              </label>
+              {managing.rental_access && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <strong style={{ fontSize: 12, color: 'var(--text-muted)' }}>Rental suburbs</strong>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        type="button" className="btn btn-ghost btn-sm"
+                        onClick={() => updateManaging({ rental_assigned: new Set(managing.rental_available) })}
+                        disabled={managing.saving || managing.loading}
+                      >Select all</button>
+                      <button
+                        type="button" className="btn btn-ghost btn-sm"
+                        onClick={() => updateManaging({ rental_assigned: new Set() })}
+                        disabled={managing.saving || managing.loading}
+                      >Clear all</button>
+                    </div>
+                  </div>
+                  <div className="admin-assign-grid">
+                    {(managing.rental_available || []).map(name => (
+                      <label key={name} className="admin-assign-row">
+                        <input
+                          type="checkbox"
+                          checked={managing.rental_assigned.has(name)}
+                          onChange={() => toggleManagingRental(name)}
+                          disabled={managing.saving || managing.loading}
+                        />
+                        <span className="admin-assign-name">{name}</span>
+                      </label>
+                    ))}
+                    {!(managing.rental_available && managing.rental_available.length) && (
+                      <div className="empty">No rental suburbs available — set them up in the Rental Suburbs panel below.</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Features */}
+            <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Features</strong>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={managing.digest_enabled}
+                  onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
+                  disabled={managing.saving || managing.loading}
+                />
+                Morning digest email
+              </label>
+            </div>
+
+            {managing.error && (
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: 12 }}>
+                {managing.error}
+              </div>
+            )}
+            {managing.message && !managing.error && (
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#ecfdf5', border: '1px solid #6ee7b7', color: '#065f46', fontSize: 12 }}>
+                {managing.message}
+              </div>
+            )}
+
+            <div className="note-modal-footer">
+              <span className="note-hint">
+                {managing.sales_suburb_ids.size} sales · {managing.rental_access ? `${managing.rental_assigned.size} rental` : 'rental off'} · digest {managing.digest_enabled ? 'on' : 'off'}
+              </span>
+              <div className="note-modal-actions">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setManaging(null)}
+                  disabled={managing.saving}
+                >Close</button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveManagement}
+                  disabled={managing.saving || managing.loading}
+                >
+                  {managing.saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
