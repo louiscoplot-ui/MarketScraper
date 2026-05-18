@@ -129,9 +129,12 @@ export default function AdminUsers() {
       try {
         const list = await apiJson('/api/admin/users')
         setUsers(list.users)
-        const subRes = await fetch('/api/suburbs', {
-          headers: { 'X-Access-Key': getAccessKey() }
-        }).then(r => r.json())
+        // Previously: raw fetch().then(r => r.json()) — on a Render
+        // cold-start the Vercel proxy returns an HTML 502 page and
+        // JSON.parse throws "Unexpected token '<'" which bubbled all
+        // the way up and surfaced as the red banner above the modal.
+        // apiJson guards on res.ok and throws a clean error instead.
+        const subRes = await apiJson('/api/suburbs')
         setAllSuburbs(Array.isArray(subRes) ? subRes : [])
         try {
           const rs = await apiJson('/api/admin/rental-suburbs')
@@ -416,6 +419,9 @@ export default function AdminUsers() {
       customSearch: '',
       customSuggestions: [],
       customAdding: false,
+      rentalCustomSearch: '',
+      rentalCustomSuggestions: [],
+      rentalCustomAdding: false,
     })
     try {
       const [salesRes, rentalRes] = await Promise.all([
@@ -491,6 +497,57 @@ export default function AdminUsers() {
       })
     } catch (e) {
       updateManaging({ customAdding: false, error: `Could not add suburb: ${e.message}` })
+    }
+  }
+
+  // Same shape as the sales custom-add above, but POSTs to the
+  // rental-side route and pushes the new entry into rental_available
+  // + rental_assigned so the checkbox renders ticked immediately.
+  const rentalSearchTimerRef = useRef(null)
+  const onManagingRentalCustomSearch = (q) => {
+    updateManaging({ rentalCustomSearch: q })
+    if (rentalSearchTimerRef.current) clearTimeout(rentalSearchTimerRef.current)
+    if (!q.trim()) {
+      updateManaging({ rentalCustomSuggestions: [] })
+      return
+    }
+    rentalSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const matches = await apiJson(`/api/suburbs/search?q=${encodeURIComponent(q.trim())}`)
+        setManaging(m => m ? { ...m, rentalCustomSuggestions: Array.isArray(matches) ? matches : [] } : m)
+      } catch {}
+    }, 300)
+  }
+
+  const addCustomRentalSuburb = async (name) => {
+    if (!managing || managing.rentalCustomAdding) return
+    const target = (name || managing.rentalCustomSearch || '').trim()
+    if (!target) return
+    updateManaging({ rentalCustomAdding: true, error: null })
+    try {
+      const res = await apiJson(`/api/admin/users/${managing.user.id}/rental-suburbs/custom`, {
+        method: 'POST',
+        body: JSON.stringify({ suburb_name: target }),
+      })
+      const canonical = res.suburb_name || target
+      setManaging(m => {
+        if (!m) return m
+        const nextAvail = (m.rental_available || []).includes(canonical)
+          ? m.rental_available
+          : [...(m.rental_available || []), canonical].sort((a, b) => a.localeCompare(b))
+        const nextAssigned = new Set(m.rental_assigned)
+        nextAssigned.add(canonical)
+        return {
+          ...m,
+          rental_available: nextAvail,
+          rental_assigned: nextAssigned,
+          rentalCustomSearch: '',
+          rentalCustomSuggestions: [],
+          rentalCustomAdding: false,
+        }
+      })
+    } catch (e) {
+      updateManaging({ rentalCustomAdding: false, error: `Could not add rental suburb: ${e.message}` })
     }
   }
 
@@ -1321,6 +1378,60 @@ export default function AdminUsers() {
                     ))}
                     {!(managing.rental_available && managing.rental_available.length) && (
                       <div className="empty">No rental suburbs available — set them up in the Rental Suburbs panel below.</div>
+                    )}
+                  </div>
+
+                  {/* Mirrors the sales search-to-add row but POSTs to
+                      /rental-suburbs/custom — pushes the canonical
+                      name into rental_available and rental_assigned
+                      so the freshly-added row renders ticked. */}
+                  <div style={{ marginTop: 10, display: 'flex', gap: 6, position: 'relative' }}>
+                    <input
+                      type="text"
+                      value={managing.rentalCustomSearch || ''}
+                      onChange={(e) => onManagingRentalCustomSearch(e.target.value)}
+                      placeholder="Search any WA suburb to add (rental)…"
+                      disabled={managing.saving || managing.loading || managing.rentalCustomAdding}
+                      style={{
+                        flex: 1, padding: '6px 10px', fontSize: 13,
+                        border: '1px solid #d1d5db', borderRadius: 6,
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addCustomRentalSuburb(managing.rentalCustomSearch)
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => addCustomRentalSuburb(managing.rentalCustomSearch)}
+                      disabled={!(managing.rentalCustomSearch || '').trim() || managing.rentalCustomAdding}
+                    >
+                      {managing.rentalCustomAdding ? 'Adding…' : '+ Add'}
+                    </button>
+                    {managing.rentalCustomSuggestions && managing.rentalCustomSuggestions.length > 0 && (
+                      <div style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0,
+                        background: '#fff', border: '1px solid #d1d5db',
+                        borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto',
+                        zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                      }}>
+                        {managing.rentalCustomSuggestions.slice(0, 10).map(name => (
+                          <button
+                            key={name}
+                            type="button"
+                            onClick={() => addCustomRentalSuburb(name)}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left',
+                              padding: '6px 12px', background: 'transparent',
+                              border: 'none', borderBottom: '1px solid #f3f4f6',
+                              fontSize: 13, cursor: 'pointer',
+                            }}
+                          >{name}</button>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </>

@@ -930,6 +930,72 @@ def register_rental_routes(app):
             'available': available,
         })
 
+    @app.route('/api/admin/users/<int:user_id>/rental-suburbs/custom', methods=['POST'])
+    def admin_add_custom_rental_suburb_to_user(user_id):
+        """Mirror of /suburbs/custom but for rentals. Lets the admin
+        scope a user to a rental suburb that isn't currently in the
+        active scraped allowlist. If the suburb is brand new it gets
+        inserted into rental_suburbs with active=0 (not picked up by
+        the nightly rental scraper); the user_suburbs-equivalent row
+        is upserted into rental_user_suburbs using the canonical name
+        (preserves capitalisation regardless of operator typing)."""
+        _u, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        raw = (body.get('suburb_name') or '').strip()
+        if not raw:
+            return jsonify({'error': 'suburb_name required'}), 400
+        with get_db_conn() as conn:
+            existing = conn.execute(
+                "SELECT id, name, active FROM rental_suburbs "
+                "WHERE LOWER(name) = LOWER(?)",
+                (raw,)
+            ).fetchone()
+            created = False
+            if existing:
+                rsid = dict(existing)['id']
+                canonical = dict(existing)['name']
+            else:
+                if USE_POSTGRES:
+                    cur = conn.execute(
+                        "INSERT INTO rental_suburbs (name, active) VALUES (?, 0) "
+                        "RETURNING id",
+                        (raw,)
+                    )
+                    rsid = cur.fetchone()['id']
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO rental_suburbs (name, active) VALUES (?, 0)",
+                        (raw,)
+                    )
+                    rsid = cur.lastrowid
+                canonical = raw
+                created = True
+            try:
+                if USE_POSTGRES:
+                    conn.execute(
+                        "INSERT INTO rental_user_suburbs (user_id, suburb_name) "
+                        "VALUES (?, ?) ON CONFLICT (user_id, suburb_name) DO NOTHING",
+                        (user_id, canonical)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO rental_user_suburbs "
+                        "(user_id, suburb_name) VALUES (?, ?)",
+                        (user_id, canonical)
+                    )
+                conn.commit()
+            except Exception as e:
+                logger.exception("admin_add_custom_rental_suburb_to_user failed: %s", e)
+                return jsonify({'error': f'Could not assign rental suburb: {e}'}), 500
+        return jsonify({
+            'rental_suburb_id': rsid,
+            'suburb_name': canonical,
+            'created': created,
+        })
+
+
     @app.route('/api/admin/users/<int:user_id>/rental-suburbs', methods=['POST'])
     def admin_add_user_rental_suburb(user_id):
         _u, err = _require_admin()
