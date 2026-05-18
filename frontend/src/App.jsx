@@ -283,9 +283,11 @@ function App() {
       setCheckedSuburbs(prev => new Set([...prev, data.id]))
       fetchSuburbs()
     } else {
-      const data = await res.json()
-      if (data.error === 'Suburb already exists') fetchSuburbs()
-      else alert(data.error || 'Error adding suburb')
+      let msg = `Server error ${res.status}`
+      let parsed = null
+      try { parsed = await res.json() } catch {}
+      if (parsed && parsed.error === 'Suburb already exists') fetchSuburbs()
+      else alert((parsed && parsed.error) || msg + ' — please refresh and try again.')
     }
   }
 
@@ -315,8 +317,15 @@ function App() {
       setCheckedSuburbs(prev => new Set([...prev, data.id]))
       fetchSuburbs()
     } else {
-      const data = await res.json()
-      alert(data.error || 'Error adding suburb')
+      // Guard against Render returning an HTML 502 — JSON.parse would
+      // crash the whole tab. Best-effort parse, fall through to the
+      // status code if the body isn't JSON.
+      let msg = `Server error ${res.status}`
+      try {
+        const data = await res.json()
+        if (data && data.error) msg = data.error
+      } catch {}
+      alert(msg + ' — please refresh and try again.')
     }
   }
 
