@@ -91,6 +91,16 @@ class _Conn:
     def commit(self):
         self._conn.commit()
 
+    def rollback(self):
+        # Postgres aborts the whole transaction on any failed statement
+        # and ignores every subsequent command until you ROLLBACK.
+        # Exposed here so db_schema's idempotent ALTERs can recover
+        # without leaking the driver-specific connection out.
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
     def close(self):
         self._conn.close()
 

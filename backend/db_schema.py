@@ -3,6 +3,36 @@ under the MCP push size limit. Re-exported by database.init_db so
 existing callers don't need to change their imports.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_exec(conn, sql, *, label=''):
+    """Run an idempotent migration statement with explicit rollback on
+    failure so a single bad ALTER doesn't poison the Postgres transaction
+    and force every subsequent statement to 'current transaction is
+    aborted, commands ignored until end of transaction block'.
+
+    Commits on success, rolls back on failure. Returns True if the
+    statement applied cleanly, False if it was skipped. Silent for
+    'already exists' / 'duplicate column' which are the expected
+    idempotent-noop cases."""
+    try:
+        conn.execute(sql)
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        msg = str(e)
+        lower = msg.lower()
+        if ('already exists' in lower
+                or 'duplicate column' in lower
+                or 'duplicate_column' in lower):
+            return False
+        logger.warning("Migration skipped (%s): %s", label or sql[:60], e)
+        return False
+
 
 def init_db():
     from database import get_db, normalize_address, USE_POSTGRES
@@ -65,13 +95,9 @@ def init_db():
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT",
     ]:
-        try:
-            conn.execute(col_sql)
-        except Exception:
-            try:
-                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
-            except Exception:
-                conn.commit()
+        if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='listings ADD COLUMN fallback')
 
     # One-shot backfill: prior to scraper.py commit 190fed0, the sold-page
     # card scraper wrote REIWA's "Sold DD/MM/YYYY" stamp into
@@ -102,7 +128,7 @@ def init_db():
         )
         conn.commit()
     except Exception:
-        conn.commit()
+        conn.rollback()
 
     # One-shot backfill: pipeline_tracking.source_price values inserted
     # before the _price_to_int decimal fix (commit 1797f87) inflated by
@@ -164,7 +190,7 @@ def init_db():
                 )
         conn.commit()
     except Exception:
-        conn.commit()
+        conn.rollback()
 
     # NULL out the extract_date corruption: when sold_date matches the
     # date portion of first_seen, it's almost certainly the bug — REIWA's
@@ -186,7 +212,7 @@ def init_db():
         )
         conn.commit()
     except Exception:
-        conn.commit()
+        conn.rollback()
 
     # Backfill pipeline_tracking.source_sold_date from listings.sold_date.
     # Pre-fix pipeline_generate fell back to first_seen when sold_date
@@ -217,7 +243,7 @@ def init_db():
             )
         conn.commit()
     except Exception:
-        conn.commit()
+        conn.rollback()
 
     conn.execute(
         "UPDATE listings SET withdrawn_date = last_seen "
@@ -299,13 +325,9 @@ def init_db():
     for col_sql in [
         "ALTER TABLE pipeline_tracking ADD COLUMN IF NOT EXISTS source_suburb_lower TEXT",
     ]:
-        try:
-            conn.execute(col_sql)
-        except Exception:
-            try:
-                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
-            except Exception:
-                conn.commit()
+        if not _safe_exec(conn, col_sql, label='pipeline_tracking ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='pipeline_tracking ADD COLUMN fallback')
     try:
         conn.execute(
             "UPDATE pipeline_tracking SET source_suburb_lower = LOWER(source_suburb) "
@@ -317,7 +339,7 @@ def init_db():
         )
         conn.commit()
     except Exception:
-        conn.commit()
+        conn.rollback()
 
     # Per-row "I've already contacted this owner" flag — separate from
     # `status` (sent/responded/appraisal_booked/...) so an agent can
@@ -328,13 +350,9 @@ def init_db():
         "ALTER TABLE pipeline_tracking ADD COLUMN IF NOT EXISTS contacted INTEGER DEFAULT 0",
         "ALTER TABLE pipeline_tracking ADD COLUMN IF NOT EXISTS contacted_at TEXT",
     ]:
-        try:
-            conn.execute(col_sql)
-        except Exception:
-            try:
-                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
-            except Exception:
-                conn.commit()
+        if not _safe_exec(conn, col_sql, label='pipeline_tracking ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='pipeline_tracking ADD COLUMN fallback')
     conn.commit()
 
     conn.executescript("""
@@ -397,13 +415,9 @@ def init_db():
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS first_seen_at TEXT",
         "ALTER TABLE hot_vendor_properties ADD COLUMN IF NOT EXISTS last_updated_at TEXT",
     ]:
-        try:
-            conn.execute(col_sql)
-        except Exception:
-            try:
-                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
-            except Exception:
-                conn.commit()
+        if not _safe_exec(conn, col_sql, label='hot_vendor ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='hot_vendor ADD COLUMN fallback')
 
     # User-facing status flag per property, keyed by normalized_address so it
     # survives re-uploads of the same suburb. 4 buckets (matches the UI):
@@ -455,7 +469,7 @@ def init_db():
             """)
         conn.commit()
     except Exception:
-        conn.commit()
+        conn.rollback()
 
     # Postgres ON CONFLICT (normalized_address) requires a NON-PARTIAL
     # unique index — partial indexes only match when the INSERT repeats
@@ -473,14 +487,16 @@ def init_db():
         conn.commit()
     except Exception:
         try: conn.commit()
-        except Exception: pass
+        except Exception:
+            conn.rollback()
 
     try:
         conn.execute("DROP INDEX IF EXISTS uq_hv_props_normaddr")
         conn.commit()
     except Exception:
         try: conn.commit()
-        except Exception: pass
+        except Exception:
+            conn.rollback()
 
     try:
         conn.execute(
@@ -490,7 +506,8 @@ def init_db():
         conn.commit()
     except Exception:
         try: conn.commit()
-        except Exception: pass
+        except Exception:
+            conn.rollback()
 
     # Cache for OSM Overpass street lookups — pipeline neighbour generation
     # falls back to OSM when we have no Hot Vendor / listings data on a
@@ -548,13 +565,9 @@ def init_db():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_email TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
     ]:
-        try:
-            conn.execute(col_sql)
-        except Exception:
-            try:
-                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
-            except Exception:
-                conn.commit()
+        if not _safe_exec(conn, col_sql, label='users ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='users ADD COLUMN fallback')
     conn.commit()
 
     # Per-user suburb assignment. A user only sees + scrapes the suburbs
@@ -594,7 +607,8 @@ def init_db():
         # Non-fatal — boot must succeed even if the backfill hits an
         # edge case (e.g. very small DB, missing listing rows).
         try: conn.rollback()
-        except Exception: pass
+        except Exception:
+            conn.rollback()
 
     # ------------------------------------------------------------------
     # Rental module — separate scraper + DB rows from the sales pipeline.
@@ -665,13 +679,9 @@ def init_db():
     for col_sql in [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS rental_access INTEGER NOT NULL DEFAULT 0",
     ]:
-        try:
-            conn.execute(col_sql)
-        except Exception:
-            try:
-                conn.execute(col_sql.replace(" IF NOT EXISTS", ""))
-            except Exception:
-                conn.commit()
+        if not _safe_exec(conn, col_sql, label='users ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='users ADD COLUMN fallback')
 
     # Seed rental_suburbs once on first init — Perth WA inner-west +
     # western suburbs corridor the agency works. Idempotent: skipped
@@ -697,7 +707,8 @@ def init_db():
             conn.commit()
     except Exception:
         try: conn.commit()
-        except Exception: pass
+        except Exception:
+            conn.rollback()
 
     # Per-user rental suburb assignment — mirrors user_suburbs for
     # sales but keyed by suburb_name (TEXT) rather than rental_suburbs.id
@@ -717,10 +728,11 @@ def init_db():
     """)
 
     # Morning digest: per-user opt-out and send-attempt audit log.
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 1")
-    except Exception:
-        pass
+    _safe_exec(
+        conn,
+        "ALTER TABLE users ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 1",
+        label='users.digest_enabled',
+    )
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS digest_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -737,15 +749,48 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_digest_logs_user_sent
             ON digest_logs(user_id, sent_at);
     """)
+    conn.commit()
     # Per-section counts added in Phase 6a — kept alongside the legacy
     # new_count / change_count / hot_vendor_alert columns so historical
     # queries don't break.
     for col in ('new_listings_count', 'status_changes_count',
                 'hot_vendor_alerts_count'):
-        try:
-            conn.execute(f"ALTER TABLE digest_logs ADD COLUMN {col} INTEGER DEFAULT 0")
-        except Exception:
-            pass
+        _safe_exec(
+            conn,
+            f"ALTER TABLE digest_logs ADD COLUMN {col} INTEGER DEFAULT 0",
+            label=f'digest_logs.{col}',
+        )
 
     conn.commit()
+
+    # Verification — log the resulting digest_logs columns + users.digest_enabled
+    # presence so prod boot output makes it obvious whether the Phase 5/6a
+    # migrations actually landed in this environment.
+    try:
+        if USE_POSTGRES:
+            cols = conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'digest_logs' ORDER BY ordinal_position"
+            ).fetchall()
+            digest_cols = [dict(r).get('column_name') for r in cols]
+            has_de = conn.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'users' AND column_name = 'digest_enabled'"
+            ).fetchone()
+        else:
+            cols = conn.execute("PRAGMA table_info(digest_logs)").fetchall()
+            digest_cols = [dict(r).get('name') for r in cols]
+            user_cols = conn.execute("PRAGMA table_info(users)").fetchall()
+            has_de = any(dict(r).get('name') == 'digest_enabled' for r in user_cols)
+        logger.info(
+            "[migrations] digest_logs columns: %s",
+            ', '.join(c for c in digest_cols if c) or '(none)',
+        )
+        logger.info(
+            "[migrations] users.digest_enabled present: %s",
+            'yes' if has_de else 'NO — Phase 5 migration did not run',
+        )
+    except Exception as e:
+        logger.warning("Migration verification log failed: %s", e)
+
     conn.close()

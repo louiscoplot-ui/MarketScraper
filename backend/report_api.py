@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_price(price_text):
-    """Best-effort dollar amount from a free-text REIWA price string.
+    r"""Best-effort dollar amount from a free-text REIWA price string.
 
     Handles the common shapes agents type:
       "$1,100,000"     → 1100000
@@ -22,7 +22,7 @@ def _parse_price(price_text):
       "$2.05M"         → 2050000
       "Offers from $1,250,000"   → 1250000
 
-    The previous version matched `\$([\\d,]+)` which dropped the "m"/"k"
+    The previous version matched ``\$([\d,]+)`` which dropped the "m"/"k"
     suffix, so "low $1m" was read as $1 and reported as a 100% drop
     against an "Offers from $1,100,000" listing.
     """
