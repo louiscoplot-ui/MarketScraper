@@ -67,6 +67,37 @@ def _calc_dom(l):
     return max(0, (datetime.utcnow() - start).days)
 
 
+def _fetch_listings_for_report(suburb_ids):
+    """Lean SELECT for the market report — only the columns the
+    aggregations below actually read. Skips listing_notes / large
+    text columns to keep the row size small enough that 5k+ listings
+    don't blow past the worker's memory or the Vercel 25s budget.
+
+    Previously this path used get_listings(...) which LEFT JOINs
+    listing_notes and SELECTs `l.*` — every row carried the free-text
+    note plus every audit column the report doesn't touch."""
+    from database import get_db
+    conn = get_db()
+    try:
+        sql = (
+            "SELECT l.status, l.agent, l.agency, l.listing_type, "
+            "l.listing_date, l.last_seen, l.sold_date, l.price_text, "
+            "l.sold_price, l.address, l.reiwa_url, "
+            "s.name as suburb_name "
+            "FROM listings l "
+            "JOIN suburbs s ON l.suburb_id = s.id"
+        )
+        if suburb_ids:
+            placeholders = ','.join(['?'] * len(suburb_ids))
+            sql += f" WHERE l.suburb_id IN ({placeholders})"
+            rows = conn.execute(sql, tuple(suburb_ids)).fetchall()
+        else:
+            rows = conn.execute(sql).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def market_report():
     """Generate market report stats for selected suburbs."""
     from admin_api import resolve_request_scope
@@ -92,7 +123,7 @@ def market_report():
         else:
             suburb_ids = list(allowed)
 
-    listings = get_listings(suburb_ids=suburb_ids)
+    listings = _fetch_listings_for_report(suburb_ids)
     if not listings:
         return jsonify({'error': 'No listings found'}), 404
 
