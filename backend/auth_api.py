@@ -13,12 +13,15 @@ Access control for the rest of /api/* is enforced by the before_request
 hook in app.py — anything that isn't auth/ping requires a valid key.
 """
 
+import logging
 import re
 from flask import request, jsonify
 import bcrypt
 from database import get_db
 from email_service import send_login_link_email
 from admin_api import get_current_user, _row_to_dict
+
+logger = logging.getLogger(__name__)
 
 
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
@@ -41,8 +44,11 @@ def register_auth_routes(app):
                 user = dict(row)
                 try:
                     send_login_link_email(user, user['access_key'])
-                except Exception:
-                    pass  # never leak failure to caller
+                except Exception as e:
+                    # Never leak the failure to the caller (anti-
+                    # enumeration: 200 always), but log it so the
+                    # operator can spot Resend / network outages.
+                    logger.warning("Magic-link send failed for %s: %s", email, e)
         return jsonify({'ok': True})
 
     @app.route('/api/auth/login-by-email', methods=['POST'])

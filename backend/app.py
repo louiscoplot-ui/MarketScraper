@@ -181,8 +181,14 @@ def create_suburb():
             )
             conn.commit()
             conn.close()
-        except Exception:
-            pass  # already assigned (PK / unique violation) — non-fatal
+        except Exception as e:
+            # Already-assigned PK / unique-violation is the expected
+            # idempotent-noop case. Anything else (transient DB error,
+            # constraint mismatch after a schema change) should surface
+            # in the logs so the operator can spot a race that left a
+            # user partially assigned to suburbs.
+            logger.error("user_suburbs insert failed for user=%s suburb=%s: %s",
+                         user.get('id'), suburb.get('id'), e)
     return jsonify(suburb), status
 
 
