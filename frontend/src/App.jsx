@@ -6,6 +6,9 @@ import ListingsView from './pages/ListingsView'
 import LoadingState from './components/LoadingState'
 import AdminUsers from './pages/AdminUsers'
 import RentalView from './pages/RentalView'
+import TermsPage from './pages/TermsPage'
+import PrivacyPage from './pages/PrivacyPage'
+import Footer from './components/Footer'
 import { ThemeModal, ScrapeModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
@@ -18,7 +21,7 @@ const API = '/api'
 const BOOT_API = `${BACKEND_DIRECT}/api`
 const SUBURBS_CACHE = 'suburbs'
 
-const VALID_VIEWS = ['listings', 'pipeline', 'report', 'hot-vendors', 'rentals', 'logs', 'admin']
+const VALID_VIEWS = ['listings', 'pipeline', 'report', 'hot-vendors', 'rentals', 'logs', 'admin', 'terms', 'privacy']
 
 function readViewFromHash() {
   if (typeof window === 'undefined') return 'listings'
@@ -445,6 +448,11 @@ function App() {
     return `${m}m ${s}s`
   }
 
+  // Standalone legal pages — render outside the app shell so the
+  // Header / sidebar / scrape controls don't surround them.
+  if (view === 'terms') return <TermsPage />
+  if (view === 'privacy') return <PrivacyPage />
+
   return (
     <div className="app">
       <Header
@@ -761,6 +769,7 @@ function App() {
           )}
         </main>
       </div>
+      <Footer />
     </div>
   )
 }

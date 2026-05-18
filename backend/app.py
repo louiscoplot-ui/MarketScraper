@@ -27,6 +27,7 @@ from export_api import register_export_routes
 from admin_api import register_admin_routes, seed_admin_if_needed
 from auth_api import register_auth_routes
 from rental_api import register_rental_routes
+from legal_api import register_legal_routes
 from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
 
 app = Flask(__name__)
@@ -62,6 +63,7 @@ register_export_routes(app)
 register_admin_routes(app)
 register_auth_routes(app)
 register_rental_routes(app)
+register_legal_routes(app)
 
 
 # --- GLOBAL AUTH GATE ---
@@ -69,7 +71,7 @@ register_rental_routes(app)
 # endpoints (login flow needs to be reachable) and /api/ping (Render
 # health check + UI splash check). CORS preflight is also exempt — the
 # browser sends OPTIONS without our custom header.
-_AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping')
+_AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping', '/api/legal/')
 
 
 @app.before_request

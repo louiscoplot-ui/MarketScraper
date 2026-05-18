@@ -1,5 +1,12 @@
 import { useState } from 'react'
 import { setAccessKey } from '../lib/api'
+import Footer from '../components/Footer'
+
+const goLegal = (hash) => (e) => {
+  e.preventDefault()
+  window.location.hash = hash
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+}
 
 // Magic-link login. The user types their email; we POST to
 // /api/auth/request-link which silently 200s (no email enumeration)
@@ -165,6 +172,12 @@ export default function Login() {
               <p style={styles.fineprint}>
                 No public sign-up. Access is granted by your administrator.
               </p>
+              <p style={styles.agreement}>
+                By signing in, you agree to our{' '}
+                <a href="#terms" onClick={goLegal('terms')} style={styles.agreementLink}>Terms of Service</a>
+                {' '}and{' '}
+                <a href="#privacy" onClick={goLegal('privacy')} style={styles.agreementLink}>Privacy Policy</a>.
+              </p>
               <div style={styles.keyToggleWrap}>
                 <button
                   type="button"
@@ -193,6 +206,7 @@ export default function Login() {
           )}
         </div>
       </div>
+      <Footer />
     </div>
   )
 }
@@ -201,11 +215,19 @@ const styles = {
   page: {
     minHeight: '100vh',
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     background: '#f5f5f5',
     padding: '24px',
     fontFamily: 'system-ui, -apple-system, Arial, sans-serif',
+  },
+  agreement: {
+    margin: '12px 0 0', color: '#9ca3af', fontSize: 11,
+    textAlign: 'center', lineHeight: 1.5,
+  },
+  agreementLink: {
+    color: '#6b7280', textDecoration: 'underline',
   },
   card: {
     width: '100%',

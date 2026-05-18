@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import Login from './pages/Login'
 import SetPasswordModal from './pages/SetPasswordModal'
+import TermsPage from './pages/TermsPage'
+import PrivacyPage from './pages/PrivacyPage'
 import { getAccessKey, setAccessKey, ACCESS_KEY_STORAGE, BACKEND_DIRECT } from './lib/api'
 
 // Fire a ping the moment this module loads (before React even mounts)
@@ -49,6 +51,14 @@ export default function AuthGate({ children }) {
     return getAccessKey() ? 'in' : 'out'
   })
   const [needsPwd, setNeedsPwd] = useState(false)
+  // Force a rerender on hashchange so unauthenticated users navigating
+  // to #terms / #privacy via the Login footer actually see the page.
+  const [, setHashTick] = useState(0)
+  useEffect(() => {
+    const onHash = () => setHashTick(t => t + 1)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   useEffect(() => {
     if (state !== 'in') return
@@ -75,7 +85,14 @@ export default function AuthGate({ children }) {
     return () => { cancelled = true }
   }, [state])
 
-  if (state === 'out') return <Login />
+  if (state === 'out') {
+    // Allow legal pages to render without auth so the Login footer
+    // links are clickable for unauthenticated visitors.
+    const hash = (window.location.hash || '').replace('#', '')
+    if (hash === 'terms') return <TermsPage />
+    if (hash === 'privacy') return <PrivacyPage />
+    return <Login />
+  }
   return (
     <>
       {children}
