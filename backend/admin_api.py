@@ -151,53 +151,118 @@ def _require_admin():
     return user, None
 
 
-def seed_admin_if_needed():
-    """Called on app startup. If ADMIN_EMAIL is set in the environment
-    and that email isn't already a user, create them as an admin and log
-    the access_key so the operator can paste it into the login screen."""
-    admin_email = os.environ.get('ADMIN_EMAIL', '').strip().lower()
-    if not admin_email:
-        logger.warning("ADMIN_EMAIL not set — no admin will be seeded. "
-                       "Set ADMIN_EMAIL=you@example.com on Render before next deploy.")
-        return
-    conn = get_db()
+# Named admin accounts seeded on every boot — covers the operator
+# (louiscoplot) and the canonical support inbox (suburbdesk). Tuples are
+# (email, first_name). Adding a row here makes the deploy idempotent:
+# the next boot upserts the user as admin and logs their access key.
+_NAMED_ADMINS = (
+    ('louiscoplot@gmail.com', 'Louis'),
+    ('suburbdesk@gmail.com', 'SuburbDesk'),
+)
+
+
+def _upsert_admin(conn, email, first_name=None):
+    """Idempotent admin upsert. Existing rows are promoted to admin and
+    flipped to digest_enabled=1; missing rows are inserted with a fresh
+    access_key. Returns (action, user_id, access_key). action is one of
+    'created' | 'promoted' | 'unchanged'."""
+    email = (email or '').strip().lower()
+    if not email:
+        return ('skipped', None, None)
     existing = conn.execute(
-        "SELECT id, access_key, role FROM users WHERE LOWER(email) = ?",
-        (admin_email,)
+        "SELECT id, access_key, role, digest_enabled "
+        "FROM users WHERE LOWER(email) = ?",
+        (email,)
     ).fetchone()
     if existing:
-        # Already exists — make sure it's an admin (idempotent fix-up
-        # if someone manually demoted the seed account).
-        if existing['role'] != 'admin':
-            conn.execute("UPDATE users SET role = 'admin' WHERE id = ?", (existing['id'],))
+        d = dict(existing)
+        promoted = False
+        sets, params = [], []
+        if (d.get('role') or '').lower() != 'admin':
+            sets.append("role = 'admin'")
+            promoted = True
+        if not (d.get('digest_enabled') == 1 or d.get('digest_enabled') is True):
+            sets.append('digest_enabled = 1')
+        if sets:
+            conn.execute(
+                f"UPDATE users SET {', '.join(sets)} WHERE id = ?",
+                params + [d['id']]
+            )
             conn.commit()
-            logger.info(f"Promoted existing user {admin_email} to admin")
-        logger.info(f"Admin already seeded: {admin_email}")
-        conn.close()
-        return
+        return (('promoted' if promoted else 'unchanged'), d['id'], d['access_key'])
 
     key = _gen_access_key()
     if USE_POSTGRES:
         cur = conn.execute(
-            "INSERT INTO users (email, role, access_key) VALUES (?, ?, ?) RETURNING id",
-            (admin_email, 'admin', key)
+            "INSERT INTO users (email, first_name, role, access_key, digest_enabled) "
+            "VALUES (?, ?, 'admin', ?, 1) "
+            "ON CONFLICT (email) DO UPDATE SET role = 'admin', digest_enabled = 1 "
+            "RETURNING id",
+            (email, first_name, key)
         )
         new_id = cur.fetchone()['id']
     else:
         cur = conn.execute(
-            "INSERT INTO users (email, role, access_key) VALUES (?, ?, ?)",
-            (admin_email, 'admin', key)
+            "INSERT INTO users (email, first_name, role, access_key, digest_enabled) "
+            "VALUES (?, ?, 'admin', ?, 1)",
+            (email, first_name, key)
         )
         new_id = cur.lastrowid
     conn.commit()
-    conn.close()
-    logger.warning(
-        "═══════════════════════════════════════════════════════════════\n"
-        f"  Seeded admin: {admin_email} (id={new_id})\n"
-        f"  ACCESS KEY:  {key}\n"
-        f"  Paste this into the SuburbDesk login screen.\n"
-        "═══════════════════════════════════════════════════════════════"
-    )
+    return ('created', new_id, key)
+
+
+def _seed_named_admins():
+    """Ensure every entry in _NAMED_ADMINS exists as an admin. Safe to
+    call on every boot — purely additive, never deletes data."""
+    conn = get_db()
+    try:
+        for email, first_name in _NAMED_ADMINS:
+            try:
+                action, uid, key = _upsert_admin(conn, email, first_name)
+            except Exception:
+                logger.exception("Named-admin upsert failed for %s", email)
+                continue
+            if action == 'created':
+                logger.warning(
+                    "═══════════════════════════════════════════════════════════════\n"
+                    f"  Seeded admin: {email} (id={uid})\n"
+                    f"  ACCESS KEY:  {key}\n"
+                    f"  Paste this into the SuburbDesk login screen.\n"
+                    "═══════════════════════════════════════════════════════════════"
+                )
+            elif action == 'promoted':
+                logger.info("Promoted existing user %s to admin", email)
+            else:
+                logger.info("Named admin already in place: %s", email)
+    finally:
+        conn.close()
+
+
+def seed_admin_if_needed():
+    """Called on app startup. Seeds the ADMIN_EMAIL env-var account (if
+    set) plus every entry in _NAMED_ADMINS. Idempotent — safe to call
+    on every Render boot."""
+    admin_email = os.environ.get('ADMIN_EMAIL', '').strip().lower()
+    if admin_email:
+        conn = get_db()
+        try:
+            action, uid, key = _upsert_admin(conn, admin_email)
+            if action == 'created':
+                logger.warning(
+                    "═══════════════════════════════════════════════════════════════\n"
+                    f"  Seeded admin: {admin_email} (id={uid})\n"
+                    f"  ACCESS KEY:  {key}\n"
+                    f"  Paste this into the SuburbDesk login screen.\n"
+                    "═══════════════════════════════════════════════════════════════"
+                )
+            elif action == 'promoted':
+                logger.info("Promoted existing user %s to admin", admin_email)
+        finally:
+            conn.close()
+    else:
+        logger.warning("ADMIN_EMAIL not set — relying on _NAMED_ADMINS only")
+    _seed_named_admins()
 
 
 def register_admin_routes(app):
