@@ -84,6 +84,7 @@ export default function AdminUsers() {
   // user, not just admins.
   const [profileDraft, setProfileDraft] = useState({
     agency_name: '', agent_name: '', agent_phone: '', agent_email: '',
+    digest_enabled: true,
   })
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
@@ -100,6 +101,8 @@ export default function AdminUsers() {
         agent_name: meRes.user?.agent_name || '',
         agent_phone: meRes.user?.agent_phone || '',
         agent_email: meRes.user?.agent_email || '',
+        // digest_enabled defaults to true server-side; coerce ints to bool.
+        digest_enabled: meRes.user?.digest_enabled !== 0 && meRes.user?.digest_enabled !== false,
       })
       // Admin-only calls — wrapped so non-admins still reach the
       // profile form below instead of crashing the whole page.
@@ -360,6 +363,19 @@ export default function AdminUsers() {
     }
   }
 
+  const toggleDigest = async (u) => {
+    const cur = u.digest_enabled !== 0 && u.digest_enabled !== false
+    try {
+      await apiJson(`/api/admin/users/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ digest_enabled: !cur }),
+      })
+      refresh()
+    } catch (e) {
+      alert(`Could not toggle morning digest: ${e.message}`)
+    }
+  }
+
   // Rental Suburbs allowlist — separate from sales suburbs.
   const addRentalSuburb = async () => {
     const name = newRentalSuburb.trim()
@@ -517,6 +533,17 @@ export default function AdminUsers() {
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_email: e.target.value })}
             />
           </div>
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <h4 style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--text)' }}>Notifications</h4>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+              <input
+                type="checkbox"
+                checked={profileDraft.digest_enabled}
+                onChange={(e) => setProfileDraft({ ...profileDraft, digest_enabled: e.target.checked })}
+              />
+              Send me the SuburbDesk Morning Brief (after the nightly scrape)
+            </label>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
             <button className="btn btn-primary btn-sm" type="submit" disabled={profileSaving}>
               {profileSaving ? 'Saving…' : 'Save profile'}
@@ -597,7 +624,7 @@ export default function AdminUsers() {
         <thead>
           <tr>
             <th>Email</th><th>Name</th><th>Phone</th>
-            <th>Role</th><th>Suburbs</th><th>Rental</th>
+            <th>Role</th><th>Suburbs</th><th>Rental</th><th>Digest</th>
             <th>Last seen</th><th>Created</th><th></th>
           </tr>
         </thead>
@@ -675,6 +702,26 @@ export default function AdminUsers() {
                     {u.rental_access ? 'ON' : 'OFF'}
                   </button>
                 )}
+              </td>
+              <td style={{ textAlign: 'center' }}>
+                {(() => {
+                  const on = u.digest_enabled !== 0 && u.digest_enabled !== false
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => toggleDigest(u)}
+                      title={on ? 'Click to disable morning digest' : 'Click to enable morning digest'}
+                      style={{
+                        cursor: 'pointer', border: 'none', padding: '3px 10px',
+                        borderRadius: 10, fontSize: 11, fontWeight: 600,
+                        background: on ? '#d1fae5' : '#f3f4f6',
+                        color: on ? '#065f46' : '#9ca3af',
+                      }}
+                    >
+                      {on ? 'ON' : 'OFF'}
+                    </button>
+                  )
+                })()}
               </td>
               <td>{u.last_seen ? fmtPerthDateTime(u.last_seen) : 'Never'}</td>
               <td>{u.created_at ? fmtPerthDate(u.created_at) : '-'}</td>

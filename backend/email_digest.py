@@ -207,11 +207,75 @@ def send_digest(user_id):
     user_dict = dict(user)
     if not (user_dict.get('email') or '').strip():
         return False, 'User has no email'
-    subject = f"SuburbDesk Morning Report — {today}"
+    weekday = datetime.utcnow().strftime('%A')
+    subject = f"SuburbDesk Morning Brief — {weekday}, {today}"
     html = _build_digest_html(user_dict, suburb_stats, today)
     text = _build_digest_text(user_dict, suburb_stats, today)
     try:
-        return _send(user_dict['email'], subject, html, text=text)
+        ok, info = _send(user_dict['email'], subject, html, text=text)
     except Exception as e:
         logger.exception("Digest send crashed for user_id=%s", user_id)
-        return False, str(e)
+        ok, info = False, str(e)
+    _log_digest_attempt(
+        user_id, suburb_stats,
+        status='sent' if ok else 'failed',
+        error=None if ok else str(info)[:300],
+    )
+    return ok, info
+
+
+def _log_digest_attempt(user_id, suburb_stats, status, error=None):
+    """Append a row to digest_logs. Never raises — logging failure
+    must not crash the cron pass."""
+    try:
+        suburbs = ', '.join(s for s, _ in suburb_stats)[:500]
+        new_count = sum(st['new_active'] for _, st in suburb_stats)
+        change_count = sum(st['new_sales'] for _, st in suburb_stats)
+        hv_alert = any(st['hot_vendors'] for _, st in suburb_stats)
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO digest_logs "
+            "(user_id, suburbs_covered, new_count, change_count, "
+            " hot_vendor_alert, status, error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, suburbs, new_count, change_count,
+             1 if hv_alert else 0, status, error)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        logger.exception("digest_logs write failed (suppressed)")
+
+
+def send_morning_digest():
+    """Cron entry point — iterate every opt-in user and send their
+    digest. Designed to be called at the end of the nightly scrape
+    (scripts/run_daily_scrape.py) so the email lands a few minutes
+    after fresh data is in the DB. Returns dict of counts for the
+    GHA job log to surface."""
+    sent, skipped, failed = 0, 0, 0
+    try:
+        conn = get_db()
+        users = conn.execute(
+            "SELECT id, email, digest_enabled FROM users "
+            "WHERE digest_enabled = 1 AND email IS NOT NULL AND email <> ''"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        logger.exception("send_morning_digest: user lookup failed")
+        return {'sent': 0, 'skipped': 0, 'failed': 0, 'fatal': True}
+    for u in users:
+        try:
+            ok, _ = send_digest(u['id'])
+            if ok:
+                sent += 1
+            else:
+                skipped += 1
+        except Exception:
+            logger.exception("send_morning_digest: unhandled per-user crash uid=%s", u['id'])
+            failed += 1
+    logger.info(
+        "[digest] morning pass complete: %d sent, %d skipped, %d failed",
+        sent, skipped, failed
+    )
+    return {'sent': sent, 'skipped': skipped, 'failed': failed, 'fatal': False}

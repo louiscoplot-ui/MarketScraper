@@ -716,5 +716,27 @@ def init_db():
             ON rental_user_suburbs(user_id);
     """)
 
+    # Morning digest: per-user opt-out and send-attempt audit log.
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 1")
+    except Exception:
+        pass
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS digest_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+            suburbs_covered TEXT,
+            new_count INTEGER DEFAULT 0,
+            change_count INTEGER DEFAULT 0,
+            hot_vendor_alert INTEGER DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'sent',
+            error TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_digest_logs_user_sent
+            ON digest_logs(user_id, sent_at);
+    """)
+
     conn.commit()
     conn.close()

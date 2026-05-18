@@ -216,7 +216,8 @@ def register_admin_routes(app):
             return err
         conn = get_db()
         rows = conn.execute(
-            "SELECT id, email, first_name, last_name, phone, role, last_seen, created_at "
+            "SELECT id, email, first_name, last_name, phone, role, "
+            "last_seen, created_at, rental_access, digest_enabled "
             "FROM users ORDER BY created_at DESC"
         ).fetchall()
         # Pull every assignment in one query and group by user, so the
@@ -331,8 +332,11 @@ def register_admin_routes(app):
                     return jsonify({'error': "role must be 'admin' or 'user'"}), 400
                 sets.append(f"{k} = ?")
                 params.append(body[k] if body[k] != '' else None)
+        if 'digest_enabled' in body:
+            sets.append('digest_enabled = ?')
+            params.append(1 if body.get('digest_enabled') else 0)
         if not sets:
-            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role'}), 400
+            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled'}), 400
         params.append(user_id)
         conn = get_db()
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)

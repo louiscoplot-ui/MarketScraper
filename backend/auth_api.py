@@ -126,9 +126,13 @@ def register_auth_routes(app):
                 v = (body.get(k) or '').strip()
                 sets.append(f"{k} = ?")
                 params.append(v or None)
+        # Self-toggle for the morning digest. Boolean stored as 0/1.
+        if 'digest_enabled' in body:
+            sets.append('digest_enabled = ?')
+            params.append(1 if body.get('digest_enabled') else 0)
         if not sets:
             return jsonify({
-                'error': 'No updatable fields. Allowed: agency_name, agent_name, agent_phone, agent_email'
+                'error': 'No updatable fields. Allowed: agency_name, agent_name, agent_phone, agent_email, digest_enabled'
             }), 400
         params.append(user['id'])
 
