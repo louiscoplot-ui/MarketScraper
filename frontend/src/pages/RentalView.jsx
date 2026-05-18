@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { apiJson, BACKEND_DIRECT, getAccessKey, readCache, writeCache } from '../lib/api'
+import { formatIsoDate } from '../hooks/useListings'
 
 
 // Suburb-scoped cache key. Stale-while-revalidate — hydrate the table
@@ -37,17 +38,17 @@ const STATUS_STYLES = {
 // while keeping the numeric columns tight. Total target: ~1240 px,
 // fits a 1366-wide viewport with the sidebar open.
 const COLS = [
-  { key: 'status',         label: 'Status',      width: 80 },
-  { key: 'address',        label: 'Address',     width: 200, bold: true },
-  { key: 'price_week',     label: 'Price/wk',    width: 90 },
-  { key: 'property_type',  label: 'Type',        width: 80 },
-  { key: 'beds',           label: 'Bd',          width: 42, num: true },
+  { key: 'status',         label: 'Status',      width: 80, sortable: true },
+  { key: 'address',        label: 'Address',     width: 200, bold: true, sortable: true },
+  { key: 'price_week',     label: 'Price/wk',    width: 90, sortable: true },
+  { key: 'property_type',  label: 'Type',        width: 80, sortable: true },
+  { key: 'beds',           label: 'Bd',          width: 42, num: true, sortable: true },
   { key: 'baths',          label: 'Ba',          width: 42, num: true },
   { key: 'cars',           label: 'Pk',          width: 42, num: true },
   { key: 'agency',         label: 'Agency',      width: 130, truncate: true },
   { key: 'agent',          label: 'Agent',       width: 110, truncate: true },
-  { key: 'date_listed',    label: 'Listed',      width: 90 },
-  { key: 'days_on_market', label: 'DOM',         width: 56, num: true },
+  { key: 'date_listed',    label: 'Listed',      width: 90, sortable: true, date: true },
+  { key: 'days_on_market', label: 'DOM',         width: 56, num: true, sortable: true },
   { key: 'owner_name',     label: 'Owner Name',  width: 130, owner: true },
   { key: 'owner_phone',    label: 'Owner Phone', width: 120, owner: true },
   { key: 'notes',          label: 'Notes',       width: 170, owner: true },
@@ -444,7 +445,7 @@ export default function RentalView({ selectedNames } = {}) {
     return [...new Set(pool.map(r => r.agent).filter(Boolean))].sort()
   }, [listings, selectedAgency])
 
-  const filtered = useMemo(() => {
+  const filteredBase = useMemo(() => {
     return listings.filter(r => {
       const isLeased = r.status === 'Leased'
       if (isLeased && !showLeased) return false
@@ -454,6 +455,56 @@ export default function RentalView({ selectedNames } = {}) {
       return true
     })
   }, [listings, showAvailable, showLeased, selectedAgency, selectedAgent])
+
+  // Click-to-sort table headers. Mirrors the ListingsView pattern
+  // (useListings.js:125): same field toggles direction, new field
+  // resets to the column's natural default ("desc" for dates / DOM /
+  // price so the freshest / highest rows lead, "asc" for strings).
+  const [sortField, setSortField] = useState('date_listed')
+  const [sortDir, setSortDir] = useState('desc')
+  const DESC_DEFAULT = new Set(['date_listed', 'days_on_market', 'price_week'])
+  const toggleSort = useCallback((field) => {
+    setSortField(prev => {
+      if (prev === field) {
+        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+        return prev
+      }
+      setSortDir(DESC_DEFAULT.has(field) ? 'desc' : 'asc')
+      return field
+    })
+  }, [])
+
+  const _priceToInt = (v) => {
+    if (v == null) return 0
+    const n = parseInt(String(v).replace(/[^0-9]/g, ''), 10)
+    return Number.isFinite(n) ? n : 0
+  }
+
+  const filtered = useMemo(() => {
+    if (!sortField) return filteredBase
+    const arr = [...filteredBase]
+    const dir = sortDir === 'asc' ? 1 : -1
+    arr.sort((a, b) => {
+      let va, vb
+      if (sortField === 'price_week') {
+        va = _priceToInt(a.price_week); vb = _priceToInt(b.price_week)
+      } else if (sortField === 'beds' || sortField === 'days_on_market') {
+        va = Number(a[sortField] || 0); vb = Number(b[sortField] || 0)
+      } else if (sortField === 'date_listed') {
+        // ISO YYYY-MM-DD sorts lexicographically; empty pushed to end
+        // when ascending, to top when descending — same convention as
+        // ListingsView's listing_date sort.
+        va = a.date_listed || ''; vb = b.date_listed || ''
+      } else {
+        va = (a[sortField] || '').toString().toLowerCase()
+        vb = (b[sortField] || '').toString().toLowerCase()
+      }
+      if (va < vb) return -1 * dir
+      if (va > vb) return 1 * dir
+      return 0
+    })
+    return arr
+  }, [filteredBase, sortField, sortDir])
 
   // Export Excel — multi-sheet workbook served from the rental_api
   // export route. Goes through BACKEND_DIRECT (Vercel proxy would
@@ -769,15 +820,37 @@ export default function RentalView({ selectedNames } = {}) {
             </colgroup>
             <thead>
               <tr style={{ background: '#1e293b' }}>
-                {COLS.map(c => (
-                  <th key={c.key} style={{
-                    textAlign: c.num ? 'center' : 'left',
-                    padding: compact ? '5px 6px' : '10px 10px',
-                    fontWeight: 600, fontSize: 10.5, color: '#cbd5e1',
-                    textTransform: 'uppercase', letterSpacing: 0.6,
-                    whiteSpace: 'nowrap',
-                  }}>{c.label}</th>
-                ))}
+                {COLS.map(c => {
+                  const isSorted = c.sortable && sortField === c.key
+                  return (
+                    <th
+                      key={c.key}
+                      onClick={c.sortable ? () => toggleSort(c.key) : undefined}
+                      style={{
+                        textAlign: c.num ? 'center' : 'left',
+                        padding: compact ? '5px 6px' : '10px 10px',
+                        fontWeight: 600, fontSize: 10.5,
+                        color: isSorted ? '#fff' : '#cbd5e1',
+                        textTransform: 'uppercase', letterSpacing: 0.6,
+                        whiteSpace: 'nowrap',
+                        cursor: c.sortable ? 'pointer' : 'default',
+                        userSelect: 'none',
+                      }}
+                      title={c.sortable ? 'Click to sort' : undefined}
+                    >
+                      {c.label}
+                      {c.sortable && (
+                        <span style={{
+                          marginLeft: 4,
+                          color: isSorted ? '#fff' : '#475569',
+                          opacity: isSorted ? 1 : 0.5,
+                        }}>
+                          {isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                        </span>
+                      )}
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -860,7 +933,13 @@ export default function RentalView({ selectedNames } = {}) {
                             </td>
                           )
                         }
-                        const cellValue = r[c.key] || '—'
+                        // Date columns flagged via COLS.date — render
+                        // as DD/MM/YYYY (AU format) using the same
+                        // formatIsoDate helper the Listings view uses.
+                        const raw = r[c.key]
+                        const cellValue = raw
+                          ? (c.date ? (formatIsoDate(raw) || raw) : raw)
+                          : '—'
                         return (
                           <td
                             key={c.key}
