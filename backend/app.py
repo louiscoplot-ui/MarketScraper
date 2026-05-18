@@ -31,7 +31,12 @@ from legal_api import register_legal_routes
 from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[
+    'https://www.suburbdesk.com',
+    'https://suburbdesk.com',
+    'https://market-scraper.vercel.app',
+    'http://localhost:5173',
+])
 # Gzip every response > 500 bytes when flask-compress is available.
 # Skipped silently if the dep wasn't picked up yet (Render mid-deploy)
 # so a missing pip install doesn't 502 the whole backend.
