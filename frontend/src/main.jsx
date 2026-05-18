@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import AuthGate from './AuthGate'
 import PipelinePrint from './pages/PipelinePrint'
+import FaqPanel from './components/FaqPanel'
 import { getAccessKey } from './lib/api'
 import { applyTheme } from './lib/themeFlag'
 import './index.css'
@@ -55,6 +56,13 @@ const isPrintView = window.location.pathname === '/pipeline/print'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    {isPrintView ? <PipelinePrint /> : <AuthGate><App /></AuthGate>}
+    {isPrintView ? <PipelinePrint /> : (
+      <>
+        <AuthGate><App /></AuthGate>
+        {/* Global FAQ — visible on every authenticated and unauth page;
+            intentionally skipped on the print view above. */}
+        <FaqPanel />
+      </>
+    )}
   </React.StrictMode>
 )
