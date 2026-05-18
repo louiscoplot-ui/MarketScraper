@@ -1026,7 +1026,7 @@ export default function AdminUsers() {
             background: '#f0f9ff', border: '1px solid #bae6fd',
             borderRadius: 6, padding: '8px 12px', marginTop: 12,
           }}>
-            ℹ️ Active suburbs are automatically scraped daily at 5am Perth time.
+            ℹ️ Active suburbs are automatically scraped nightly at midnight Perth time.
           </p>
         </div>
       )}

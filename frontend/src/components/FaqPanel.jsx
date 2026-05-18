@@ -13,7 +13,7 @@ const SECTIONS = [
       ['What is SuburbDesk?',
         'SuburbDesk is a daily prospecting tool for Perth real estate agents. It tracks your suburb markets in real time, identifies likely sellers, and helps you send personalised prospecting letters — all before your competitors make their first call.'],
       ['When is data updated?',
-        'Market data is scraped from REIWA.com.au every morning at 5am Perth time. Your morning digest email arrives shortly after.'],
+        'Market data is scraped from REIWA.com.au every night at midnight Perth time. Your morning digest email arrives shortly after.'],
       ['How do I get support?',
         'Email suburbdesk@gmail.com — we typically respond same business day.'],
     ],
@@ -23,7 +23,7 @@ const SECTIONS = [
     label: 'Listings',
     items: [
       ['Where does this data come from?',
-        'Publicly available listings from REIWA.com.au, updated every morning at 5am for your assigned suburbs.'],
+        'Publicly available listings from REIWA.com.au, updated every night at midnight Perth time for your assigned suburbs.'],
       ['What do the status filters mean?',
         'Active = currently for sale. Under Offer = offer accepted. Sold = settled. Withdrawn = removed without selling.'],
       ['How do I add a note?',
