@@ -316,6 +316,29 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_pipeline_sent_date ON pipeline_tracking(sent_date);
     """)
 
+    # Phase F — extra indexes flagged by the audit (M4). Each goes
+    # through _safe_exec so a transient failure doesn't poison the
+    # Postgres transaction (same defensive pattern as the ADD COLUMN
+    # loops above).
+    _safe_exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_listings_listing_date "
+        "ON listings(listing_date)",
+        label='listings.listing_date',
+    )
+    _safe_exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_listings_suburb_status "
+        "ON listings(suburb_id, status)",
+        label='listings(suburb_id, status)',
+    )
+    _safe_exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_pipeline_target "
+        "ON pipeline_tracking(target_address)",
+        label='pipeline_tracking.target_address',
+    )
+
     # Pre-lowered suburb column so the 12+ "WHERE source_suburb = ?"
     # filters across pipeline_api.py can hit an index instead of running
     # LOWER(source_suburb) = LOWER(?) which Postgres can't index without
