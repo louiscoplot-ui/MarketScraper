@@ -317,7 +317,7 @@ export default function ListingsView({
           </thead>
           <tbody>
             {filteredListings.map((l, i) => (
-              <tr key={l.id || i} className={`status-${l.status}`}>
+              <tr key={l.id ?? `row-${l.address}-${l.suburb_name}`} className={`status-${l.status}`}>
                 {columns.map(c => {
                   const cls = c.cellClass ? c.cellClass(l) : c.className
                   return (

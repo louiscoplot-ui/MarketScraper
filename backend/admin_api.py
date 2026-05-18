@@ -440,10 +440,19 @@ def register_admin_routes(app):
                     'error': "You can't delete yourself — you're the only admin. "
                              "Promote another user to admin first."
                 }), 400
-        conn = get_db()
-        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        conn.commit()
-        conn.close()
+        try:
+            conn = get_db()
+            try:
+                conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            # FK cascade conflict, transient DB error, or session
+            # invalidation race — log it loud so the operator can see
+            # why the row didn't disappear from the admin table.
+            logger.exception("Delete user failed for user_id=%s: %s", user_id, e)
+            return jsonify({'error': 'Delete failed'}), 500
         return jsonify({'ok': True})
 
     @app.route('/api/admin/users/<int:user_id>/suburbs', methods=['GET'])
