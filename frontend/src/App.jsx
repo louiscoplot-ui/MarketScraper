@@ -48,9 +48,9 @@ function App() {
   // toggles flags they need to reload to see the new tabs.
   const [me, setMe] = useState(null)
   useEffect(() => {
-    fetch('/api/admin/me', {
+    fetchWithRetry(`${BOOT_API}/admin/me`, {
       headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' }
-    })
+    }, 4)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d && d.user) setMe(d.user) })
       .catch(() => {})
@@ -71,9 +71,9 @@ function App() {
   const [rentalSelected, setRentalSelected] = useState(new Set())
   const rentalDefaultedRef = useRef(false)
   useEffect(() => {
-    fetch('/api/rentals/suburbs', {
+    fetchWithRetry(`${BOOT_API}/rentals/suburbs`, {
       headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' }
-    })
+    }, 4)
       .then(r => r.ok ? r.json() : { suburbs: [] })
       .then(d => {
         const arr = (d && d.suburbs) || []
