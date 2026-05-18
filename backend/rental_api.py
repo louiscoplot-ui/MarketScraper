@@ -836,6 +836,15 @@ def register_rental_routes(app):
         _u, err = _require_admin()
         if err:
             return err
+        # Destructive cascade — drop every listing + owner row tied to
+        # this suburb. Same confirm-token pattern as the listing-date
+        # reset in app.py:442 so a misclick can't wipe a suburb.
+        if request.args.get('confirm') != 'yes':
+            return jsonify({
+                'error': 'Destructive operation — add ?confirm=yes to proceed. '
+                         'This drops every rental_listing and rental_owner '
+                         'for this suburb.'
+            }), 400
         conn = get_db()
         row = conn.execute(
             "SELECT name FROM rental_suburbs WHERE id = ?", (sid,)

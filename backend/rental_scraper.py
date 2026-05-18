@@ -59,7 +59,7 @@ MAX_PAGES = 20  # REIWA shows ~20 rentals/page — covers any inner-west suburb
 # scenario IS allowed to mark rows Leased (genuinely small suburb /
 # brand-new allowlist entry). At or above this threshold an empty
 # scrape is treated as a parser fault and the merge is skipped.
-RENTAL_SCRAPE_ABORT_THRESHOLD = 5
+RENTAL_SCRAPE_ABORT_THRESHOLD = 1
 
 PROPERTY_TYPES = (
     'House', 'Unit', 'Apartment', 'Townhouse',
@@ -317,10 +317,10 @@ def _merge_into_db(suburb_name, scraped):
             if (r.get('status') or '') != 'Leased'
         )
         if not scraped and existing_active >= RENTAL_SCRAPE_ABORT_THRESHOLD:
-            log.error(
-                "ABORT Leased sweep for %s — 0 cards scraped but %d "
-                "active listings in DB. Likely DOM change on REIWA or "
-                "page-load timeout. Skipping merge for this suburb.",
+            log.warning(
+                "Zero results for %s — skipping Leased transitions (prev=%d). "
+                "Likely DOM change on REIWA or page-load timeout; manual "
+                "review of the suburb on REIWA is the only safe response.",
                 suburb_name, existing_active
             )
             return (0, 0, 0)
