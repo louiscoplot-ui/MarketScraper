@@ -20,6 +20,7 @@ copy it into the login screen.
 import os
 import secrets
 import logging
+import re
 from datetime import datetime
 from flask import request, jsonify
 
@@ -523,6 +524,80 @@ def register_admin_routes(app):
             'suburb_ids': ids,
             'ok': True,
             'count': len(ids),
+        })
+
+    @app.route('/api/admin/users/<int:user_id>/suburbs/custom', methods=['POST'])
+    def admin_add_custom_suburb_to_user(user_id):
+        """Assign a suburb to a user even when the suburb isn't in the
+        active scraped set. The frontend's autocomplete pulls names from
+        the WA suburbs list (/api/suburbs/search) which is much wider
+        than the 15 currently-scraped suburbs; this route is how those
+        out-of-scope names land in user_suburbs.
+
+        - If the suburb already exists in `suburbs` (case-insensitive
+          match on name), reuse it as-is.
+        - Otherwise insert with active=0 (scoped only, not part of the
+          nightly scrape) and a kebab-case slug.
+        - Always upsert into user_suburbs so the call is idempotent."""
+        _, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        name = (body.get('suburb_name') or '').strip()
+        if not name:
+            return jsonify({'error': 'suburb_name required'}), 400
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT id, name, active FROM suburbs WHERE LOWER(name) = LOWER(?)",
+                (name,)
+            ).fetchone()
+            created = False
+            if row:
+                suburb_id = dict(row)['id']
+                suburb_name = dict(row)['name']
+            else:
+                slug = re.sub(r'[^a-z0-9-]', '', name.lower().replace(' ', '-')) or name.lower()
+                if USE_POSTGRES:
+                    cur = conn.execute(
+                        "INSERT INTO suburbs (name, slug, active) VALUES (?, ?, 0) "
+                        "RETURNING id",
+                        (name, slug)
+                    )
+                    suburb_id = cur.fetchone()['id']
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO suburbs (name, slug, active) VALUES (?, ?, 0)",
+                        (name, slug)
+                    )
+                    suburb_id = cur.lastrowid
+                suburb_name = name
+                created = True
+
+            # Idempotent upsert into user_suburbs — re-clicking Add for
+            # a suburb already assigned is a noop, not an error.
+            if USE_POSTGRES:
+                conn.execute(
+                    "INSERT INTO user_suburbs (user_id, suburb_id) VALUES (?, ?) "
+                    "ON CONFLICT DO NOTHING",
+                    (user_id, suburb_id)
+                )
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_suburbs (user_id, suburb_id) VALUES (?, ?)",
+                    (user_id, suburb_id)
+                )
+            conn.commit()
+        except Exception as e:
+            try: conn.close()
+            except Exception: pass
+            logger.exception("admin_add_custom_suburb_to_user failed: %s", e)
+            return jsonify({'error': f'Could not assign suburb: {e}'}), 500
+        conn.close()
+        return jsonify({
+            'suburb_id': suburb_id,
+            'suburb_name': suburb_name,
+            'created': created,
         })
 
     @app.route('/api/admin/send-digest-test', methods=['POST'])

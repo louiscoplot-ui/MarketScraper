@@ -4,7 +4,7 @@
 // "No tenant steals from any other" — a user only sees their assigned
 // patch; admins see everything.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiJson, getAccessKey, setAccessKey } from '../lib/api'
 
 // Backend stores timestamps as naive UTC (datetime.utcnow().isoformat()
@@ -404,6 +404,7 @@ export default function AdminUsers() {
     setManaging({
       user: u,
       sales_suburb_ids: new Set(),
+      sales_user_suburbs: [],
       rental_access: !!u.rental_access,
       rental_assigned: new Set(),
       rental_available: [],
@@ -412,6 +413,9 @@ export default function AdminUsers() {
       saving: false,
       message: null,
       error: null,
+      customSearch: '',
+      customSuggestions: [],
+      customAdding: false,
     })
     try {
       const [salesRes, rentalRes] = await Promise.all([
@@ -421,6 +425,12 @@ export default function AdminUsers() {
       setManaging(prev => prev && prev.user.id === u.id ? {
         ...prev,
         sales_suburb_ids: new Set(salesRes.suburb_ids || []),
+        // Carries the {id, name} pairs of every suburb assigned to the
+        // user — including ones with active=0 (custom-added via the
+        // search-to-add row below). Needed because /api/suburbs only
+        // returns active suburbs, so inactive customs are absent from
+        // allSuburbs and would otherwise not render as a checkbox row.
+        sales_user_suburbs: salesRes.suburbs || [],
         rental_assigned: new Set(rentalRes.assigned || []),
         rental_available: rentalRes.available || [],
         loading: false,
@@ -429,6 +439,58 @@ export default function AdminUsers() {
       setManaging(prev => prev && prev.user.id === u.id
         ? { ...prev, loading: false, error: `Load failed: ${e.message}` }
         : prev)
+    }
+  }
+
+  // Debounced suburb search for the custom-add row in the Sales
+  // section. Calls /api/suburbs/search which returns ALL WA suburb
+  // names from wa_suburbs.py (much wider than the 15 currently
+  // scraped suburbs), so the admin can scope a user to any suburb.
+  const customSearchTimerRef = useRef(null)
+  const onManagingCustomSearch = (q) => {
+    updateManaging({ customSearch: q })
+    if (customSearchTimerRef.current) clearTimeout(customSearchTimerRef.current)
+    if (!q.trim()) {
+      updateManaging({ customSuggestions: [] })
+      return
+    }
+    customSearchTimerRef.current = setTimeout(async () => {
+      try {
+        const matches = await apiJson(`/api/suburbs/search?q=${encodeURIComponent(q.trim())}`)
+        setManaging(m => m ? { ...m, customSuggestions: Array.isArray(matches) ? matches : [] } : m)
+      } catch {}
+    }, 300)
+  }
+
+  const addCustomSuburb = async (name) => {
+    if (!managing || managing.customAdding) return
+    const target = (name || managing.customSearch || '').trim()
+    if (!target) return
+    updateManaging({ customAdding: true, error: null })
+    try {
+      const res = await apiJson(`/api/admin/users/${managing.user.id}/suburbs/custom`, {
+        method: 'POST',
+        body: JSON.stringify({ suburb_name: target }),
+      })
+      setManaging(m => {
+        if (!m) return m
+        const nextIds = new Set(m.sales_suburb_ids)
+        nextIds.add(res.suburb_id)
+        const exists = (m.sales_user_suburbs || []).some(s => s.id === res.suburb_id)
+        const nextUser = exists
+          ? m.sales_user_suburbs
+          : [...(m.sales_user_suburbs || []), { id: res.suburb_id, name: res.suburb_name, active: 0 }]
+        return {
+          ...m,
+          sales_suburb_ids: nextIds,
+          sales_user_suburbs: nextUser,
+          customSearch: '',
+          customSuggestions: [],
+          customAdding: false,
+        }
+      })
+    } catch (e) {
+      updateManaging({ customAdding: false, error: `Could not add suburb: ${e.message}` })
     }
   }
 
@@ -1106,7 +1168,12 @@ export default function AdminUsers() {
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
                     type="button" className="btn btn-ghost btn-sm"
-                    onClick={() => updateManaging({ sales_suburb_ids: new Set(allSuburbs.map(s => s.id)) })}
+                    onClick={() => updateManaging({
+                      sales_suburb_ids: new Set([
+                        ...allSuburbs.map(s => s.id),
+                        ...(managing.sales_user_suburbs || []).map(s => s.id),
+                      ]),
+                    })}
                     disabled={managing.saving || managing.loading}
                   >Select all</button>
                   <button
@@ -1117,18 +1184,94 @@ export default function AdminUsers() {
                 </div>
               </div>
               <div className="admin-assign-grid">
-                {allSuburbs.map(s => (
-                  <label key={s.id} className="admin-assign-row">
-                    <input
-                      type="checkbox"
-                      checked={managing.sales_suburb_ids.has(s.id)}
-                      onChange={() => toggleManagingSales(s.id)}
-                      disabled={managing.saving || managing.loading}
-                    />
-                    <span className="admin-assign-name">{s.name}</span>
-                  </label>
-                ))}
-                {!allSuburbs.length && <div className="empty">No sales suburbs in the system yet.</div>}
+                {(() => {
+                  // Merge: every active suburb (allSuburbs) plus every
+                  // assigned suburb that is NOT in the active list
+                  // (custom adds with active=0). Deduped by id, sorted
+                  // by name. Without this, custom suburbs would be
+                  // ticked in sales_suburb_ids state but never render
+                  // as a row.
+                  const byId = new Map()
+                  for (const s of allSuburbs) byId.set(s.id, { ...s, active: 1 })
+                  for (const s of (managing.sales_user_suburbs || [])) {
+                    if (!byId.has(s.id)) byId.set(s.id, { ...s, active: 0 })
+                  }
+                  const merged = Array.from(byId.values()).sort((a, b) =>
+                    (a.name || '').localeCompare(b.name || '')
+                  )
+                  return merged.map(s => (
+                    <label key={s.id} className="admin-assign-row">
+                      <input
+                        type="checkbox"
+                        checked={managing.sales_suburb_ids.has(s.id)}
+                        onChange={() => toggleManagingSales(s.id)}
+                        disabled={managing.saving || managing.loading}
+                      />
+                      <span className="admin-assign-name">{s.name}</span>
+                      {!s.active && (
+                        <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>(custom)</span>
+                      )}
+                    </label>
+                  ))
+                })()}
+                {!allSuburbs.length && !(managing.sales_user_suburbs || []).length && (
+                  <div className="empty">No sales suburbs in the system yet.</div>
+                )}
+              </div>
+
+              {/* Search-to-add: any WA suburb (from wa_suburbs.py), not
+                  just the 15 currently-scraped ones. POSTed to the
+                  /custom route which inserts with active=0 when the
+                  suburb isn't already in the suburbs table, then
+                  upserts the user_suburbs assignment. */}
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, position: 'relative' }}>
+                <input
+                  type="text"
+                  value={managing.customSearch}
+                  onChange={(e) => onManagingCustomSearch(e.target.value)}
+                  placeholder="Search any WA suburb to add…"
+                  disabled={managing.saving || managing.loading || managing.customAdding}
+                  style={{
+                    flex: 1, padding: '6px 10px', fontSize: 13,
+                    border: '1px solid #d1d5db', borderRadius: 6,
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addCustomSuburb(managing.customSearch)
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => addCustomSuburb(managing.customSearch)}
+                  disabled={!managing.customSearch.trim() || managing.customAdding}
+                >
+                  {managing.customAdding ? 'Adding…' : '+ Add'}
+                </button>
+                {managing.customSuggestions && managing.customSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0,
+                    background: '#fff', border: '1px solid #d1d5db',
+                    borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto',
+                    zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  }}>
+                    {managing.customSuggestions.slice(0, 10).map(name => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => addCustomSuburb(name)}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '6px 12px', background: 'transparent',
+                          border: 'none', borderBottom: '1px solid #f3f4f6',
+                          fontSize: 13, cursor: 'pointer',
+                        }}
+                      >{name}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

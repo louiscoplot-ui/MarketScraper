@@ -900,16 +900,30 @@ def register_rental_routes(app):
         if err:
             return err
         with get_db_conn() as conn:
+            all_rows = conn.execute(
+                "SELECT name FROM rental_suburbs WHERE active = 1 ORDER BY name"
+            ).fetchall()
+            available = [dict(r)['name'] for r in all_rows]
+            # Map canonical suburb names from rental_suburbs (preserves
+            # the casing the frontend renders). Older POSTs to this
+            # path stored suburb_name as-typed by the operator, so a
+            # raw SELECT returned strings like "cottesloe" while the
+            # checkbox row was rendering "Cottesloe" — same suburb,
+            # different case, JS Set.has() returns false → every box
+            # stayed unticked even when an assignment was on file.
             assigned_rows = conn.execute(
                 "SELECT suburb_name FROM rental_user_suburbs WHERE user_id = ? "
                 "ORDER BY suburb_name",
                 (user_id,)
             ).fetchall()
-            all_rows = conn.execute(
-                "SELECT name FROM rental_suburbs WHERE active = 1 ORDER BY name"
-            ).fetchall()
-        assigned = [dict(r)['suburb_name'] for r in assigned_rows]
-        available = [dict(r)['name'] for r in all_rows]
+            stored = [dict(r)['suburb_name'] for r in assigned_rows]
+            canonical_by_lower = {a.lower(): a for a in available}
+            assigned = []
+            for s in stored:
+                k = (s or '').strip().lower()
+                if not k:
+                    continue
+                assigned.append(canonical_by_lower.get(k, s))
         return jsonify({
             'user_id': user_id,
             'assigned': assigned,
@@ -926,17 +940,20 @@ def register_rental_routes(app):
         if not name:
             return jsonify({'error': 'suburb_name required'}), 400
         with get_db_conn() as conn:
-            # Sanity: the assigned suburb must exist as an active
-            # rental_suburb. Silent admin error otherwise — leaves no
-            # way for the admin to spot a typo.
-            exists = conn.execute(
-                "SELECT 1 FROM rental_suburbs WHERE LOWER(name) = LOWER(?) AND active = 1",
+            # Resolve to the canonical name as stored in rental_suburbs
+            # (preserves "Cottesloe" capitalisation regardless of what
+            # the operator typed). Storing the canonical form means the
+            # GET endpoint above doesn't have to do post-hoc fixups
+            # forever — new POSTs land already-correct.
+            canon = conn.execute(
+                "SELECT name FROM rental_suburbs WHERE LOWER(name) = LOWER(?) AND active = 1",
                 (name,)
             ).fetchone()
-            if not exists:
+            if not canon:
                 return jsonify({
                     'error': f'No active rental suburb named "{name}"'
                 }), 404
+            canonical_name = dict(canon)['name']
             user_row = conn.execute(
                 "SELECT id FROM users WHERE id = ?", (user_id,)
             ).fetchone()
@@ -947,13 +964,13 @@ def register_rental_routes(app):
                     conn.execute(
                         "INSERT INTO rental_user_suburbs (user_id, suburb_name) "
                         "VALUES (?, ?) ON CONFLICT (user_id, suburb_name) DO NOTHING",
-                        (user_id, name)
+                        (user_id, canonical_name)
                     )
                 else:
                     conn.execute(
                         "INSERT OR IGNORE INTO rental_user_suburbs "
                         "(user_id, suburb_name) VALUES (?, ?)",
-                        (user_id, name)
+                        (user_id, canonical_name)
                     )
                 conn.commit()
             except Exception as e:
