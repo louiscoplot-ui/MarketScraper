@@ -81,6 +81,18 @@ export default function AdminUsers() {
   //   digest_enabled: bool, loading: bool, saving: bool,
   //   message: string|null, error: string|null }
   const [managing, setManaging] = useState(null)
+  // Escape closes the Manage Access modal — same affordance as the
+  // backdrop click and the × button, so the operator never gets stuck.
+  // Guard against closing mid-save: drop the keypress if a write is
+  // in flight.
+  useEffect(() => {
+    if (!managing) return
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !managing.saving) setManaging(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [managing])
   // Inline "add new suburb" input inside the assign modal — lets the
   // admin set up the suburb for an agent without leaving the modal
   // (the new suburb auto-checks for them; nightly scrape picks it up).
@@ -1032,20 +1044,57 @@ export default function AdminUsers() {
       )}
 
       {managing && (
-        <div className="note-modal-overlay">
-          <div className="note-modal admin-assign-modal">
-            <div className="note-modal-header">
+        // Inline styles override the legacy note-modal CSS so the
+        // header + footer stay visible regardless of body length and
+        // the backdrop click closes — the previous markup relied on
+        // CSS that pinned the modal to the viewport top and pushed the
+        // close button + Save action below the fold on small screens.
+        <div
+          onClick={() => { if (!managing.saving) setManaging(null) }}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 8,
+              width: '100%', maxWidth: 640, maxHeight: '85vh',
+              display: 'flex', flexDirection: 'column',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+            }}
+          >
+            <div style={{
+              padding: '16px 20px', borderBottom: '1px solid #e5e7eb',
+              flexShrink: 0,
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+              gap: 16,
+            }}>
               <div>
-                <div className="note-modal-title">Manage Access</div>
-                <div className="note-modal-sub">
+                <div style={{ fontSize: 16, fontWeight: 600 }}>Manage Access</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
                   {[managing.user.first_name, managing.user.last_name].filter(Boolean).join(' ') || managing.user.email}
                   {' — '}{managing.user.email}
                   {' · Role: '}{managing.user.role}
                 </div>
               </div>
-              <button className="btn-icon" onClick={() => setManaging(null)} title="Close">×</button>
+              <button
+                type="button"
+                onClick={() => { if (!managing.saving) setManaging(null) }}
+                aria-label="Close"
+                style={{
+                  background: 'none', border: 'none',
+                  fontSize: 24, lineHeight: 1, color: '#6b7280',
+                  cursor: 'pointer', padding: 0, width: 32, height: 32,
+                  flexShrink: 0,
+                }}
+              >×</button>
             </div>
 
+            <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
             {managing.loading && (
               <div className="admin-assign-hint">Loading current access…</div>
             )}
@@ -1163,11 +1212,18 @@ export default function AdminUsers() {
               </div>
             )}
 
-            <div className="note-modal-footer">
-              <span className="note-hint">
+            </div>{/* end scrollable body */}
+
+            <div style={{
+              padding: '12px 20px', borderTop: '1px solid #e5e7eb',
+              flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 12, background: '#fafafa',
+            }}>
+              <span style={{ fontSize: 12, color: '#6b7280' }}>
                 {managing.sales_suburb_ids.size} sales · {managing.rental_access ? `${managing.rental_assigned.size} rental` : 'rental off'} · digest {managing.digest_enabled ? 'on' : 'off'}
               </span>
-              <div className="note-modal-actions">
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   className="btn btn-ghost btn-sm"
                   onClick={() => setManaging(null)}
