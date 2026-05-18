@@ -1,14 +1,16 @@
 """Daily morning digest email — sent at the end of the nightly scrape.
 
-For each user in the DB, builds a per-suburb summary (new active
-listings, new sales, top 3 hot vendors) scoped to the suburbs they're
-assigned to (admins see every active suburb). Sends via Resend; per-
-user failures are logged but never raised so a single bad address
+For each user in the DB, builds a per-suburb summary scoped to the
+suburbs they're assigned to (admins see every active suburb). Three
+sections — new listings, status changes, and hot-vendor alerts —
+are rendered with per-item detail (address, price, agent, REIWA link)
+so the agent can act directly from the inbox. Sends via Resend;
+per-user failures are logged but never raised so a single bad address
 can't crash the cron pass."""
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from database import get_db
 from email_service import _send, _app_url
@@ -19,23 +21,136 @@ logger = logging.getLogger(__name__)
 _MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June',
               'July', 'August', 'September', 'October', 'November', 'December']
 
+# Australia/Perth is fixed UTC+8 (no DST), so we can hard-code the
+# offset instead of pulling pytz / zoneinfo for one timezone.
+_PERTH_OFFSET = timedelta(hours=8)
+
 
 def _today_au():
     """8 May 2026 — AU long form, no zero-padded day. Built manually so
     the output is identical on Linux (Render, GHA) and Windows (local
     dev) without depending on locale-specific strftime tokens."""
-    now = datetime.utcnow()
+    now = datetime.utcnow() + _PERTH_OFFSET
     return f"{now.day} {_MONTHS_EN[now.month - 1]} {now.year}"
 
 
-def _start_of_today_iso():
-    """ISO-8601 start of today UTC — comparable against listings.first_seen
-    / last_seen which are stored as datetime.utcnow().isoformat()."""
-    today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    return today.isoformat()
+def _weekday_perth():
+    return (datetime.utcnow() + _PERTH_OFFSET).strftime('%A')
+
+
+def _since_iso_perth_midnight():
+    """ISO-8601 timestamp for "yesterday 00:00 Perth time" expressed as
+    UTC (so it lines up with listings.first_seen / last_seen written
+    via datetime.utcnow().isoformat()).
+
+    Perth midnight today UTC = Perth midnight - 8h. The cron runs just
+    after Perth midnight, so "yesterday 00:00 Perth" = the previous
+    Perth day's start, which is the cutoff for "what landed overnight"."""
+    perth_now = datetime.utcnow() + _PERTH_OFFSET
+    perth_midnight = perth_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Step back one day to capture the full overnight window.
+    perth_yesterday_midnight = perth_midnight - timedelta(days=1)
+    return (perth_yesterday_midnight - _PERTH_OFFSET).isoformat()
+
+
+_STATUS_LABELS = {
+    'under_offer': 'Under Offer',
+    'sold': 'Sold',
+    'withdrawn': 'Withdrawn',
+}
+
+
+def _build_sections(suburb_rows, user_id, since_iso):
+    """Pull the three sections (new listings, status changes, hot vendor
+    alerts) for every suburb the user can see.
+
+    Returns dict {new_listings: [...], status_changes: [...],
+    hot_vendor_alerts: [...]} with each list flat (sorted by suburb,
+    then date desc) so the renderer can section-header them once."""
+    if not suburb_rows:
+        return {'new_listings': [], 'status_changes': [], 'hot_vendor_alerts': []}
+    suburb_ids = tuple(s['id'] for s in suburb_rows)
+    placeholders = ','.join(['?'] * len(suburb_ids))
+    conn = get_db()
+    try:
+        new_listings = conn.execute(
+            f"SELECT l.address, l.price_text, l.bedrooms, l.bathrooms, "
+            f"l.agency, l.agent, l.reiwa_url, l.status, s.name AS suburb "
+            f"FROM listings l "
+            f"JOIN suburbs s ON s.id = l.suburb_id "
+            f"WHERE l.suburb_id IN ({placeholders}) "
+            f"AND l.first_seen >= ? "
+            f"ORDER BY s.name, l.listing_date DESC NULLS LAST, l.first_seen DESC",
+            (*suburb_ids, since_iso)
+        ).fetchall() if 'NULLS' in conn.__class__.__module__.lower() or True else None
+    except Exception:
+        # Postgres supports NULLS LAST; SQLite tolerates it as of 3.30
+        # but falls back gracefully below if not.
+        new_listings = None
+    if new_listings is None:
+        new_listings = conn.execute(
+            f"SELECT l.address, l.price_text, l.bedrooms, l.bathrooms, "
+            f"l.agency, l.agent, l.reiwa_url, l.status, s.name AS suburb "
+            f"FROM listings l "
+            f"JOIN suburbs s ON s.id = l.suburb_id "
+            f"WHERE l.suburb_id IN ({placeholders}) "
+            f"AND l.first_seen >= ? "
+            f"ORDER BY s.name, l.first_seen DESC",
+            (*suburb_ids, since_iso)
+        ).fetchall()
+
+    status_changes = conn.execute(
+        f"SELECT l.address, l.price_text, l.sold_price, l.status, "
+        f"l.reiwa_url, s.name AS suburb "
+        f"FROM listings l "
+        f"JOIN suburbs s ON s.id = l.suburb_id "
+        f"WHERE l.suburb_id IN ({placeholders}) "
+        f"AND l.last_seen >= ? "
+        f"AND l.status IN ('under_offer', 'sold', 'withdrawn') "
+        f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
+        f"ORDER BY s.name, l.last_seen DESC",
+        (*suburb_ids, since_iso, since_iso)
+    ).fetchall()
+
+    # Hot vendor alerts — only count uploads attributed to THIS user
+    # (hot_vendor_uploads.uploaded_by stores the operator email). Match
+    # is on normalized_address so an RP-Data row at "26 Mengler Avenue"
+    # surfaces a REIWA listing at the same address regardless of suffix.
+    hv_alerts = []
+    try:
+        user_row = conn.execute(
+            "SELECT email FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        user_email = (dict(user_row).get('email') if user_row else '') or ''
+        if user_email:
+            hv_alerts = conn.execute(
+                f"SELECT hvp.address, hvp.final_score, "
+                f"l.price_text, l.agency, l.reiwa_url, s.name AS suburb "
+                f"FROM hot_vendor_properties hvp "
+                f"JOIN hot_vendor_uploads u ON u.id = hvp.upload_id "
+                f"JOIN listings l ON l.normalized_address = hvp.normalized_address "
+                f"JOIN suburbs s ON s.id = l.suburb_id "
+                f"WHERE LOWER(u.uploaded_by) = LOWER(?) "
+                f"AND hvp.final_score >= 70 "
+                f"AND l.status = 'active' "
+                f"AND l.first_seen >= ? "
+                f"AND l.suburb_id IN ({placeholders}) "
+                f"ORDER BY hvp.final_score DESC, s.name",
+                (user_email, since_iso, *suburb_ids)
+            ).fetchall()
+    except Exception:
+        logger.exception("Hot vendor alert query failed (suppressed)")
+
+    return {
+        'new_listings': [dict(r) for r in (new_listings or [])],
+        'status_changes': [dict(r) for r in (status_changes or [])],
+        'hot_vendor_alerts': [dict(r) for r in (hv_alerts or [])],
+    }
 
 
 def _stats_for_suburb(suburb_id, suburb_name, since_iso):
+    """Lightweight per-suburb counts — kept for callers (admin test
+    digest, legacy tests) that don't have the full sections shape."""
     conn = get_db()
     new_active = conn.execute(
         "SELECT COUNT(*) AS n FROM listings "
@@ -48,112 +163,241 @@ def _stats_for_suburb(suburb_id, suburb_name, since_iso):
         "WHERE suburb_id = ? AND status = 'sold' AND last_seen >= ?",
         (suburb_id, since_iso)
     ).fetchone()['n']
-    # Top 3 hot vendors from the most recent upload for this suburb
-    # (hot_vendor_uploads.suburb is free-text — joined LOWER on name).
-    hv_rows = conn.execute(
-        "SELECT p.address, p.final_score "
-        "FROM hot_vendor_properties p "
-        "JOIN hot_vendor_uploads u ON p.upload_id = u.id "
-        "WHERE LOWER(u.suburb) = LOWER(?) "
-        "AND p.final_score IS NOT NULL "
-        "AND u.id = (SELECT MAX(id) FROM hot_vendor_uploads "
-        "            WHERE LOWER(suburb) = LOWER(?)) "
-        "ORDER BY p.final_score DESC LIMIT 3",
-        (suburb_name, suburb_name)
-    ).fetchall()
     conn.close()
-    return {
-        'new_active': new_active,
-        'new_sales': new_sales,
-        'hot_vendors': [
-            {'address': r['address'], 'score': r['final_score']}
-            for r in hv_rows
-        ],
-    }
+    return {'new_active': new_active, 'new_sales': new_sales}
 
 
-def _build_digest_text(user, suburb_stats, today_au):
+def _esc(s):
+    """Minimal HTML escape — avoid pulling html.escape just to cover
+    the four chars that matter inside attribute and text contexts."""
+    if s is None:
+        return ''
+    s = str(s)
+    return (s.replace('&', '&amp;').replace('<', '&lt;')
+             .replace('>', '&gt;').replace('"', '&quot;'))
+
+
+def _status_label(row):
+    s = (row.get('status') or '').lower()
+    if s == 'sold':
+        sp = (row.get('sold_price') or '').strip() if isinstance(row.get('sold_price'), str) else row.get('sold_price')
+        return f"Sold for {sp}" if sp else 'Sold'
+    return _STATUS_LABELS.get(s, s.title() if s else 'Updated')
+
+
+def _meta_line(row):
+    """e.g. '$1,250,000 · 4bd 2ba' — used in new-listings rows."""
+    bits = []
+    if row.get('price_text'):
+        bits.append(str(row['price_text']))
+    bedbaths = []
+    if row.get('bedrooms') is not None:
+        bedbaths.append(f"{row['bedrooms']}bd")
+    if row.get('bathrooms') is not None:
+        bedbaths.append(f"{row['bathrooms']}ba")
+    if bedbaths:
+        bits.append(' '.join(bedbaths))
+    return ' · '.join(bits)
+
+
+def _build_digest_text(user, sections, suburb_names, today_au):
     name = (user.get('first_name') or 'there').strip()
     app = _app_url()
     lines = [
         f"Good morning {name},",
         '',
-        f"Here's your SuburbDesk Morning Report for {today_au}.",
+        f"Your SuburbDesk Morning Brief — {today_au}.",
         '',
     ]
-    if not suburb_stats:
-        lines.append("No suburbs assigned to your account yet — "
-                     "ask your admin to add some.")
+    if not suburb_names:
+        lines.append("No suburbs assigned to your account yet — ask your admin to add some.")
     else:
-        for suburb, stats in suburb_stats:
-            lines.append(f"=== {suburb} ===")
-            lines.append(f"  New active listings: {stats['new_active']}")
-            lines.append(f"  New sales:           {stats['new_sales']}")
-            if stats['hot_vendors']:
-                lines.append("  Top hot vendors:")
-                for hv in stats['hot_vendors']:
-                    lines.append(f"    - {hv['address']} (score {hv['score']})")
+        # Section 1 — new listings
+        lines.append('=== NEW LISTINGS ===')
+        if not sections['new_listings']:
+            lines.append('  No new listings in your suburbs yesterday.')
+        else:
+            for r in sections['new_listings']:
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
+                meta = _meta_line(r)
+                if meta:
+                    lines.append(f"      {meta}")
+                if r.get('agency') or r.get('agent'):
+                    lines.append(f"      {r.get('agency') or ''}{' · ' if r.get('agency') and r.get('agent') else ''}{r.get('agent') or ''}")
+                if r.get('reiwa_url'):
+                    lines.append(f"      View: {r['reiwa_url']}")
+        lines.append('')
+
+        # Section 2 — status changes
+        lines.append('=== STATUS CHANGES ===')
+        if not sections['status_changes']:
+            lines.append('  No status changes yesterday.')
+        else:
+            for r in sections['status_changes']:
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
+                lines.append(f"      Now: {_status_label(r)}")
+                if r.get('reiwa_url'):
+                    lines.append(f"      View: {r['reiwa_url']}")
+        lines.append('')
+
+        # Section 3 — hot vendor alerts (omitted entirely if empty)
+        if sections['hot_vendor_alerts']:
+            lines.append('=== HOT VENDOR NOW LISTED ===')
+            for r in sections['hot_vendor_alerts']:
+                lines.append(f"  ⚠ {r.get('address', '')} — {r.get('suburb', '')}")
+                lines.append(f"      Score: {r.get('final_score')}/100 — Listed by {r.get('agency') or '?'}")
+                if r.get('price_text'):
+                    lines.append(f"      {r['price_text']}")
+                lines.append("      This property was on your watchlist.")
+                if r.get('reiwa_url'):
+                    lines.append(f"      View: {r['reiwa_url']}")
             lines.append('')
+
+        lines.append(f"Suburbs covered: {', '.join(suburb_names)}")
+        lines.append('')
+
     lines.append(f"Open the app: {app}")
+    lines.append('Reply with "unsubscribe" to stop receiving these emails.')
     lines.append('')
-    lines.append('-- SuburbDesk')
+    lines.append('-- SuburbDesk · suburbdesk@gmail.com')
     return '\n'.join(lines)
 
 
-def _build_digest_html(user, suburb_stats, today_au):
+def _render_new_listing_html(r):
+    parts = [
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>'
+    ]
+    meta = _meta_line(r)
+    if meta:
+        parts.append(f'<div style="margin:0 0 4px;color:#444;font-size:13px;">{_esc(meta)}</div>')
+    agency_agent = ' · '.join(filter(None, [r.get('agency'), r.get('agent')]))
+    if agency_agent:
+        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(agency_agent)}</div>')
+    if r.get('reiwa_url'):
+        parts.append(
+            f'<a href="{_esc(r["reiwa_url"])}" '
+            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
+        )
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
+            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
+            f'{inner}</div>')
+
+
+def _render_change_html(r):
+    label = _status_label(r)
+    price_extra = r.get('price_text') if (r.get('status') or '').lower() != 'sold' else ''
+    parts = [
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>',
+        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Now: <strong>{_esc(label)}</strong></div>',
+    ]
+    if price_extra:
+        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(price_extra)}</div>')
+    if r.get('reiwa_url'):
+        parts.append(
+            f'<a href="{_esc(r["reiwa_url"])}" '
+            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
+        )
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
+            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
+            f'{inner}</div>')
+
+
+def _render_hv_alert_html(r):
+    parts = [
+        f'<div style="margin:0 0 4px;font-weight:700;color:#92400e;font-size:13px;">'
+        f'⚠️ HOT VENDOR NOW LISTED</div>',
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>',
+        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">'
+        f'Score: <strong>{_esc(r.get("final_score"))}/100</strong> — Listed by {_esc(r.get("agency") or "?")}'
+        f'</div>',
+    ]
+    if r.get('price_text'):
+        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(r["price_text"])}</div>')
+    parts.append('<div style="margin:0 0 4px;color:#92400e;font-size:12px;font-style:italic;">'
+                 'This property was on your watchlist.</div>')
+    if r.get('reiwa_url'):
+        parts.append(
+            f'<a href="{_esc(r["reiwa_url"])}" '
+            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
+        )
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fffbeb;'
+            f'border-left:4px solid #f59e0b;border-radius:0 4px 4px 0;">'
+            f'{inner}</div>')
+
+
+def _section_header(text):
+    return (f'<h3 style="margin:18px 0 8px;color:#386350;font-size:14px;'
+            f'font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">'
+            f'{_esc(text)}</h3>')
+
+
+def _build_digest_html(user, sections, suburb_names, today_au):
     name = (user.get('first_name') or 'there').strip()
     app = _app_url()
-    if not suburb_stats:
+    if not suburb_names:
         body = ('<p style="color:#444;font-size:14px;">'
                 'No suburbs assigned to your account yet — ask your admin '
                 'to add some.</p>')
     else:
-        cards = []
-        for suburb, stats in suburb_stats:
-            hv_html = ''
-            if stats['hot_vendors']:
-                items = ''.join(
-                    f'<li style="margin:4px 0;">{hv["address"]} '
-                    f'<span style="color:#777;">(score {hv["score"]})</span></li>'
-                    for hv in stats['hot_vendors']
-                )
-                hv_html = (
-                    '<p style="margin:8px 0 0;color:#444;font-size:13px;">'
-                    '<strong>Top hot vendors:</strong></p>'
-                    f'<ul style="margin:4px 0 0 18px;color:#444;font-size:13px;">'
-                    f'{items}</ul>'
-                )
-            cards.append(
-                '<div style="margin:0 0 18px;padding:14px 16px;background:#f7f7f7;'
-                'border-left:4px solid #386351;border-radius:4px;">'
-                f'<h3 style="margin:0 0 6px;color:#222;font-size:15px;">{suburb}</h3>'
-                '<p style="margin:0;color:#444;font-size:13px;">'
-                f'New active listings: <strong>{stats["new_active"]}</strong> &middot; '
-                f'New sales: <strong>{stats["new_sales"]}</strong></p>'
-                f'{hv_html}</div>'
+        new_html = (
+            ''.join(_render_new_listing_html(r) for r in sections['new_listings'])
+            if sections['new_listings']
+            else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No new listings in your suburbs yesterday.</p>'
+        )
+        change_html = (
+            ''.join(_render_change_html(r) for r in sections['status_changes'])
+            if sections['status_changes']
+            else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No status changes yesterday.</p>'
+        )
+        hv_section = ''
+        if sections['hot_vendor_alerts']:
+            hv_section = (
+                _section_header('Hot Vendor Alert')
+                + ''.join(_render_hv_alert_html(r) for r in sections['hot_vendor_alerts'])
             )
-        body = ''.join(cards)
+        body = (
+            _section_header('New Listings') + new_html
+            + _section_header('Status Changes') + change_html
+            + hv_section
+        )
+
+    suburbs_line = (
+        f'<p style="margin:0 0 6px;color:#666;font-size:12px;">'
+        f'Your suburbs: {_esc(", ".join(suburb_names))}'
+        f'</p>'
+    ) if suburb_names else ''
+
     return f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;">
+<html><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#1a1a1a;">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
 <tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);">
-<tr><td style="background:#386351;padding:24px 32px;">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);max-width:600px;">
+<tr><td style="background:#386350;padding:24px 32px;">
 <h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;font-weight:700;">SUBURBDESK</h1>
-<p style="margin:4px 0 0;color:#cfe0d6;font-size:13px;">Morning Report &middot; {today_au}</p>
+<p style="margin:4px 0 0;color:#cfe0d6;font-size:13px;">Morning Brief &middot; {_esc(today_au)}</p>
 </td></tr>
-<tr><td style="padding:28px 32px;">
-<p style="margin:0 0 16px;font-size:15px;color:#222;">Good morning {name},</p>
-<p style="margin:0 0 22px;color:#444;line-height:1.55;font-size:14px;">
-Here's your overnight SuburbDesk update.
-</p>
+<tr><td style="padding:24px 28px;">
+<p style="margin:0 0 16px;font-size:15px;color:#1a1a1a;">Good morning {_esc(name)},</p>
 {body}
 <p style="margin:24px 0 0;text-align:center;">
-<a href="{app}" style="display:inline-block;background:#386351;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Open SuburbDesk</a>
+<a href="{_esc(app)}" style="display:inline-block;background:#386350;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Open SuburbDesk</a>
 </p>
 </td></tr>
-<tr><td style="background:#fafafa;padding:14px 32px;border-top:1px solid #eee;text-align:center;">
-<p style="margin:0;color:#999;font-size:11px;">SuburbDesk &middot; suburbdesk.com</p>
+<tr><td style="background:#fafafa;padding:14px 28px;border-top:1px solid #eee;">
+{suburbs_line}
+<p style="margin:0;color:#999;font-size:11px;">
+Reply with "unsubscribe" to stop receiving these emails.<br>
+SuburbDesk &middot; <a href="mailto:suburbdesk@gmail.com" style="color:#999;">suburbdesk@gmail.com</a>
+</p>
 </td></tr>
 </table></td></tr></table></body></html>"""
 
@@ -193,54 +437,85 @@ def send_digest(user_id):
         logger.exception("Digest data lookup failed for user_id=%s", user_id)
         return False, str(e)
 
-    since_iso = _start_of_today_iso()
-    suburb_stats = []
-    for s in suburb_rows:
-        try:
-            stats = _stats_for_suburb(s['id'], s['name'], since_iso)
-            suburb_stats.append((s['name'], stats))
-        except Exception as e:
-            logger.warning("Digest stats failed for suburb %s: %s", s['name'], e)
-            continue
+    since_iso = _since_iso_perth_midnight()
+    suburb_names = [s['name'] for s in suburb_rows]
+    # Spec says: never send if the user has no suburbs assigned.
+    # Admins always get the full active list above so they never hit
+    # this branch; only regular users with an empty user_suburbs map.
+    if not suburb_names:
+        logger.info("Digest skipped for user_id=%s — no suburbs assigned", user_id)
+        return False, 'No suburbs assigned'
+    try:
+        sections = _build_sections(suburb_rows, user_id, since_iso)
+    except Exception as e:
+        logger.exception("Digest sections build failed for user_id=%s", user_id)
+        return False, str(e)
 
     today = _today_au()
     user_dict = dict(user)
     if not (user_dict.get('email') or '').strip():
         return False, 'User has no email'
-    weekday = datetime.utcnow().strftime('%A')
-    subject = f"SuburbDesk Morning Brief — {weekday}, {today}"
-    html = _build_digest_html(user_dict, suburb_stats, today)
-    text = _build_digest_text(user_dict, suburb_stats, today)
+    weekday = _weekday_perth()
+    nl_n = len(sections['new_listings'])
+    ch_n = len(sections['status_changes'])
+    hv_n = len(sections['hot_vendor_alerts'])
+    if hv_n > 0:
+        subject = f"🔔 SuburbDesk — Hot Vendor Listed + Morning Brief {today}"
+    elif nl_n + ch_n > 0:
+        subject = f"SuburbDesk Morning Brief — {weekday}, {today}"
+    else:
+        subject = f"SuburbDesk Morning Brief — {weekday}, {today} — Quiet day"
+    html = _build_digest_html(user_dict, sections, suburb_names, today)
+    text = _build_digest_text(user_dict, sections, suburb_names, today)
     try:
         ok, info = _send(user_dict['email'], subject, html, text=text)
     except Exception as e:
         logger.exception("Digest send crashed for user_id=%s", user_id)
         ok, info = False, str(e)
     _log_digest_attempt(
-        user_id, suburb_stats,
+        user_id, suburb_names, sections,
         status='sent' if ok else 'failed',
         error=None if ok else str(info)[:300],
     )
     return ok, info
 
 
-def _log_digest_attempt(user_id, suburb_stats, status, error=None):
+def _log_digest_attempt(user_id, suburb_names, sections, status, error=None):
     """Append a row to digest_logs. Never raises — logging failure
-    must not crash the cron pass."""
+    must not crash the cron pass. Writes both the legacy columns
+    (new_count, change_count, hot_vendor_alert) and the per-section
+    counts so historical queries keep working."""
     try:
-        suburbs = ', '.join(s for s, _ in suburb_stats)[:500]
-        new_count = sum(st['new_active'] for _, st in suburb_stats)
-        change_count = sum(st['new_sales'] for _, st in suburb_stats)
-        hv_alert = any(st['hot_vendors'] for _, st in suburb_stats)
+        suburbs = ', '.join(suburb_names)[:500]
+        nl_n = len(sections['new_listings'])
+        ch_n = len(sections['status_changes'])
+        hv_n = len(sections['hot_vendor_alerts'])
         conn = get_db()
-        conn.execute(
-            "INSERT INTO digest_logs "
-            "(user_id, suburbs_covered, new_count, change_count, "
-            " hot_vendor_alert, status, error) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (user_id, suburbs, new_count, change_count,
-             1 if hv_alert else 0, status, error)
-        )
+        # Try the extended shape first (new_listings_count /
+        # status_changes_count / hot_vendor_alerts_count columns added
+        # by the migration below). Fall back to the legacy columns if
+        # the migration hasn't run yet on this environment.
+        try:
+            conn.execute(
+                "INSERT INTO digest_logs "
+                "(user_id, suburbs_covered, new_count, change_count, "
+                " hot_vendor_alert, new_listings_count, "
+                " status_changes_count, hot_vendor_alerts_count, "
+                " status, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, suburbs, nl_n, ch_n, 1 if hv_n > 0 else 0,
+                 nl_n, ch_n, hv_n, status, error)
+            )
+        except Exception:
+            conn.rollback() if hasattr(conn, 'rollback') else None
+            conn.execute(
+                "INSERT INTO digest_logs "
+                "(user_id, suburbs_covered, new_count, change_count, "
+                " hot_vendor_alert, status, error) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, suburbs, nl_n, ch_n,
+                 1 if hv_n > 0 else 0, status, error)
+            )
         conn.commit()
         conn.close()
     except Exception:

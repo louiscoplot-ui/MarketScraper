@@ -737,6 +737,15 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_digest_logs_user_sent
             ON digest_logs(user_id, sent_at);
     """)
+    # Per-section counts added in Phase 6a — kept alongside the legacy
+    # new_count / change_count / hot_vendor_alert columns so historical
+    # queries don't break.
+    for col in ('new_listings_count', 'status_changes_count',
+                'hot_vendor_alerts_count'):
+        try:
+            conn.execute(f"ALTER TABLE digest_logs ADD COLUMN {col} INTEGER DEFAULT 0")
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
