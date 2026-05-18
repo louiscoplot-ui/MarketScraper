@@ -3,6 +3,8 @@
 import re
 from datetime import datetime, timedelta
 
+from time_utils import perth_now
+
 
 def parse_date_text(text):
     """Parse REIWA's listing-age wording into dd/mm/yyyy, or empty.
@@ -13,7 +15,7 @@ def parse_date_text(text):
     """
     if not text:
         return ""
-    today = datetime.now()
+    today = perth_now()
     s = text.lower()
 
     PREFIX = r"(?:added|listed|posted)"
@@ -84,7 +86,7 @@ def parse_date_relaxed(text):
     """
     if not text:
         return ""
-    today = datetime.now()
+    today = perth_now()
 
     # 1. "Listed Xth Month Year" / "First listed: Month Year" / etc.
     #    REIWA's own header sometimes uses past-tense passive voice.

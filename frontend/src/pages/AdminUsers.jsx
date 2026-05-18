@@ -1,7 +1,7 @@
 // SuburbDesk admin — user management + suburb assignment.
 // Admin-only page that lists every user, lets the admin add/revoke
 // access, and manages which suburbs each user can see and scrape.
-// "Personne vole rien à personne" — a user only sees their assigned
+// "No tenant steals from any other" — a user only sees their assigned
 // patch; admins see everything.
 
 import { useState, useEffect } from 'react'

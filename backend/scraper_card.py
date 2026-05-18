@@ -6,6 +6,7 @@ from datetime import datetime
 
 from scraper_utils import clean_listing_url, normalise_agency
 from scraper_dates import extract_date
+from time_utils import perth_now
 
 
 def parse_card(card, suburb_name):
@@ -171,7 +172,7 @@ def parse_card(card, suburb_name):
     # empty or equal to today, scan the card body for a plain-text
     # "Sold DD MMM YYYY" stamp and prefer that.
     listing_date = extract_date(card)
-    today_dmy = datetime.now().strftime("%d/%m/%Y")
+    today_dmy = perth_now().strftime("%d/%m/%Y")
     if not listing_date or listing_date == today_dmy:
         m = re.search(r"\bsold\s+(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})\b", ct, re.I)
         if m:

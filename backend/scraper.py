@@ -26,6 +26,7 @@ from scraper_utils import (
     _clean_listing_url, _build_url, _build_sold_url, _listing_id, _normalise_agency,
 )
 from scraper_dates import _parse_date_text, _extract_date
+from time_utils import perth_now
 from scraper_card import _parse_card
 from scraper_detail import (
     _fetch_detail, _fetch_details_batch,
@@ -432,7 +433,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     # real sold_date later from REIWA's "Last Sold on
                     # DD MMM YYYY for $X" detail-page block.
                     sold_date_dmy = rec.pop('listing_date', '') or ''
-                    today_dmy = datetime.utcnow().strftime('%d/%m/%Y')
+                    today_dmy = perth_now().strftime('%d/%m/%Y')
                     if sold_date_dmy and sold_date_dmy != today_dmy:
                         try:
                             rec['sold_date'] = datetime.strptime(

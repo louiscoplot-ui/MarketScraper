@@ -10,10 +10,11 @@ can't crash the cron pass."""
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from database import get_db
 from email_service import _send, _app_url
+from time_utils import perth_now, _PERTH_OFFSET
 
 logger = logging.getLogger(__name__)
 
@@ -21,21 +22,17 @@ logger = logging.getLogger(__name__)
 _MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June',
               'July', 'August', 'September', 'October', 'November', 'December']
 
-# Australia/Perth is fixed UTC+8 (no DST), so we can hard-code the
-# offset instead of pulling pytz / zoneinfo for one timezone.
-_PERTH_OFFSET = timedelta(hours=8)
-
 
 def _today_au():
     """8 May 2026 — AU long form, no zero-padded day. Built manually so
     the output is identical on Linux (Render, GHA) and Windows (local
     dev) without depending on locale-specific strftime tokens."""
-    now = datetime.utcnow() + _PERTH_OFFSET
+    now = perth_now()
     return f"{now.day} {_MONTHS_EN[now.month - 1]} {now.year}"
 
 
 def _weekday_perth():
-    return (datetime.utcnow() + _PERTH_OFFSET).strftime('%A')
+    return perth_now().strftime('%A')
 
 
 def _since_iso_perth_midnight():
@@ -46,8 +43,7 @@ def _since_iso_perth_midnight():
     Perth midnight today UTC = Perth midnight - 8h. The cron runs just
     after Perth midnight, so "yesterday 00:00 Perth" = the previous
     Perth day's start, which is the cutoff for "what landed overnight"."""
-    perth_now = datetime.utcnow() + _PERTH_OFFSET
-    perth_midnight = perth_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    perth_midnight = perth_now().replace(hour=0, minute=0, second=0, microsecond=0)
     # Step back one day to capture the full overnight window.
     perth_yesterday_midnight = perth_midnight - timedelta(days=1)
     return (perth_yesterday_midnight - _PERTH_OFFSET).isoformat()

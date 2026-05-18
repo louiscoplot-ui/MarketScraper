@@ -24,6 +24,7 @@ from flask import request, jsonify
 
 from database import get_db, normalize_address, USE_POSTGRES
 from admin_api import resolve_request_scope
+from time_utils import perth_now
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +311,7 @@ def import_rpdata():
     price_updates = 0
     status_updates = 0
     errors = []
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = perth_now().isoformat()
 
     update_payloads = []
     start_offset = (header_idx + 2) if header_idx >= 0 else 1

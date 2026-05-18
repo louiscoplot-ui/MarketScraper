@@ -10,6 +10,8 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
+
+from time_utils import perth_now
 from io import BytesIO
 from flask import request, jsonify, send_file
 
@@ -598,7 +600,7 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
         days = 7
     days = max(1, min(days, 90))
 
-    cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+    cutoff_date = (perth_now() - timedelta(days=days)).date().isoformat()
     src_limit = _source_limit(days)
 
     conn = get_db()
@@ -898,7 +900,7 @@ def pipeline_tracking_grouped():
         sql += f" AND source_suburb_lower IN ({placeholders})"
         params.extend(allowed_names)
     if days is not None:
-        cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+        cutoff_date = (perth_now() - timedelta(days=days)).date().isoformat()
         # source_sold_date is stored as TEXT but in two formats across the
         # life of the table: ISO YYYY-MM-DD (scraper + import_api today)
         # and legacy DD/MM/YYYY (older pipeline_tracking rows from before
@@ -1218,7 +1220,7 @@ def pipeline_recent_sales():
     except ValueError:
         days = 30
     days = max(1, min(days, 365))
-    cutoff_date = (datetime.utcnow() - timedelta(days=days)).date().isoformat()
+    cutoff_date = (perth_now() - timedelta(days=days)).date().isoformat()
 
     conn = get_db()
     rows = conn.execute(
