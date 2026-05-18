@@ -43,5 +43,10 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Morning digest pipeline reads these. EMAIL_FROM is the
+          # short-circuit guard at the top of the digest pass — without
+          # it set the cron logs "EMAIL_FROM not set" and exits silently.
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: |
           python scripts/run_daily_scrape.py
