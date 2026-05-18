@@ -55,6 +55,10 @@ function App() {
   // is in flight. The cache key is access-key-scoped so signing out as
   // one user and in as another doesn't leak the previous role/flags.
   const [me, setMe] = useState(() => readCache('admin_me'))
+  // Surfaced as a dismissible banner at the top of the app when
+  // /api/admin/me fails after all retries — without it, the operator
+  // sees the Admin / Rental tabs silently absent and blames the app.
+  const [backendUnreachable, setBackendUnreachable] = useState(false)
   useEffect(() => {
     fetchWithRetry(`${BOOT_API}/admin/me`, {
       headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' }
@@ -64,9 +68,14 @@ function App() {
         if (d && d.user) {
           setMe(d.user)
           writeCache('admin_me', d.user)
+        } else {
+          // 401 / null body — leave me as-is (cached) and surface the
+          // backend-unreachable banner so the operator knows that
+          // role-gated features may be incomplete.
+          setBackendUnreachable(true)
         }
       })
-      .catch(() => {})
+      .catch(() => setBackendUnreachable(true))
   }, [])
   // Rental sidebar state — lifted out of RentalView so the left
   // sidebar can drive the table when the operator is on that tab.
@@ -481,6 +490,25 @@ function App() {
 
   return (
     <div className="app">
+      {backendUnreachable && (
+        <div style={{
+          background: '#fef3c7', borderBottom: '1px solid #fcd34d',
+          color: '#92400e', padding: '8px 16px', fontSize: 13,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12,
+        }}>
+          <span>⚠️ Connection issue — some features may be unavailable. Refresh to retry.</span>
+          <button
+            type="button"
+            onClick={() => setBackendUnreachable(false)}
+            aria-label="Dismiss"
+            style={{
+              background: 'transparent', border: 'none', color: '#92400e',
+              fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 4px',
+            }}
+          >×</button>
+        </div>
+      )}
       <Header
         me={me}
         view={view} setView={setView}
