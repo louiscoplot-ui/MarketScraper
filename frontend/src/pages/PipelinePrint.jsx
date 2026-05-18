@@ -38,7 +38,7 @@ export default function PipelinePrint() {
   const agentName = profile?.agent_name || 'Louis Coplot'
   const agentRole = `Sales Agent | ${profile?.agency_name || 'Belle Property Cottesloe'}`
   const agentPhone = profile?.agent_phone || '0400 XXX XXX'
-  const agentEmail = profile?.agent_email || 'louis@belleproperty.com.au'
+  const agentEmail = profile?.agent_email || 'suburbdesk@gmail.com'
 
   return (
     <>

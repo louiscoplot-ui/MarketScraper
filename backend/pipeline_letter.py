@@ -37,7 +37,7 @@ LOGO_PATH = os.path.join(_THIS_DIR, 'static', 'logo_acton_belle.png')
 # operator can swap them without code change. Defaults preserve Louis's
 # existing letterhead for backward compatibility.
 AGENCY_LINE_1_DEFAULT = '160 Stirling Hwy, Nedlands WA 6009'
-AGENCY_LINE_2_DEFAULT = '08 9386 8255  |  cottesloe@belleproperty.com'
+AGENCY_LINE_2_DEFAULT = '08 9386 8255  |  suburbdesk@gmail.com'
 AGENCY_LINE_3_DEFAULT = 'Dalkeith Region Pty Ltd  |  ABN 26 123 014 957  |  belleproperty.com/Cottesloe'
 
 

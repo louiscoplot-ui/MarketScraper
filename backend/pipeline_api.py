@@ -172,7 +172,7 @@ def _osm_fetch_street_numbers(street, suburb):
             OVERPASS_URL, data=body,
             headers={
                 'User-Agent': 'SuburbDesk/1.0 (real-estate prospecting; '
-                              'contact: louiscoplot@bellepropertycottesloe.com.au)',
+                              'contact: suburbdesk@gmail.com)',
                 'Content-Type': 'application/x-www-form-urlencoded',
             }
         )
