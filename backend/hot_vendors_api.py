@@ -15,7 +15,54 @@ import logging
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta
 from flask import jsonify, request, send_file
+
+# Hot Vendor uploads expire 60 days after upload — RP Data goes stale
+# fast and re-importing forces the user to refresh their prospecting
+# list with current ownership, holding-period, and gain data.
+HV_EXPIRY_DAYS = 60
+HV_EXPIRY_WARN_DAYS = 7
+
+
+def _parse_uploaded_at(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    s = str(value).strip()
+    if not s:
+        return None
+    # Accept the few formats sqlite / psycopg2 / Postgres TIMESTAMP can
+    # round-trip: ISO with or without microseconds, with or without
+    # timezone, and the SQLite "YYYY-MM-DD HH:MM:SS" form.
+    for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S',
+                '%Y-%m-%d'):
+        try:
+            return datetime.strptime(s[:26] if '.' in s else s[:19], fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(s.replace('Z', '+00:00').split('+')[0])
+    except Exception:
+        return None
+
+
+def _expiry_fields(uploaded_at_value):
+    """Return {expires_at, days_remaining, is_expired} for an upload row.
+    Falls back to a permissive (never-expired) shape when we can't parse
+    uploaded_at — better than locking the user out over a bad timestamp."""
+    dt = _parse_uploaded_at(uploaded_at_value)
+    if not dt:
+        return {'expires_at': None, 'days_remaining': None, 'is_expired': False}
+    expires = dt + timedelta(days=HV_EXPIRY_DAYS)
+    remaining = (expires - datetime.utcnow()).days
+    return {
+        'expires_at': expires.isoformat(),
+        'days_remaining': remaining,
+        'is_expired': remaining < 0,
+    }
 
 from database import get_db, normalize_address, USE_POSTGRES
 from admin_api import get_user_allowed_suburb_names, user_can_access_suburb
@@ -326,11 +373,15 @@ def _build_upload_payload(conn, upload_id):
 
     _attach_user_status(conn, properties)
 
+    expiry = _expiry_fields(upload_d.get('uploaded_at'))
     return {
         'upload_id': upload_id,
         'id': upload_id,
         'suburb': upload_d.get('suburb') or 'UNKNOWN',
         'uploaded_at': str(upload_d.get('uploaded_at') or ''),
+        'expires_at': expiry['expires_at'],
+        'days_remaining': expiry['days_remaining'],
+        'is_expired': expiry['is_expired'],
         'filename': upload_d.get('filename') or '',
         'today': meta.get('today', ''),
         'raw_count': meta.get('raw_count', len(properties)),
@@ -719,7 +770,7 @@ def register_hot_vendors_routes(app):
             sub = (d.get('suburb') or '').strip().lower()
             if allowed_names is not None and sub not in allowed_names:
                 continue
-            out.append({
+            entry = {
                 'id': d.get('id'),
                 'suburb': d.get('suburb'),
                 'filename': d.get('filename'),
@@ -727,7 +778,9 @@ def register_hot_vendors_routes(app):
                 'uploaded_at': str(d.get('uploaded_at') or ''),
                 'agency': d.get('agency'),
                 'uploaded_by': d.get('uploaded_by'),
-            })
+            }
+            entry.update(_expiry_fields(d.get('uploaded_at')))
+            out.append(entry)
         return jsonify({'uploads': out})
 
 
@@ -794,6 +847,17 @@ def register_hot_vendors_routes(app):
 
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel-job', methods=['POST'])
     def excel_job_start(upload_id):
+        conn = get_db()
+        row = conn.execute(
+            "SELECT uploaded_at FROM hot_vendor_uploads WHERE id = ?",
+            (upload_id,)
+        ).fetchone()
+        conn.close()
+        if row and _expiry_fields(dict(row).get('uploaded_at'))['is_expired']:
+            return jsonify({
+                'error': 'Upload expired. Please re-import your RP Data '
+                         'to generate a fresh export.'
+            }), 403
         _hv_excel_purge_expired()
         job_id = uuid.uuid4().hex[:12]
         _hv_excel_set(job_id, status='running', stage='Queued', upload_id=upload_id)
@@ -844,6 +908,17 @@ def register_hot_vendors_routes(app):
     @app.route('/api/hot-vendors/uploads/<int:upload_id>/excel', methods=['GET'])
     def download_excel(upload_id):
         logger.info(f"[Excel] Download requested for upload_id={upload_id}")
+        conn = get_db()
+        row = conn.execute(
+            "SELECT uploaded_at FROM hot_vendor_uploads WHERE id = ?",
+            (upload_id,)
+        ).fetchone()
+        conn.close()
+        if row and _expiry_fields(dict(row).get('uploaded_at'))['is_expired']:
+            return jsonify({
+                'error': 'Upload expired. Please re-import your RP Data '
+                         'to generate a fresh export.'
+            }), 403
         try:
             from hot_vendor_excel import build_workbook, workbook_filename
         except ImportError as e:
@@ -955,3 +1030,49 @@ def register_hot_vendors_routes(app):
         payload = dict(row)
         payload.pop('upload_suburb', None)
         return jsonify({'match': payload})
+
+
+    @app.route('/api/hot-vendors/expiry-status', methods=['GET'])
+    def expiry_status():
+        """Lightweight per-suburb expiry summary so the UI can render
+        warning banners without pulling the full uploads payload."""
+        _, allowed_names = get_user_allowed_suburb_names()
+        conn = get_db()
+        if USE_POSTGRES:
+            rows = conn.execute("""
+                SELECT DISTINCT ON (suburb)
+                    id, suburb, uploaded_at
+                FROM hot_vendor_uploads
+                WHERE suburb IS NOT NULL AND suburb <> ''
+                ORDER BY suburb, uploaded_at DESC
+            """).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT u.id, u.suburb, u.uploaded_at
+                FROM hot_vendor_uploads u
+                INNER JOIN (
+                    SELECT suburb, MAX(uploaded_at) AS max_at
+                    FROM hot_vendor_uploads
+                    WHERE suburb IS NOT NULL AND suburb <> ''
+                    GROUP BY suburb
+                ) m ON u.suburb = m.suburb AND u.uploaded_at = m.max_at
+            """).fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            sub = (d.get('suburb') or '').strip().lower()
+            if allowed_names is not None and sub not in allowed_names:
+                continue
+            entry = {
+                'id': d.get('id'),
+                'suburb': d.get('suburb'),
+                'uploaded_at': str(d.get('uploaded_at') or ''),
+            }
+            entry.update(_expiry_fields(d.get('uploaded_at')))
+            out.append(entry)
+        return jsonify({
+            'uploads': out,
+            'expiry_days': HV_EXPIRY_DAYS,
+            'warn_threshold_days': HV_EXPIRY_WARN_DAYS,
+        })

@@ -47,6 +47,54 @@ const STATUS_TINT = {
 }
 
 
+// Renders the small expiry pill on each saved-upload card. Threshold
+// values are sourced from backend (HV_EXPIRY_DAYS / WARN_THRESHOLD) and
+// surface in every upload's `days_remaining` field.
+function renderExpiryBadge(u) {
+  if (u == null || u.days_remaining == null) return null
+  const dr = u.days_remaining
+  let label, bg, color
+  if (dr < 0) {
+    label = 'Expired — Re-import required'
+    bg = '#fee2e2'; color = '#991b1b'
+  } else if (dr <= 7) {
+    label = `Expiring soon — ${dr}d`
+    bg = '#fef3c7'; color = '#92400e'
+  } else {
+    label = `Valid — ${dr}d remaining`
+    bg = '#dcfce7'; color = '#166534'
+  }
+  return (
+    <div style={{
+      marginTop: 6, fontSize: 11, padding: '2px 6px',
+      borderRadius: 4, background: bg, color, display: 'inline-block',
+    }}>{label}</div>
+  )
+}
+
+// Page-wide warning banner shown above the Hot Vendor section when the
+// currently loaded upload is expired or within the warn window.
+function renderExpiryBanner(data) {
+  if (!data || data.days_remaining == null) return null
+  const dr = data.days_remaining
+  if (dr > 7) return null
+  const expired = dr < 0
+  const when = data.expires_at ? new Date(data.expires_at).toLocaleDateString() : ''
+  return (
+    <div style={{
+      margin: '0 0 12px', padding: '10px 14px', borderRadius: 6,
+      background: expired ? '#fef2f2' : '#fefce8',
+      border: `1px solid ${expired ? '#fca5a5' : '#fde047'}`,
+      color: expired ? '#991b1b' : '#854d0e',
+      fontSize: 13,
+    }}>
+      {expired
+        ? `⚠️ Your Hot Vendor data expired${when ? ` on ${when}` : ''}. Import a new RP Data export to refresh your scores.`
+        : `Your Hot Vendor scores expire in ${dr} day${dr === 1 ? '' : 's'}. Re-import your RP Data to keep your prospecting current.`}
+    </div>
+  )
+}
+
 function fmtMoney(n) {
   if (n == null || n === '') return '-'
   return '$' + Math.round(n).toLocaleString('en-AU')
@@ -576,6 +624,7 @@ export default function HotVendorScoring() {
   const hasData = properties.length > 0
   const profile = data?.profile || {}
   const weights = data?.weights || {}
+  const expiryBanner = renderExpiryBanner(data)
   const suburbBtnLabel = selectedSuburbs.size === 0
     ? `All suburbs${uniqueSuburbs.length > 1 ? ` (${uniqueSuburbs.length})` : ''}`
     : selectedSuburbs.size === 1
@@ -584,6 +633,7 @@ export default function HotVendorScoring() {
 
   return (
     <div className={`hot-vendor ${compact ? 'compact' : ''}`}>
+      {expiryBanner}
       <div className="hot-vendor-header">
         <div>
           <h2>Hot Vendor Scoring <span style={{
@@ -603,7 +653,10 @@ export default function HotVendorScoring() {
             <button
               className="btn btn-primary"
               onClick={downloadExcel}
-              disabled={excelLoading}
+              disabled={excelLoading || (data && data.is_expired)}
+              title={(data && data.is_expired)
+                ? 'Data expired. Re-import your RP Data to export.'
+                : undefined}
             >
               {excelLoading
                 ? `⏳ ${excelStage || 'Generating…'}`
@@ -655,6 +708,7 @@ export default function HotVendorScoring() {
                 (data.upload_id && data.upload_id === u.id) ||
                 (data.suburb && data.suburb.toLowerCase() === (u.suburb || '').toLowerCase())
               )
+              const expiryBadge = renderExpiryBadge(u)
               return (
                 <button
                   key={u.id}
@@ -666,6 +720,7 @@ export default function HotVendorScoring() {
                     {u.row_count} properties
                     {u.uploaded_at && ` · ${(u.uploaded_at || '').slice(0, 10)}`}
                   </div>
+                  {expiryBadge}
                 </button>
               )
             })}
