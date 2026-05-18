@@ -443,6 +443,11 @@ def import_rpdata():
     return jsonify({
         'matched': matched,
         'no_match': no_match,
+        # 'unmatched' = same as no_match, exposed under the audit-report
+        # field name so the frontend can show a per-import warning when
+        # a suburb name typo or stale row leaves rows unjoined.
+        'unmatched': no_match,
+        'updated': matched,
         'skipped': skipped,
         'date_updates': date_updates,
         'price_updates': price_updates,

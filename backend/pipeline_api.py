@@ -736,6 +736,11 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
             ))
 
     generated = _bulk_insert_pipeline(conn, insert_rows)
+    # Skipped rows hit ON CONFLICT (target_address, sent_date) DO
+    # NOTHING — every target already had a pipeline row for today.
+    # Exposed so the UI can show "N targets already existed".
+    total_attempted = len(insert_rows)
+    skipped = max(0, total_attempted - generated)
     conn.commit()
 
     # Always return the raw source sales — even when generated=0
@@ -759,6 +764,8 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
 
     return {
         'generated': generated,
+        'skipped': skipped,
+        'total_attempted': total_attempted,
         'sold_count': sold_count,
         'suburb': suburb,
         'cap_applied': sold_count >= src_limit,
@@ -850,6 +857,8 @@ def pipeline_manual_add():
         ))
 
     generated = _bulk_insert_pipeline(conn, insert_rows)
+    total_attempted = len(insert_rows)
+    skipped = max(0, total_attempted - generated)
     conn.commit()
 
     rows = conn.execute(
@@ -867,6 +876,8 @@ def pipeline_manual_add():
 
     return jsonify({
         'generated': generated,
+        'skipped': skipped,
+        'total_attempted': total_attempted,
         'attempted': len(targets),
         'targets': targets,
         'source_address': source_address,
