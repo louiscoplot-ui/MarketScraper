@@ -351,6 +351,11 @@ function App() {
   }
 
   const scrapeSuburb = async (id) => {
+    // Belt + braces: the buttons already disable on isAnyScraping, but
+    // the scrape_jobs map can be stale for ~1s between click and the
+    // next status poll. A handler-level guard prevents a rapid second
+    // click from posting before the first updates the state.
+    if (scrapeStatus[id] && scrapeStatus[id].status === 'running') return
     scrapeStartRef.current = Date.now()
     await fetch(`${API}/scrape/${id}`, { method: 'POST' })
     setShowScrapeModal(true)
@@ -359,6 +364,7 @@ function App() {
 
   const scrapeSelected = async () => {
     if (checkedSuburbs.size === 0) return
+    if (isAnyScraping) return  // re-entry guard, same reasoning as above
     scrapeStartRef.current = Date.now()
     await fetch(`${API}/scrape/selected`, {
       method: 'POST',

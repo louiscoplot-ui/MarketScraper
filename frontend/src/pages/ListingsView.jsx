@@ -31,6 +31,7 @@ export default function ListingsView({
   // listings (REIWA reposting a withdrawn property → new id, same address).
   const [noteEditing, setNoteEditing] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
   const wrapperRef = useRef(null)
   // Compact mode defaults ON for first-time visitors (denser table fits
   // more on a laptop screen). User toggles persist after that.
@@ -85,10 +86,13 @@ export default function ListingsView({
     setNoteDraft('')
   }
   const saveNote = () => {
-    if (!noteEditing) return
+    if (!noteEditing || noteSaving) return
     // Optimistic: close + mirror locally immediately so the UI feels
     // instant. The Render free tier cold-start can take 30-60s — we
     // don't make the agent wait. Revert + alert if the request fails.
+    // noteSaving guards against a double-click landing two PATCHes
+    // before closeNote() unmounts the modal.
+    setNoteSaving(true)
     const target = noteEditing
     const previous = target.note || null
     const draft = noteDraft.trim() || null
@@ -109,6 +113,7 @@ export default function ListingsView({
         mirrorListing(target.id, { note: previous })
         alert(`Could not save note: ${e.message}`)
       })
+      .finally(() => setNoteSaving(false))
   }
 
   // Hide Suburb when the filter is on a single suburb — every row
@@ -381,8 +386,9 @@ export default function ListingsView({
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={saveNote}
+                  disabled={noteSaving}
                 >
-                  Save note
+                  {noteSaving ? 'Saving…' : 'Save note'}
                 </button>
               </div>
             </div>
