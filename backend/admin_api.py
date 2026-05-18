@@ -400,8 +400,16 @@ def register_admin_routes(app):
         if 'digest_enabled' in body:
             sets.append('digest_enabled = ?')
             params.append(1 if body.get('digest_enabled') else 0)
+        # rental_access lives on users too; the Manage Access modal
+        # pushes it through this generic PATCH alongside digest_enabled
+        # so a single save persists both feature flags. The legacy
+        # PATCH /api/admin/users/<id>/rental-access route still works
+        # for the inline column toggle.
+        if 'rental_access' in body:
+            sets.append('rental_access = ?')
+            params.append(1 if body.get('rental_access') else 0)
         if not sets:
-            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled'}), 400
+            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access'}), 400
         params.append(user_id)
         conn = get_db()
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)

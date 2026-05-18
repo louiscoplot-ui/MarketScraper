@@ -1086,11 +1086,15 @@ export default function AdminUsers() {
             {/* Rental access + suburbs */}
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                {/* The toggle is hydrated from the row (u.rental_access)
+                    the instant the modal opens, so it doesn't depend on
+                    the async fetch — disable only while a save is in
+                    flight, not while the suburb lists are loading. */}
                 <input
                   type="checkbox"
                   checked={managing.rental_access}
                   onChange={(e) => updateManaging({ rental_access: e.target.checked })}
-                  disabled={managing.saving || managing.loading}
+                  disabled={managing.saving}
                 />
                 Rental enabled
               </label>
@@ -1135,11 +1139,14 @@ export default function AdminUsers() {
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
               <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Features</strong>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                {/* digest_enabled is hydrated from u (row data) the
+                    instant the modal opens — no dependency on the
+                    suburb fetch, so gate only on saving. */}
                 <input
                   type="checkbox"
                   checked={managing.digest_enabled}
                   onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
-                  disabled={managing.saving || managing.loading}
+                  disabled={managing.saving}
                 />
                 Morning digest email
               </label>
