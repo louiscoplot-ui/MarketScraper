@@ -698,6 +698,7 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
             try:
                 nums = _osm_fetch_street_numbers(street, sub)
             except Exception:
+                logger.exception(f"[pipeline] OSM prefetch failed for {street!r}, {sub!r}")
                 nums = []
             return (street, sub, nums)
         with ThreadPoolExecutor(max_workers=6) as ex:

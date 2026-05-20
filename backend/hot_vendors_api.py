@@ -489,7 +489,7 @@ def register_hot_vendors_routes(app):
                 try:
                     conn.close()
                 except Exception:
-                    pass
+                    logger.exception(f"[score-csv {job_id}] conn.close() failed (non-fatal)")
             logger.info(f"[score-csv {job_id}] DB persist took {time.time() - t_db_start:.1f}s")
 
             total = time.time() - t0
@@ -815,8 +815,10 @@ def register_hot_vendors_routes(app):
             try:
                 result = _build_upload_payload(conn, upload_id)
             finally:
-                try: conn.close()
-                except Exception: pass
+                try:
+                    conn.close()
+                except Exception:
+                    logger.exception(f"[Excel job {job_id}] conn.close() failed (non-fatal)")
             if not result:
                 _hv_excel_set(job_id, status='error', error='Upload not found')
                 return
