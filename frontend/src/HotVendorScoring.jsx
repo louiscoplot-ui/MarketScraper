@@ -392,15 +392,24 @@ export default function HotVendorScoring() {
     setExcelLoading(true)
     setExcelStage('Starting…')
     const t0 = Date.now()
+    // Per-fetch timeouts so a TCP stall on Render can't hang the
+    // polling loop indefinitely. Without these, fetch() has no
+    // built-in deadline and a borked dyno would keep the button
+    // disabled forever — the outer try/finally never fires because
+    // we're still suspended inside the await.
+    const POST_TIMEOUT_MS = 30000
+    const POLL_TIMEOUT_MS = 12000
+    const FILE_TIMEOUT_MS = 120000
+    let consecutivePollErrors = 0
     try {
       // Async pattern: POST starts a background build job, we poll the
       // status, then fetch the file once ready. Avoids 502s on big
       // suburbs that take >2 min to serialise.
       const startRes = await fetch(
         `${BACKEND_DIRECT}/api/hot-vendors/uploads/${id}/excel-job`,
-        { method: 'POST' }
+        { method: 'POST', signal: AbortSignal.timeout(POST_TIMEOUT_MS) }
       )
-      const startJson = await startRes.json()
+      const startJson = await startRes.json().catch(() => ({}))
       if (!startRes.ok || !startJson.job_id) {
         throw new Error(startJson.error || `Could not start Excel job (${startRes.status})`)
       }
@@ -411,13 +420,33 @@ export default function HotVendorScoring() {
       const MAX_MS = 10 * 60 * 1000
       while (true) {
         await new Promise(r => setTimeout(r, POLL_MS))
-        const sRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}`)
+        if (Date.now() - t0 > MAX_MS) throw new Error('Excel job took >10 min')
+        let sRes
+        try {
+          sRes = await fetch(
+            `${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}`,
+            { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) }
+          )
+        } catch (e) {
+          // Network throw / abort — count it. After 5 in a row,
+          // bail out so the button stops being stuck.
+          consecutivePollErrors += 1
+          console.warn(`[Excel poll ${jobId}] fetch error ${consecutivePollErrors}/5:`, e.message)
+          if (consecutivePollErrors >= 5) {
+            throw new Error('Lost connection to the server while polling Excel job')
+          }
+          continue
+        }
+        consecutivePollErrors = 0
         const sJson = await sRes.json().catch(() => ({}))
         if (sJson.stage) setExcelStage(sJson.stage)
         console.log(`[Excel poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
         if (sJson.status === 'done' && sJson.has_file) {
           console.log(`[Excel] ready in ${((Date.now() - t0) / 1000).toFixed(1)}s — fetching file`)
-          const fileRes = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}/file`)
+          const fileRes = await fetch(
+            `${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}/file`,
+            { signal: AbortSignal.timeout(FILE_TIMEOUT_MS) }
+          )
           if (!fileRes.ok) throw new Error(`File fetch failed (${fileRes.status})`)
           const blob = await fileRes.blob()
           if (!blob.size) throw new Error('Empty file from backend')
@@ -436,12 +465,16 @@ export default function HotVendorScoring() {
         }
         if (sJson.status === 'error') throw new Error(sJson.error || 'Excel build failed')
         if (sJson.status === 'lost' || !sRes.ok) throw new Error(sJson.error || 'Job lost')
-        if (Date.now() - t0 > MAX_MS) throw new Error('Excel job took >10 min')
       }
     } catch (e) {
       console.error('[Excel] Failed:', e)
       setError(e.message || 'Excel download failed')
     } finally {
+      // Always restore the button — every code path (success return,
+      // throw inside loop, AbortSignal timeout, post-deploy reload)
+      // converges here. The previous failure mode was a stalled fetch
+      // with no signal: AbortSignal.timeout — we'd suspend inside the
+      // await and the finally would never fire.
       setExcelLoading(false)
       setExcelStage('')
     }
