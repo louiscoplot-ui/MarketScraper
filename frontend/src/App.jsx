@@ -269,11 +269,23 @@ function App() {
       return
     }
     searchTimeoutRef.current = setTimeout(async () => {
-      const res = await fetch(`${API}/suburbs/search?q=${encodeURIComponent(val.trim())}`)
-      if (res.ok) {
+      // BOOT_API bypasses the Vercel 25s edge timeout — during a
+      // Render cold start the previous ${API} call returned 504 and
+      // the dropdown never populated, which is why the autocomplete
+      // looked broken until the dyno warmed up on its own.
+      try {
+        const res = await fetch(`${BOOT_API}/suburbs/search?q=${encodeURIComponent(val.trim())}`)
+        if (!res.ok) return
         const data = await res.json()
-        setSuggestions(data)
-        setShowSuggestions(data.length > 0)
+        // Backend now returns [{name, postcode}] but tolerate the
+        // legacy [string] shape too while Vercel finishes redeploying.
+        const normalised = Array.isArray(data)
+          ? data.map(d => typeof d === 'string' ? { name: d, postcode: '' } : d)
+          : []
+        setSuggestions(normalised)
+        setShowSuggestions(normalised.length > 0)
+      } catch (e) {
+        console.warn('suburbs/search failed:', e)
       }
     }, 150)
   }
@@ -653,11 +665,27 @@ function App() {
               />
               {showSuggestions && (
                 <div className="suggestions-dropdown">
-                  {suggestions.map(s => (
-                    <div key={s} className="suggestion-item" onClick={() => selectSuggestion(s)}>
-                      {s}
-                    </div>
-                  ))}
+                  {suggestions.map(s => {
+                    // Backend returns {name, postcode}; legacy plain
+                    // string is handled by normalising at the source.
+                    const name = s.name || s
+                    const postcode = s.postcode || ''
+                    return (
+                      <div
+                        key={name}
+                        className="suggestion-item"
+                        onClick={() => selectSuggestion(name)}
+                      >
+                        <span>{name}</span>
+                        {postcode && (
+                          <span style={{
+                            marginLeft: 8, fontSize: 11, color: '#94a3b8',
+                            fontFeatureSettings: '"tnum"',
+                          }}>{postcode}</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>

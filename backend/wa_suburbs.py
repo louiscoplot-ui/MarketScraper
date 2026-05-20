@@ -78,3 +78,53 @@ WA_SUBURBS = [
 
 # Remove duplicates and sort
 WA_SUBURBS = sorted(list(set(WA_SUBURBS)))
+
+
+# Postcode lookup — Perth metro + agency-scope suburbs. Only entries the
+# operator confirmed are listed here; everything else falls back to ''
+# in the search response so the UI shows the suburb name without a
+# misleading postcode. Add more keys as they're verified against
+# Australia Post's official WA postcode list.
+SUBURB_POSTCODES = {
+    'Cottesloe': '6011',
+    'Peppermint Grove': '6011',
+    'Karrakatta': '6011',
+    'Mosman Park': '6012',
+    'Claremont': '6010',
+    'Swanbourne': '6010',
+    'Mount Claremont': '6010',
+    'Nedlands': '6009',
+    'Dalkeith': '6009',
+    'Crawley': '6009',
+    'Floreat': '6014',
+    'Jolimont': '6014',
+    'Wembley': '6014',
+    'City Beach': '6015',
+    'Wembley Downs': '6019',
+    'Subiaco': '6008',
+    'Daglish': '6008',
+    'Shenton Park': '6008',
+    'Leederville': '6007',
+    'West Leederville': '6007',
+    'North Perth': '6006',
+    'Perth': '6000',
+    'East Perth': '6004',
+    'West Perth': '6005',
+    'Fremantle': '6160',
+    'North Fremantle': '6159',
+    'South Fremantle': '6162',
+    'East Fremantle': '6158',
+    'Applecross': '6153',
+    'Ardross': '6153',
+    'Brentwood': '6153',
+    'Mount Pleasant': '6153',
+    'Attadale': '6156',
+    'Bicton': '6157',
+    'Booragoon': '6154',
+}
+
+
+def postcode_for(name):
+    """Return the AU postcode for a suburb name, or '' when unknown.
+    Case-insensitive lookup keyed on the WA_SUBURBS canonical name."""
+    return SUBURB_POSTCODES.get((name or '').strip(), '')

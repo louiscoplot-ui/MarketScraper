@@ -119,15 +119,21 @@ def ping():
 
 @app.route('/api/suburbs/search', methods=['GET'])
 def search_suburbs():
-    """Autocomplete for WA suburb names."""
-    from wa_suburbs import WA_SUBURBS
+    """Autocomplete for WA suburb names. Returns [{name, postcode}]
+    so the UI can disambiguate by postcode (helpful for names that
+    repeat across states). postcode is '' when not in the embedded
+    SUBURB_POSTCODES dict — render the name alone in that case."""
+    from wa_suburbs import WA_SUBURBS, postcode_for
     q = request.args.get('q', '').strip().lower()
     if not q:
         return jsonify([])
     matches = [s for s in WA_SUBURBS if s.lower().startswith(q)]
     if not matches:
         matches = [s for s in WA_SUBURBS if q in s.lower()]
-    return jsonify(matches[:15])
+    return jsonify([
+        {'name': s, 'postcode': postcode_for(s)}
+        for s in matches[:15]
+    ])
 
 
 # --- SUBURB MANAGEMENT ---
