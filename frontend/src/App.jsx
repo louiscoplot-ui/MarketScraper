@@ -282,7 +282,11 @@ function App() {
     setSuggestions([])
     setShowSuggestions(false)
     setNewSuburb('')
-    const res = await fetch(`${API}/suburbs`, {
+    // BOOT_API (= BACKEND_DIRECT) bypasses Vercel's 25s edge timeout —
+    // a cold-starting Render dyno was killing this POST mid-flight,
+    // which left the user clicking the suggestion with nothing
+    // visibly happening (the 504 fired AFTER the dropdown closed).
+    const res = await fetch(`${BOOT_API}/suburbs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name.trim() })
@@ -314,7 +318,9 @@ function App() {
     e.preventDefault()
     if (!newSuburb.trim()) return
     setShowSuggestions(false)
-    const res = await fetch(`${API}/suburbs`, {
+    // BOOT_API = BACKEND_DIRECT — bypass the 25s Vercel edge timeout
+    // that swallowed POSTs to /suburbs during Render cold starts.
+    const res = await fetch(`${BOOT_API}/suburbs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newSuburb.trim() })
