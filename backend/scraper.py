@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup
 
 from scraper_utils import (
     REIWA_BASE, MAX_PAGES, UA, DETAIL_TABS, CHROMIUM_PATH,
-    EXTRA_HTTP_HEADERS, pick_user_agent,
+    EXTRA_HTTP_HEADERS, pick_user_agent, normalize_reiwa_url,
     _clean_listing_url, _build_url, _build_sold_url, _listing_id, _normalise_agency,
 )
 from scraper_dates import _parse_date_text, _extract_date
@@ -222,13 +222,20 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     page_listings.append(rec)
                     logger.info(f"{suburb_name} p{page_num}: JS rescued missed listing: {normalized}")
 
-                # Split into new vs known listings
+                # Split into new vs known listings.
+                # Normalise both sides through normalize_reiwa_url so a
+                # trailing-slash / query-param drift between the card
+                # scrape and the DB row can never flip a known listing
+                # back into "new". Without this, a single inconsistent
+                # write would keep re-fetching detail pages every run
+                # — 17 minutes on page 1 with "20 new, 0 known".
                 new_listings = []
                 known_listings = []
-                _known = known_urls or set()
+                _known = {normalize_reiwa_url(u) for u in (known_urls or set())}
 
                 for rec in page_listings:
-                    if rec['url'] in _known:
+                    key = normalize_reiwa_url(rec.get('url'))
+                    if key in _known:
                         known_listings.append(rec)
                     else:
                         new_listings.append(rec)
@@ -244,7 +251,10 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     progress_callback(f'For-sale page {page_num}: {len(known_listings)} known (all skipped)')
 
                 for rec in page_listings:
-                    rec['reiwa_url'] = rec['url']
+                    # Persist the normalised URL so the next scrape's
+                    # get_existing_urls lookup hashes to the same key
+                    # as the rec['url'] match above.
+                    rec['reiwa_url'] = normalize_reiwa_url(rec['url'])
                     results['forsale_listings'].append(rec)
 
                 results['stats']['forsale_pages_scraped'] = page_num
@@ -365,7 +375,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                             if detail.get('status') == 'under_offer':
                                 rec['status'] = 'under_offer'
 
-                            rec['reiwa_url'] = rec['url']
+                            rec['reiwa_url'] = normalize_reiwa_url(rec['url'])
                             results['forsale_listings'].append(rec)
                             existing_urls.add(rec['url'].rstrip('/'))
                             recovered += 1
@@ -420,7 +430,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         new_on_page += 1
 
                     rec['status'] = 'sold'
-                    rec['reiwa_url'] = card_url
+                    rec['reiwa_url'] = normalize_reiwa_url(card_url)
                     # _parse_card pulls a date via extract_date() which
                     # tries the card's <time> element first. On REIWA's
                     # /sold/ grid that element is a page-level timestamp

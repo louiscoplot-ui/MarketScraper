@@ -172,9 +172,10 @@ def run_scrape(suburb_id, slug, name):
         forsale_urls = []
         sold_urls = []
 
+        from scraper_utils import normalize_reiwa_url
         progress_cb('Saving for-sale listings to database...')
         for listing in result['forsale_listings']:
-            url = listing.get('reiwa_url', '').strip()
+            url = normalize_reiwa_url(listing.get('reiwa_url'))
             if not url:
                 continue
             forsale_urls.append(url)
@@ -187,7 +188,7 @@ def run_scrape(suburb_id, slug, name):
         progress_cb('Saving sold listings to database...')
         saved_sold = 0
         for listing in result['sold_listings']:
-            url = listing.get('reiwa_url', '').strip()
+            url = normalize_reiwa_url(listing.get('reiwa_url'))
             if not url:
                 continue
             sold_urls.append(url)

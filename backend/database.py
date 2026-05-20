@@ -358,7 +358,11 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
 
 def upsert_listing(suburb_id, reiwa_url, data):
     """Insert or update a listing keyed by reiwa_url."""
-    reiwa_url = reiwa_url.rstrip('/')
+    from scraper_utils import normalize_reiwa_url
+    # Single source of truth — same helper the scraper-side comparison
+    # uses, so a URL stored here will always match the lookup the next
+    # scrape does.
+    reiwa_url = normalize_reiwa_url(reiwa_url)
     conn = get_db()
     now = datetime.utcnow().isoformat()
     norm_addr = normalize_address(data.get('address') or '')
@@ -509,6 +513,7 @@ def get_existing_urls(suburb_id):
     ).fetchall()
     conn.close()
 
+    from scraper_utils import normalize_reiwa_url
     STRATA_TYPES = {'unit', 'apartment', 'townhouse', 'villa', 'studio', 'duplex'}
     complete = set()
     for r in rows:
@@ -524,7 +529,7 @@ def get_existing_urls(suburb_id):
             continue
         if t in STRATA_TYPES and not internal:
             continue
-        complete.add(r['reiwa_url'].rstrip('/'))
+        complete.add(normalize_reiwa_url(r['reiwa_url']))
     return complete
 
 

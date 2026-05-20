@@ -53,9 +53,37 @@ if not os.path.exists(CHROMIUM_PATH):
     CHROMIUM_PATH = None
 
 
+def normalize_reiwa_url(url):
+    """Single source of truth for REIWA listing URL comparison and
+    storage. Strips trailing slash and any query / fragment so the
+    same listing always hashes to the same string regardless of
+    where it came from (card link, JS extract, orphan rescue, DB
+    read). Returns '' for falsy input — callers can safely compare
+    `if normalize_reiwa_url(a) == normalize_reiwa_url(b)`.
+
+    Previously the strip-trailing-slash convention was duplicated
+    across upsert_listing, get_existing_urls, clean_listing_url and
+    scraper.py — any new code path that forgot a .rstrip('/') (or
+    a different .strip() shape) caused the URL to not match the DB
+    and the listing was treated as "new" forever, blowing the
+    detail-fetch budget on already-scraped pages."""
+    if not url:
+        return ''
+    s = str(url).strip()
+    # Drop query + fragment without re-parsing — REIWA listing URLs
+    # are static, never query-string-keyed, so anything after ? or #
+    # is tracking junk that varies between page loads.
+    for sep in ('?', '#'):
+        idx = s.find(sep)
+        if idx != -1:
+            s = s[:idx]
+    return s.rstrip('/')
+
+
 def clean_listing_url(href):
     """Return canonical listing URL (no query params, no trailing slash),
-    or None if not a listing."""
+    or None if not a listing. Built on top of normalize_reiwa_url so
+    every code path converges on the same string for the same URL."""
     if not href:
         return None
     full = ("https://reiwa.com.au" + href) if href.startswith("/") else href
@@ -63,7 +91,7 @@ def clean_listing_url(href):
     path = parsed.path
     if not re.search(r"-\d{5,8}/?$", path):
         return None
-    return "https://reiwa.com.au" + path.rstrip("/")
+    return normalize_reiwa_url("https://reiwa.com.au" + path)
 
 
 def build_url(suburb_slug, page=1):

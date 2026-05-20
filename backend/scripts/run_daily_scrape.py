@@ -183,9 +183,10 @@ def scrape_one(suburb):
     forsale_urls = []
     sold_urls = []
     new_count = 0
+    from scraper_utils import normalize_reiwa_url
 
     for listing in result.get('forsale_listings', []):
-        url = (listing.get('reiwa_url') or '').strip()
+        url = normalize_reiwa_url(listing.get('reiwa_url'))
         if not url:
             continue
         forsale_urls.append(url)
@@ -194,7 +195,7 @@ def scrape_one(suburb):
 
     saved_sold = 0
     for listing in result.get('sold_listings', []):
-        url = (listing.get('reiwa_url') or '').strip()
+        url = normalize_reiwa_url(listing.get('reiwa_url'))
         if not url:
             continue
         sold_urls.append(url)
