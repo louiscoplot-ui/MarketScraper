@@ -151,45 +151,57 @@ def create_suburb():
     If the suburb already exists in the global table (another agent on
     the team created it earlier), we DON'T 409 — we look it up and
     assign it to the caller so they can subscribe to a shared suburb."""
-    from admin_api import get_current_user
-    data = request.json
-    name = data.get('name', '').strip()
-    if not name:
-        return jsonify({'error': 'Name is required'}), 400
-    suburb = add_suburb(name)
-    status = 201
-    if suburb is None:
-        # Already exists globally — fetch it so we can still assign it
-        # to the caller.
-        slug = name.lower().replace(' ', '-')
-        conn = get_db()
-        row = conn.execute(
-            "SELECT * FROM suburbs WHERE slug = ?", (slug,)
-        ).fetchone()
-        conn.close()
-        if row is None:
-            return jsonify({'error': 'Suburb already exists'}), 409
-        suburb = dict(row)
-        status = 200
-    user = get_current_user()
-    if user and user.get('role') != 'admin':
-        try:
+    try:
+        from admin_api import get_current_user
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'Name is required'}), 400
+        suburb = add_suburb(name)
+        status = 201
+        if suburb is None:
+            # Already exists globally — fetch it so we can still assign
+            # it to the caller. Slug computed the same way add_suburb
+            # does (strip + lower + dashed).
+            slug = name.strip().lower().replace(' ', '-')
             conn = get_db()
-            conn.execute(
-                "INSERT INTO user_suburbs (user_id, suburb_id) VALUES (?, ?)",
-                (user['id'], suburb['id'])
-            )
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            # Already-assigned PK / unique-violation is the expected
-            # idempotent-noop case. Anything else (transient DB error,
-            # constraint mismatch after a schema change) should surface
-            # in the logs so the operator can spot a race that left a
-            # user partially assigned to suburbs.
-            logger.error("user_suburbs insert failed for user=%s suburb=%s: %s",
-                         user.get('id'), suburb.get('id'), e)
-    return jsonify(suburb), status
+            try:
+                row = conn.execute(
+                    "SELECT * FROM suburbs WHERE slug = ?", (slug,)
+                ).fetchone()
+            finally:
+                conn.close()
+            if row is None:
+                return jsonify({'error': 'Suburb already exists'}), 409
+            suburb = dict(row)
+            status = 200
+        user = get_current_user()
+        if user and user.get('role') != 'admin':
+            try:
+                conn = get_db()
+                try:
+                    conn.execute(
+                        "INSERT INTO user_suburbs (user_id, suburb_id) VALUES (?, ?)",
+                        (user['id'], suburb['id'])
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as e:
+                # Already-assigned PK / unique-violation is the expected
+                # idempotent-noop case. Anything else (transient DB
+                # error, constraint mismatch) is non-fatal for the
+                # create-suburb response but logged for the operator.
+                logger.error("user_suburbs insert failed for user=%s suburb=%s: %s",
+                             user.get('id'), suburb.get('id'), e)
+        return jsonify(suburb), status
+    except Exception as e:
+        # Top-level safety net — anything that escapes the inner blocks
+        # (driver-specific exception not matching IntegrityError,
+        # JSON-encode failure on a non-serialisable row, etc.) gets a
+        # clean error response with the real cause logged for diagnosis.
+        logger.exception("create_suburb failed: %s", e)
+        return jsonify({'error': 'Could not create suburb', 'detail': str(e)}), 500
 
 
 @app.route('/api/suburbs/<int:suburb_id>', methods=['DELETE'])

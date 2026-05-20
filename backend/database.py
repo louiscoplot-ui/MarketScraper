@@ -17,8 +17,11 @@ import re
 import sqlite3
 import shutil
 import os
+import logging
 import contextlib
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'reiwa.db')
 BACKUP_DIR = os.path.join(os.path.dirname(__file__), 'backups')
@@ -242,7 +245,7 @@ def add_suburb(name):
                 (name.strip().title(), slug)
             )
             conn.commit()
-        except Exception:
+        except Exception as insert_err:
             # SQLite raises sqlite3.IntegrityError on a duplicate slug;
             # Postgres raises psycopg2.errors.UniqueViolation (subclass
             # of psycopg2.IntegrityError) which the previous `except
@@ -252,15 +255,30 @@ def add_suburb(name):
             # follow-up SELECT, then verify it's actually a duplicate
             # (slug present in DB) before swallowing the error.
             conn.rollback()
-            existing = conn.execute(
-                "SELECT id FROM suburbs WHERE slug = ?", (slug,)
-            ).fetchone()
+            try:
+                existing = conn.execute(
+                    "SELECT id FROM suburbs WHERE slug = ?", (slug,)
+                ).fetchone()
+            except Exception:
+                # rollback didn't actually reset the txn — log the
+                # original cause and re-raise so the operator sees a
+                # real stack trace instead of a silent 500.
+                logger.exception("add_suburb post-rollback SELECT failed; "
+                                 "original INSERT error: %s", insert_err)
+                raise insert_err
             if existing:
                 return None
+            logger.exception("add_suburb INSERT failed for slug=%r and the "
+                             "row isn't in DB either: %s", slug, insert_err)
             raise
-        suburb = conn.execute(
-            "SELECT * FROM suburbs WHERE slug = ?", (slug,)
-        ).fetchone()
+        try:
+            suburb = conn.execute(
+                "SELECT * FROM suburbs WHERE slug = ?", (slug,)
+            ).fetchone()
+        except Exception as e:
+            logger.exception("add_suburb post-INSERT SELECT failed for "
+                             "slug=%r: %s", slug, e)
+            raise
         return dict(suburb) if suburb else None
     finally:
         conn.close()
