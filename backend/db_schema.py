@@ -338,6 +338,15 @@ def init_db():
         "ON pipeline_tracking(target_address)",
         label='pipeline_tracking.target_address',
     )
+    # Functional index on LOWER(address). The Hot Vendor reconciliation
+    # path queries listings with WHERE LOWER(address) = LOWER(?) and
+    # without this index Postgres has to seq-scan the whole table.
+    _safe_exec(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_listings_address_lower "
+        "ON listings(LOWER(address))",
+        label='listings(LOWER(address))',
+    )
 
     # Pre-lowered suburb column so the 12+ "WHERE source_suburb = ?"
     # filters across pipeline_api.py can hit an index instead of running
