@@ -244,8 +244,14 @@ function App() {
   }, [fetchSuburbs, fetchListings])
 
   const fetchLogs = useCallback(async () => {
-    const res = await fetch(`${API}/scrape/logs`)
-    if (res.ok) setLogs(await res.json())
+    // BOOT_API bypasses Vercel 25s edge timeout — Render cold start
+    // used to 504 here and silently swallow the logs panel.
+    try {
+      const res = await fetch(`${BOOT_API}/scrape/logs`)
+      if (res.ok) setLogs(await res.json())
+    } catch (e) {
+      console.warn('fetchLogs failed:', e)
+    }
   }, [])
 
   useEffect(() => {
@@ -408,7 +414,7 @@ function App() {
     setSelectedSuburbs(prev => { const n = new Set(prev); n.delete(id); return n })
     setCheckedSuburbs(prev => { const n = new Set(prev); n.delete(id); return n })
     try {
-      const res = await fetch(`${API}/suburbs/${id}`, { method: 'DELETE' })
+      const res = await fetch(`${BOOT_API}/suburbs/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       // Background re-sync — no await, doesn't block the UI.
       fetchSuburbs()
@@ -426,7 +432,11 @@ function App() {
     // click from posting before the first updates the state.
     if (scrapeStatus[id] && scrapeStatus[id].status === 'running') return
     scrapeStartRef.current = Date.now()
-    await fetch(`${API}/scrape/${id}`, { method: 'POST' })
+    try {
+      await fetch(`${BOOT_API}/scrape/${id}`, { method: 'POST' })
+    } catch (e) {
+      console.warn('scrapeSuburb POST failed:', e)
+    }
     setShowScrapeModal(true)
     fetchScrapeStatus()
   }
@@ -435,11 +445,15 @@ function App() {
     if (checkedSuburbs.size === 0) return
     if (isAnyScraping) return  // re-entry guard, same reasoning as above
     scrapeStartRef.current = Date.now()
-    await fetch(`${API}/scrape/selected`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ suburb_ids: Array.from(checkedSuburbs) })
-    })
+    try {
+      await fetch(`${BOOT_API}/scrape/selected`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suburb_ids: Array.from(checkedSuburbs) })
+      })
+    } catch (e) {
+      console.warn('scrapeSelected POST failed:', e)
+    }
     setShowScrapeModal(true)
     fetchScrapeStatus()
   }
