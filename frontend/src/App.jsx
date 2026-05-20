@@ -282,25 +282,34 @@ function App() {
     setSuggestions([])
     setShowSuggestions(false)
     setNewSuburb('')
-    // BOOT_API (= BACKEND_DIRECT) bypasses Vercel's 25s edge timeout —
-    // a cold-starting Render dyno was killing this POST mid-flight,
-    // which left the user clicking the suggestion with nothing
-    // visibly happening (the 504 fired AFTER the dropdown closed).
-    const res = await fetch(`${BOOT_API}/suburbs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim() })
-    })
-    if (res.ok) {
-      const data = await res.json()
-      setCheckedSuburbs(prev => new Set([...prev, data.id]))
-      fetchSuburbs()
-    } else {
+    try {
+      // BOOT_API (= BACKEND_DIRECT) bypasses Vercel's 25s edge timeout
+      // and fetchWithRetry rides Render cold-starts (4 attempts with
+      // exponential backoff). Previously a network rejection (CORS,
+      // DNS, etc.) made fetch() throw → the entire async function
+      // exited and the click looked like a no-op with no banner.
+      const res = await fetchWithRetry(`${BOOT_API}/suburbs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() })
+      }, 4)
+      if (res.ok) {
+        const data = await res.json()
+        setCheckedSuburbs(prev => new Set([...prev, data.id]))
+        fetchSuburbs()
+        return
+      }
       let msg = `Server error ${res.status}`
       let parsed = null
       try { parsed = await res.json() } catch {}
-      if (parsed && parsed.error === 'Suburb already exists') fetchSuburbs()
-      else alert((parsed && parsed.error) || msg + ' — please refresh and try again.')
+      if (parsed && parsed.error === 'Suburb already exists') {
+        fetchSuburbs()
+        return
+      }
+      alert((parsed && parsed.detail) || (parsed && parsed.error) || msg + ' — please refresh and try again.')
+    } catch (e) {
+      console.error('selectSuggestion failed:', e)
+      alert(`Could not add suburb — ${e.message || 'network error'}. Please try again.`)
     }
   }
 
@@ -318,13 +327,22 @@ function App() {
     e.preventDefault()
     if (!newSuburb.trim()) return
     setShowSuggestions(false)
-    // BOOT_API = BACKEND_DIRECT — bypass the 25s Vercel edge timeout
-    // that swallowed POSTs to /suburbs during Render cold starts.
-    const res = await fetch(`${BOOT_API}/suburbs`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newSuburb.trim() })
-    })
+    // BOOT_API + fetchWithRetry — bypass the 25s Vercel edge timeout
+    // and survive Render cold starts. Wrapped in try/catch so a
+    // network rejection still surfaces an alert instead of leaving
+    // the user staring at an unchanged sidebar.
+    let res
+    try {
+      res = await fetchWithRetry(`${BOOT_API}/suburbs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newSuburb.trim() })
+      }, 4)
+    } catch (e) {
+      console.error('addSuburb failed:', e)
+      alert(`Could not add suburb — ${e.message || 'network error'}. Please try again.`)
+      return
+    }
     if (res.ok) {
       const data = await res.json()
       setNewSuburb('')
@@ -334,11 +352,15 @@ function App() {
     } else {
       // Guard against Render returning an HTML 502 — JSON.parse would
       // crash the whole tab. Best-effort parse, fall through to the
-      // status code if the body isn't JSON.
+      // status code if the body isn't JSON. Prefer the `detail` field
+      // (added by the top-level create_suburb try/except wrap) when
+      // available since it carries the real Postgres error message.
       let msg = `Server error ${res.status}`
       try {
         const data = await res.json()
-        if (data && data.error) msg = data.error
+        if (data && (data.detail || data.error)) {
+          msg = data.detail || data.error
+        }
       } catch {}
       alert(msg + ' — please refresh and try again.')
     }
