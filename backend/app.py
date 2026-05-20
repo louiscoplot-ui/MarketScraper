@@ -169,11 +169,27 @@ def create_suburb():
                 row = conn.execute(
                     "SELECT * FROM suburbs WHERE slug = ?", (slug,)
                 ).fetchone()
+                if row is None:
+                    conn.close()
+                    return jsonify({'error': 'Suburb already exists'}), 409
+                suburb = dict(row)
+                # Sidebar + autocomplete add path = "I want to see and
+                # scrape this suburb". If the row exists but was
+                # created via /suburbs/custom (active=0, scoped-only),
+                # promote it to active=1 here so GET /api/suburbs
+                # (which filters WHERE active=1) actually returns it.
+                # Without this, clicking + on a previously custom-
+                # assigned suburb looked like a no-op because the
+                # follow-up fetchSuburbs filtered it out.
+                if not suburb.get('active'):
+                    conn.execute(
+                        "UPDATE suburbs SET active = 1 WHERE id = ?",
+                        (suburb['id'],)
+                    )
+                    conn.commit()
+                    suburb['active'] = 1
             finally:
                 conn.close()
-            if row is None:
-                return jsonify({'error': 'Suburb already exists'}), 409
-            suburb = dict(row)
             status = 200
         user = get_current_user()
         if user and user.get('role') != 'admin':
