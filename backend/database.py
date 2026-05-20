@@ -236,17 +236,32 @@ def add_suburb(name):
     slug = name.strip().lower().replace(' ', '-')
     conn = get_db()
     try:
-        conn.execute(
-            "INSERT INTO suburbs (name, slug) VALUES (?, ?)",
-            (name.strip().title(), slug)
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                "INSERT INTO suburbs (name, slug) VALUES (?, ?)",
+                (name.strip().title(), slug)
+            )
+            conn.commit()
+        except Exception:
+            # SQLite raises sqlite3.IntegrityError on a duplicate slug;
+            # Postgres raises psycopg2.errors.UniqueViolation (subclass
+            # of psycopg2.IntegrityError) which the previous `except
+            # sqlite3.IntegrityError` clause didn't catch → bubbled
+            # up as a 500 for any "add suburb that already exists"
+            # click in prod. Roll back so the txn is usable for the
+            # follow-up SELECT, then verify it's actually a duplicate
+            # (slug present in DB) before swallowing the error.
+            conn.rollback()
+            existing = conn.execute(
+                "SELECT id FROM suburbs WHERE slug = ?", (slug,)
+            ).fetchone()
+            if existing:
+                return None
+            raise
         suburb = conn.execute(
             "SELECT * FROM suburbs WHERE slug = ?", (slug,)
         ).fetchone()
-        return dict(suburb)
-    except sqlite3.IntegrityError:
-        return None
+        return dict(suburb) if suburb else None
     finally:
         conn.close()
 
