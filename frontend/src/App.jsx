@@ -195,31 +195,51 @@ function App() {
     // BOOT_API (= BACKEND_DIRECT) bypasses Vercel's 25 s edge timeout —
     // Render cold-starts (30-60 s after hibernation) used to kill the
     // proxy call, leaving the modal stuck on "loading" until the user
-    // navigated away.
-    const res = await fetch(`${BOOT_API}/scrape/status`)
-    if (res.ok) {
-      const data = await res.json()
-      setScrapeStatus(data)
-      const anyRunning = Object.values(data).some(j => j.status === 'running')
-      if (anyRunning) {
-        setShowScrapeModal(true)
-        if (!pollRef.current) {
-          pollRef.current = setInterval(async () => {
-            const r = await fetch(`${BOOT_API}/scrape/status`)
-            if (r.ok) {
-              const d = await r.json()
-              setScrapeStatus(d)
-              if (!Object.values(d).some(j => j.status === 'running')) {
-                clearInterval(pollRef.current)
-                pollRef.current = null
-                setSelectedStatuses(new Set(['active', 'under_offer']))
-                fetchSuburbs()
-                fetchListings()
-              }
-            }
-          }, 2000)
-        }
+    // navigated away. NEVER POSTs scrape from here — only GET status.
+    let data = {}
+    try {
+      const res = await fetch(`${BOOT_API}/scrape/status`)
+      if (!res.ok) return
+      data = await res.json() || {}
+    } catch (e) {
+      console.warn('fetchScrapeStatus failed:', e)
+      return
+    }
+    setScrapeStatus(data)
+    const anyRunning = Object.values(data).some(j => j.status === 'running')
+    if (!anyRunning) {
+      // No active job — make sure the modal is closed and polling is
+      // stopped. Prevents a stale modal from reopening on mount when
+      // the previous scrape finished but local state lagged behind.
+      setShowScrapeModal(false)
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
       }
+      return
+    }
+    // A job IS running on the backend — resume the modal + poll, do
+    // NOT issue a new POST /scrape. Refreshing the page must not
+    // relaunch a scrape, only reattach to the existing one.
+    setShowScrapeModal(true)
+    if (!pollRef.current) {
+      pollRef.current = setInterval(async () => {
+        try {
+          const r = await fetch(`${BOOT_API}/scrape/status`)
+          if (!r.ok) return
+          const d = await r.json() || {}
+          setScrapeStatus(d)
+          if (!Object.values(d).some(j => j.status === 'running')) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
+            setSelectedStatuses(new Set(['active', 'under_offer']))
+            fetchSuburbs()
+            fetchListings()
+          }
+        } catch (e) {
+          console.warn('scrape status poll failed:', e)
+        }
+      }, 2000)
     }
   }, [fetchSuburbs, fetchListings])
 
@@ -459,8 +479,31 @@ function App() {
   }
 
   const cancelScrape = async () => {
-    await fetch(`${API}/scrape/cancel`, { method: 'POST' })
-    fetchScrapeStatus()
+    // Route through BOOT_API (= BACKEND_DIRECT) so the cancel POST
+    // bypasses Vercel's 25s edge timeout. Previously the cancel hit
+    // the proxy and quietly died on Render cold-starts, leaving the
+    // scrape thread alive and the modal stuck on "running" — which
+    // is also why a page refresh "relaunched" the scrape (the job
+    // never stopped, fetchScrapeStatus saw it still running on mount
+    // and re-opened the modal).
+    //
+    // Optimistic close: stop polling + drop the in-memory scrape
+    // status the instant the user clicks Cancel so the modal
+    // disappears immediately. The backend cancel flag still
+    // propagates to the worker (next cancel_check tick); when the
+    // worker actually exits, the status will read 'cancelled' on
+    // the next fetch, which is fine because the UI is already closed.
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    setShowScrapeModal(false)
+    setScrapeStatus({})
+    try {
+      await fetch(`${BOOT_API}/scrape/cancel`, { method: 'POST' })
+    } catch (e) {
+      console.warn('cancelScrape POST failed:', e)
+    }
   }
 
   const toggleStatus = (status) => {
