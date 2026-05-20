@@ -10,7 +10,10 @@ Single Flask process (gunicorn worker) → in-memory state is fine.
 
 import json
 import logging
+import os
 import re as _re
+import subprocess
+import sys
 import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +26,50 @@ from database import (
 from scraper import scrape_suburb, verify_disappeared_listings
 
 logger = logging.getLogger(__name__)
+
+
+_PLAYWRIGHT_INSTALL_LOCK = threading.Lock()
+_PLAYWRIGHT_INSTALLED = None  # None = unchecked, True = ready, False = install in flight
+
+
+def _ensure_playwright_chromium():
+    """Render's web service doesn't run `playwright install` unless the
+    Build Command is set to `cd backend && bash build.sh`. If the binary
+    is missing, run the install here once on first use so the operator
+    isn't blocked by the dashboard config change. ~30-60s the first
+    time, instant after; subsequent imports skip via the cache flag."""
+    global _PLAYWRIGHT_INSTALLED
+    if _PLAYWRIGHT_INSTALLED:
+        return True
+    cache_root = os.path.expanduser('~/.cache/ms-playwright')
+    has_chromium = (
+        os.path.isdir(cache_root)
+        and any(
+            entry.startswith(('chromium-', 'chromium_headless_shell-'))
+            for entry in os.listdir(cache_root)
+        )
+    )
+    if has_chromium:
+        _PLAYWRIGHT_INSTALLED = True
+        return True
+    with _PLAYWRIGHT_INSTALL_LOCK:
+        # Another worker may have installed it while we waited on the lock.
+        if _PLAYWRIGHT_INSTALLED:
+            return True
+        logger.warning("Playwright chromium binary missing — running "
+                       "'playwright install chromium' (one-shot, ~30-60s)")
+        try:
+            subprocess.run(
+                [sys.executable, '-m', 'playwright', 'install', 'chromium'],
+                check=True, timeout=300,
+            )
+            _PLAYWRIGHT_INSTALLED = True
+            logger.info("Playwright chromium install complete")
+            return True
+        except Exception as e:
+            logger.exception("Playwright install failed: %s", e)
+            _PLAYWRIGHT_INSTALLED = False  # mark failure, next call will retry
+            return False
 
 
 def _parse_price(price_text):
@@ -88,6 +135,17 @@ def run_scrape(suburb_id, slug, name):
         logger.info(f"[{name}] {msg}")
 
     try:
+        # Render's web service ships without Playwright's chromium
+        # binary unless the Build Command runs `bash build.sh`. Auto-
+        # install on first use so the operator never sees the
+        # "Executable doesn't exist at /opt/render/.cache/..." crash.
+        progress_cb('Checking browser…')
+        if not _ensure_playwright_chromium():
+            raise RuntimeError(
+                'Playwright chromium not installed and auto-install failed. '
+                'Set Render Build Command to: cd backend && bash build.sh'
+            )
+
         known_urls = get_existing_urls(suburb_id)
         logger.info(f"[{name}] {len(known_urls)} known URLs in DB, will skip their detail pages")
 
