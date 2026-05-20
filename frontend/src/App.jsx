@@ -432,10 +432,27 @@ function App() {
     // click from posting before the first updates the state.
     if (scrapeStatus[id] && scrapeStatus[id].status === 'running') return
     scrapeStartRef.current = Date.now()
+    // Surface backend rejections (403 not in allowed_ids, 404 race,
+    // 500 driver exception) instead of swallowing them — the modal
+    // would otherwise flash open then close immediately because
+    // fetchScrapeStatus saw no running job, making the click feel
+    // like a no-op for the user.
+    let res
     try {
-      await fetch(`${BOOT_API}/scrape/${id}`, { method: 'POST' })
+      res = await fetch(`${BOOT_API}/scrape/${id}`, { method: 'POST' })
     } catch (e) {
       console.warn('scrapeSuburb POST failed:', e)
+      alert(`Could not start scrape — ${e.message || 'network error'}. Please try again.`)
+      return
+    }
+    if (!res.ok) {
+      let msg = `Server error ${res.status}`
+      try {
+        const data = await res.json()
+        if (data && data.error) msg = data.error
+      } catch {}
+      alert(`Could not start scrape: ${msg}`)
+      return
     }
     setShowScrapeModal(true)
     fetchScrapeStatus()
