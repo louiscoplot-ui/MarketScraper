@@ -54,27 +54,22 @@ def extract_all_listing_urls_js(page):
     }""")
 
 
-def load_listing_page(page, url, retries=3):
+def load_listing_page(page, url, retries=2):
     """Load a REIWA listing page, wait for cards, scroll repeatedly to load all.
 
-    Escalating wait_until per attempt — domcontentloaded first (fastest
-    when REIWA is healthy), then `load` as a fallback (slower but more
-    forgiving when REIWA happens to delay DOMContentLoaded for the
-    /sold/ pages or pagination URLs). Same module never returns False
-    after a single timeout — the outer scraper loops decide whether to
-    skip-and-continue or break."""
-    # (wait_until, timeout_ms) per attempt. networkidle is intentionally
-    # absent — REIWA's analytics/ad pixels keep the network busy >40s
-    # so it never resolves.
-    attempts = [
-        ('domcontentloaded', 20000),
-        ('load', 25000),
-        ('domcontentloaded', 20000),
-    ]
+    2 attempts × 45s timeout with wait_until='domcontentloaded'.
+    20s was fine for GHA's AU-adjacent runners (cron) but not for
+    Render free-tier in the US reaching REIWA in AU — the round-trip
+    + DOM build runs 25-40s on a cold-ish connection, so the 20s
+    ceiling tripped repeatedly. 45s covers the worst case we've seen.
+
+    networkidle is intentionally absent — REIWA's analytics/ad pixels
+    keep the network busy >40s so it never resolves. The downstream
+    wait_for_selector('p-card', timeout=8000) after goto is the real
+    "page is ready" signal."""
     for attempt in range(1, retries + 1):
-        wait_until, timeout = attempts[(attempt - 1) % len(attempts)]
         try:
-            page.goto(url, wait_until=wait_until, timeout=timeout)
+            page.goto(url, wait_until='domcontentloaded', timeout=45000)
             try:
                 page.wait_for_selector('[class*="p-card"]', timeout=8000)
             except Exception:
@@ -123,8 +118,7 @@ def load_listing_page(page, url, retries=3):
             return True
         except Exception as e:
             if attempt < retries:
-                logger.info(f"load_listing_page attempt {attempt} failed for {url} "
-                            f"({wait_until}/{timeout}ms): {e} — retrying")
+                logger.info(f"load_listing_page attempt {attempt} timed out for {url}: {e} — retrying")
                 time.sleep(1.5 * attempt)
             else:
                 logger.error(f"Failed to load {url} after {retries} attempts: {e}")
