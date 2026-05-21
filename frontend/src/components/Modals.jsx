@@ -53,7 +53,59 @@ export function ThemeModal({ theme, setTheme, defaultTheme, presets, updateColor
 export function ScrapeModal({
   scrapeJobs, isAnyScraping, completedCount, totalJobs,
   elapsed, estimatedRemaining, formatTime, cancelScrape, onClose,
+  connecting = false, connectError = null,
 }) {
+  // Error branch — the POST itself failed (network / 4xx / 5xx) before
+  // any backend job was started. Show the message + a Close button,
+  // skip the progress bar entirely.
+  if (connectError) {
+    return (
+      <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+        <div className="modal">
+          <div className="modal-header">
+            <h2>Scraping Progress</h2>
+            <button className="btn btn-icon" onClick={onClose}>×</button>
+          </div>
+          <div style={{
+            margin: '12px 0', padding: '10px 14px', borderRadius: 6,
+            background: '#fef2f2', border: '1px solid #fecaca',
+            color: '#991b1b', fontSize: 14,
+          }}>
+            Could not start scrape: {connectError}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-primary" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Connecting branch — modal opens synchronously on click, POST is
+  // still in flight. No progress bar yet because the backend hasn't
+  // ack'd the job. Once the POST returns, parent flips connecting=false
+  // and we fall through to the normal progress UI below.
+  if (connecting && scrapeJobs.length === 0) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal">
+          <div className="modal-header">
+            <h2>Scraping Progress</h2>
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            margin: '16px 0', padding: '12px 14px', borderRadius: 6,
+            background: '#eff6ff', border: '1px solid #bfdbfe',
+            color: '#1e40af', fontSize: 14,
+          }}>
+            <span className="loading-spinner loading-spinner-sm" />
+            <span>Connecting to server… this takes 15–30s on first request.</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // First-run hint: Render's free-tier sometimes lazy-installs the
   // Playwright chromium binary (~30-60s) and the modal otherwise just
   // sits on "Starting…" with no explanation. Show the hint while we're

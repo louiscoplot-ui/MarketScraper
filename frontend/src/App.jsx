@@ -44,6 +44,12 @@ function App() {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [scrapeStatus, setScrapeStatus] = useState({})
   const [showScrapeModal, setShowScrapeModal] = useState(false)
+  // "Connecting…" state — modal opens synchronously on click so the
+  // user sees feedback immediately instead of staring at a frozen
+  // sidebar for 15-30s while Render cold-starts. Cleared the moment
+  // the POST returns (success → normal progress, failure → error).
+  const [scrapeConnecting, setScrapeConnecting] = useState(false)
+  const [scrapeConnectError, setScrapeConnectError] = useState(null)
   const [logs, setLogs] = useState([])
   const [view, setView] = useState(readViewFromHash)
   // Current user — fetched once on mount so Header can decide whether
@@ -419,17 +425,20 @@ function App() {
     // click from posting before the first updates the state.
     if (scrapeStatus[id] && scrapeStatus[id].status === 'running') return
     scrapeStartRef.current = Date.now()
-    // Surface backend rejections (403 not in allowed_ids, 404 race,
-    // 500 driver exception) instead of swallowing them — the modal
-    // would otherwise flash open then close immediately because
-    // fetchScrapeStatus saw no running job, making the click feel
-    // like a no-op for the user.
+    // Open the modal SYNCHRONOUSLY with a "Connecting…" banner so the
+    // user gets instant feedback. Without this, clicking Scrape on a
+    // cold Render dyno = 15-30s of silence and the user reclicks
+    // thinking the button is broken.
+    setScrapeConnectError(null)
+    setScrapeConnecting(true)
+    setShowScrapeModal(true)
     let res
     try {
       res = await fetch(`${BOOT_API}/scrape/${id}`, { method: 'POST' })
     } catch (e) {
       console.warn('scrapeSuburb POST failed:', e)
-      alert(`Could not start scrape — ${e.message || 'network error'}. Please try again.`)
+      setScrapeConnecting(false)
+      setScrapeConnectError(`${e.message || 'network error'}. Please try again.`)
       return
     }
     if (!res.ok) {
@@ -438,10 +447,11 @@ function App() {
         const data = await res.json()
         if (data && data.error) msg = data.error
       } catch {}
-      alert(`Could not start scrape: ${msg}`)
+      setScrapeConnecting(false)
+      setScrapeConnectError(msg)
       return
     }
-    setShowScrapeModal(true)
+    setScrapeConnecting(false)
     fetchScrapeStatus()
   }
 
@@ -449,16 +459,33 @@ function App() {
     if (checkedSuburbs.size === 0) return
     if (isAnyScraping) return  // re-entry guard, same reasoning as above
     scrapeStartRef.current = Date.now()
+    setScrapeConnectError(null)
+    setScrapeConnecting(true)
+    setShowScrapeModal(true)
+    let res
     try {
-      await fetch(`${BOOT_API}/scrape/selected`, {
+      res = await fetch(`${BOOT_API}/scrape/selected`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ suburb_ids: Array.from(checkedSuburbs) })
       })
     } catch (e) {
       console.warn('scrapeSelected POST failed:', e)
+      setScrapeConnecting(false)
+      setScrapeConnectError(`${e.message || 'network error'}. Please try again.`)
+      return
     }
-    setShowScrapeModal(true)
+    if (!res.ok) {
+      let msg = `Server error ${res.status}`
+      try {
+        const data = await res.json()
+        if (data && data.error) msg = data.error
+      } catch {}
+      setScrapeConnecting(false)
+      setScrapeConnectError(msg)
+      return
+    }
+    setScrapeConnecting(false)
     fetchScrapeStatus()
   }
 
@@ -633,13 +660,18 @@ function App() {
         />
       )}
 
-      {showScrapeModal && scrapeJobs.length > 0 && (
+      {showScrapeModal && (scrapeJobs.length > 0 || scrapeConnecting || scrapeConnectError) && (
         <ScrapeModal
           scrapeJobs={scrapeJobs} isAnyScraping={isAnyScraping}
           completedCount={completedCount} totalJobs={totalJobs}
           elapsed={elapsed} estimatedRemaining={estimatedRemaining}
           formatTime={formatTime} cancelScrape={cancelScrape}
-          onClose={() => setShowScrapeModal(false)}
+          connecting={scrapeConnecting} connectError={scrapeConnectError}
+          onClose={() => {
+            setShowScrapeModal(false)
+            setScrapeConnecting(false)
+            setScrapeConnectError(null)
+          }}
         />
       )}
 
