@@ -54,6 +54,18 @@ export function ScrapeModal({
   scrapeJobs, isAnyScraping, completedCount, totalJobs,
   elapsed, estimatedRemaining, formatTime, cancelScrape, onClose,
 }) {
+  // First-run hint: Render's free-tier sometimes lazy-installs the
+  // Playwright chromium binary (~30-60s) and the modal otherwise just
+  // sits on "Starting…" with no explanation. Show the hint while we're
+  // running, under 90s elapsed, AND no job has emitted a real scrape-
+  // phase progress yet (anything containing "page" / "Fetching" means
+  // the browser is up and we're past the boot).
+  const stillBooting = scrapeJobs.some(j => {
+    if (j.status !== 'running') return false
+    const p = (j.progress || '').toLowerCase()
+    return !p.includes('page') && !p.includes('fetching')
+  })
+  const showBootHint = isAnyScraping && elapsed < 90 && stillBooting
   return (
     <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && !isAnyScraping) onClose() }}>
       <div className="modal">
@@ -75,6 +87,16 @@ export function ScrapeModal({
             <button className="btn btn-danger btn-small" onClick={cancelScrape}>Cancel Scraping</button>
           )}
         </div>
+
+        {showBootHint && (
+          <div style={{
+            margin: '8px 0 4px', padding: '8px 12px', borderRadius: 6,
+            background: '#eff6ff', border: '1px solid #bfdbfe',
+            color: '#1e40af', fontSize: 13,
+          }}>
+            Starting up browser… first run takes 30–60s.
+          </div>
+        )}
 
         <div className="modal-jobs">
           {scrapeJobs.map(job => (
