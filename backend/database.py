@@ -236,17 +236,7 @@ from db_schema import init_db  # noqa: E402,F401
 
 
 def add_suburb(name):
-    # REIWA's listing pages key on suburb-postcode (innaloo-6018,
-    # balcatta-6021) — bare suburb slugs only work for the few names
-    # that happen to be globally unique (cottesloe, nedlands), which
-    # is why this bug was invisible until non-western suburbs were
-    # added. Fallback to the bare slug when the postcode is unknown
-    # so we don't block adding an obscure regional suburb.
-    from wa_suburbs import postcode_for
-    clean_name = name.strip()
-    base_slug = clean_name.lower().replace(' ', '-')
-    postcode = postcode_for(clean_name.title())
-    slug = f"{base_slug}-{postcode}" if postcode else base_slug
+    slug = name.strip().lower().replace(' ', '-')
     conn = get_db()
     try:
         try:

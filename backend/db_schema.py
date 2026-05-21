@@ -348,34 +348,33 @@ def init_db():
         label='listings(LOWER(address))',
     )
 
-    # Backfill: rename existing suburb slugs to the suburb-postcode
-    # shape REIWA actually serves (innaloo -> innaloo-6018). Any row
-    # whose name we know the postcode for and whose slug doesn't
-    # already match is rewritten in place. Idempotent — running twice
-    # is a no-op. Unknown postcodes are left alone so the legacy bare
-    # slug keeps working for whatever it was working for.
+    # Backfill: any suburb whose slug was rewritten to <name>-<postcode>
+    # by the reverted 52c82dc migration must be rolled back to the bare
+    # slug REIWA actually accepts. Idempotent — skips rows already on
+    # the bare form. Unknown-postcode rows were never rewritten, so we
+    # don't touch them either.
     try:
         from wa_suburbs import postcode_for
         rows = conn.execute("SELECT id, name, slug FROM suburbs").fetchall()
         for r in rows:
             name = r['name']
             current = r['slug']
+            bare = name.lower().replace(' ', '-')
+            if current == bare:
+                continue
             pc = postcode_for(name)
             if not pc:
                 continue
-            expected = f"{name.lower().replace(' ', '-')}-{pc}"
-            if current == expected:
+            if current != f"{bare}-{pc}":
+                # Some other shape — leave it alone, operator can fix.
                 continue
             try:
                 conn.execute("UPDATE suburbs SET slug = ? WHERE id = ?",
-                             (expected, r['id']))
+                             (bare, r['id']))
             except Exception:
-                # UNIQUE collision if both `innaloo` and `innaloo-6018`
-                # somehow co-exist — keep going, the operator can
-                # untangle by hand.
                 logger.exception(
-                    "slug migration failed for suburb id=%s name=%r "
-                    "(%s -> %s)", r['id'], name, current, expected,
+                    "slug revert failed for suburb id=%s name=%r "
+                    "(%s -> %s)", r['id'], name, current, bare,
                 )
                 try:
                     conn.rollback()
@@ -383,7 +382,7 @@ def init_db():
                     pass
         conn.commit()
     except Exception:
-        logger.exception("suburb slug postcode migration failed")
+        logger.exception("suburb slug revert migration failed")
         try:
             conn.rollback()
         except Exception:
