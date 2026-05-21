@@ -45,7 +45,7 @@ window.fetch = (input, init = {}) => {
 function startKeepAlive() {
   const ping = () => fetch(`https://${BACKEND_HOST}/api/ping`).catch(() => {})
   ping()
-  setInterval(ping, 14 * 60 * 1000)
+  setInterval(ping, 5 * 60 * 1000)
 }
 startKeepAlive()
 
