@@ -5,6 +5,9 @@ admin debug routes. Extracted from scraper.py."""
 
 import re
 import logging
+import queue
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from playwright.sync_api import sync_playwright
@@ -38,7 +41,10 @@ def fetch_detail(page, url):
             page.evaluate("window.scrollTo(0, 600)")
         except Exception:
             pass
-        page.wait_for_timeout(1500)
+        # 800ms (was 1500) covers REIWA's late-load of sizes/agent
+        # info after the scroll without sitting idle. Saves ~14s on
+        # a 20-listing batch.
+        page.wait_for_timeout(800)
         html = page.content()
         soup = BeautifulSoup(html, "html.parser")
 
@@ -228,44 +234,78 @@ def fetch_detail(page, url):
 
 def fetch_details_batch(detail_pages, listings, cancel_check=None,
                         progress_callback=None, progress_prefix=''):
-    """Fetch detail pages for a batch of listings using multiple tabs
-    round-robin. Honours cancel_check between each fetch so a user
-    clicking Cancel during the detail-fetch phase actually stops the
-    worker within seconds instead of waiting for the next page-
-    boundary check in scraper.py (which could be minutes away on a
-    full 20-listing batch).
+    """Fetch detail pages in parallel using the tab pool.
 
-    progress_callback(msg) is fired BEFORE each detail fetch so the
-    operator can tell the scrape is actually moving — without it the
-    UI sits on "20 new, 0 known (skipped)" for the entire batch
-    (10-15 min on a slow Render dyno) and the click feels dead."""
+    Previously the loop was sequential — 20 listings × 150 s on a slow
+    Render dyno = ~50 min, while the other 2 tabs sat idle. Now we
+    distribute work across the pool with a ThreadPoolExecutor: each
+    worker leases a tab from a queue, runs fetch_detail, returns the
+    tab to the queue. With pool=3 this divides wall time by ~3.
+
+    Playwright sync_api is single-greenlet per Page — safe as long as
+    each tab is touched by ONE thread at a time, which the queue
+    enforces (a tab is in flight at most once).
+
+    cancel_check is honoured per future: in-flight fetches finish
+    naturally (worst-case ~28 s each), but no new ones start. With
+    pool=3 that's 3 stragglers max.
+
+    progress_callback is fired AFTER each completion under a lock so
+    the counter monotonically increases despite parallel completion
+    order."""
     if not listings:
         return []
 
-    results = []
     total = len(listings)
-    for i, rec in enumerate(listings):
+    tab_queue = queue.Queue()
+    for tab in detail_pages:
+        tab_queue.put(tab)
+
+    counter_lock = threading.Lock()
+    completed = {'n': 0}
+
+    def _work(rec):
         if cancel_check and cancel_check():
-            break
-        if progress_callback:
-            progress_callback(f'{progress_prefix}Fetching detail {i + 1}/{total}…')
-        tab = detail_pages[i % len(detail_pages)]
-        detail = fetch_detail(tab, rec['url'])
+            return rec
+        tab = tab_queue.get()
+        try:
+            detail = fetch_detail(tab, rec['url'])
+            if detail['land_size'] and not rec['land_size']:
+                rec['land_size'] = detail['land_size']
+            if detail['internal_size'] and not rec['internal_size']:
+                rec['internal_size'] = detail['internal_size']
+            if detail['price_text'] and not rec['price_text']:
+                rec['price_text'] = detail['price_text']
+            if detail['listing_date'] and not rec.get('listing_date'):
+                rec['listing_date'] = detail['listing_date']
+            if detail['status'] == 'under_offer':
+                rec['status'] = 'under_offer'
+        except Exception:
+            # One crashed tab must not poison the batch — log and
+            # carry on. The next listing assigned to this tab tries
+            # again from scratch.
+            logger.exception(f"detail worker crashed for {rec.get('url')}")
+        finally:
+            tab_queue.put(tab)
+            with counter_lock:
+                completed['n'] += 1
+                n = completed['n']
+            if progress_callback:
+                progress_callback(f'{progress_prefix}Fetching detail {n}/{total}…')
+        return rec
 
-        if detail['land_size'] and not rec['land_size']:
-            rec['land_size'] = detail['land_size']
-        if detail['internal_size'] and not rec['internal_size']:
-            rec['internal_size'] = detail['internal_size']
-        if detail['price_text'] and not rec['price_text']:
-            rec['price_text'] = detail['price_text']
-        if detail['listing_date'] and not rec.get('listing_date'):
-            rec['listing_date'] = detail['listing_date']
-        if detail['status'] == 'under_offer':
-            rec['status'] = 'under_offer'
+    workers = min(len(detail_pages), len(listings))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_work, rec) for rec in listings]
+        for fut in as_completed(futures):
+            if cancel_check and cancel_check():
+                # Stop queued futures from starting. In-flight ones
+                # (max = workers) drain on their own.
+                for f in futures:
+                    f.cancel()
+                break
 
-        results.append(rec)
-
-    return results
+    return listings
 
 
 def verify_disappeared_listings(urls):
