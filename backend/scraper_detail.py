@@ -226,20 +226,29 @@ def fetch_detail(page, url):
     return out
 
 
-def fetch_details_batch(detail_pages, listings, cancel_check=None):
+def fetch_details_batch(detail_pages, listings, cancel_check=None,
+                        progress_callback=None, progress_prefix=''):
     """Fetch detail pages for a batch of listings using multiple tabs
     round-robin. Honours cancel_check between each fetch so a user
     clicking Cancel during the detail-fetch phase actually stops the
     worker within seconds instead of waiting for the next page-
     boundary check in scraper.py (which could be minutes away on a
-    full 20-listing batch)."""
+    full 20-listing batch).
+
+    progress_callback(msg) is fired BEFORE each detail fetch so the
+    operator can tell the scrape is actually moving — without it the
+    UI sits on "20 new, 0 known (skipped)" for the entire batch
+    (10-15 min on a slow Render dyno) and the click feels dead."""
     if not listings:
         return []
 
     results = []
+    total = len(listings)
     for i, rec in enumerate(listings):
         if cancel_check and cancel_check():
             break
+        if progress_callback:
+            progress_callback(f'{progress_prefix}Fetching detail {i + 1}/{total}…')
         tab = detail_pages[i % len(detail_pages)]
         detail = fetch_detail(tab, rec['url'])
 

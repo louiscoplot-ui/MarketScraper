@@ -246,7 +246,9 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                         progress_callback(f'For-sale page {page_num}: {len(new_listings)} new, {len(known_listings)} known (skipped)')
 
                     _fetch_details_batch(detail_pages, new_listings,
-                                         cancel_check=cancel_check)
+                                         cancel_check=cancel_check,
+                                         progress_callback=progress_callback,
+                                         progress_prefix=f'p{page_num} ')
                     results['stats']['detail_pages_scraped'] += len(new_listings)
                     if cancel_check and cancel_check():
                         # Cancel landed mid-batch — break the for-sale
