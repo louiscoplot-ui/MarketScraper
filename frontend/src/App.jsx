@@ -14,6 +14,7 @@ import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
 import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from './lib/api'
+import { searchSuburbs } from './lib/waSuburbs'
 const API = '/api'
 // Bootstrap fetches go direct to Render to bypass Vercel's 25s edge
 // timeout — without this, a cold Render dyno (30-60s wake) returns
@@ -283,37 +284,23 @@ function App() {
 
   useEffect(() => { if (view === 'logs') fetchLogs() }, [view])
 
-  const searchTimeoutRef = useRef(null)
   const suggestionsRef = useRef(null)
 
   const handleSuburbInput = (val) => {
     setNewSuburb(val)
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     if (val.trim().length < 2) {
       setSuggestions([])
       setShowSuggestions(false)
       return
     }
-    searchTimeoutRef.current = setTimeout(async () => {
-      // BOOT_API bypasses the Vercel 25s edge timeout — during a
-      // Render cold start the previous ${API} call returned 504 and
-      // the dropdown never populated, which is why the autocomplete
-      // looked broken until the dyno warmed up on its own.
-      try {
-        const res = await fetch(`${BOOT_API}/suburbs/search?q=${encodeURIComponent(val.trim())}`)
-        if (!res.ok) return
-        const data = await res.json()
-        // Backend now returns [{name, postcode}] but tolerate the
-        // legacy [string] shape too while Vercel finishes redeploying.
-        const normalised = Array.isArray(data)
-          ? data.map(d => typeof d === 'string' ? { name: d, postcode: '' } : d)
-          : []
-        setSuggestions(normalised)
-        setShowSuggestions(normalised.length > 0)
-      } catch (e) {
-        console.warn('suburbs/search failed:', e)
-      }
-    }, 150)
+    // Local filter against the bundled WA suburb list — instant, no
+    // network. Previously this hit /api/suburbs/search which round-
+    // tripped through Render (30-60s cold start) and the dropdown
+    // looked dead until the dyno warmed up. The list is mirrored
+    // from backend/wa_suburbs.py.
+    const matches = searchSuburbs(val)
+    setSuggestions(matches)
+    setShowSuggestions(matches.length > 0)
   }
 
   const selectSuggestion = async (name) => {
