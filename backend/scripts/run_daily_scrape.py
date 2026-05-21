@@ -31,27 +31,12 @@ BACKEND_DIR = HERE.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 
-# Monkey-patch Playwright Page.goto BEFORE importing scraper, so every
-# page.goto() call inside scraper.py uses domcontentloaded instead of
-# networkidle. The networkidle wait fails repeatedly on GHA→AU links
-# because REIWA loads analytics/ad pixels that keep the network active
-# for >40s, killing every list-page load with a Timeout. The downstream
-# wait_for_selector('p-card', timeout=8000) inside _load_listing_page
-# already gives us a real "page is ready" signal, so we don't need
-# networkidle at all. Local dev (UI scrape) is unaffected — this only
-# applies when run_daily_scrape.py is the entry point.
-from playwright.sync_api import Page as _PWPage  # noqa: E402
-
-_orig_goto = _PWPage.goto
-
-def _patched_goto(self, url, **kwargs):
-    if kwargs.get('wait_until') == 'networkidle':
-        kwargs['wait_until'] = 'domcontentloaded'
-        if kwargs.get('timeout', 0) > 20000:
-            kwargs['timeout'] = 20000
-    return _orig_goto(self, url, **kwargs)
-
-_PWPage.goto = _patched_goto
+# The Page.goto monkey-patch that used to live here is gone — the same
+# behaviour (wait_until='domcontentloaded', timeout=20000) is now baked
+# directly into scraper_browser.load_listing_page so the cron and the
+# Flask manual scrape go through identical code. Previously the patch
+# only applied to the cron path, leaving the manual scrape stuck on
+# networkidle waits that timed out on REIWA's analytics pixels.
 
 
 import database  # noqa: E402

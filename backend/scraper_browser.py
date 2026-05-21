@@ -58,7 +58,15 @@ def load_listing_page(page, url, retries=3):
     """Load a REIWA listing page, wait for cards, scroll repeatedly to load all."""
     for attempt in range(1, retries + 1):
         try:
-            page.goto(url, wait_until="networkidle", timeout=40000)
+            # domcontentloaded + 20s, NOT networkidle. REIWA loads
+            # analytics/ad pixels that keep the network active >40s,
+            # so wait_until='networkidle' times out forever — the cron
+            # used to monkey-patch this in run_daily_scrape.py but the
+            # Flask manual path never got the patch and every list-page
+            # load hit 40s × 3 retries = 120s per page. The downstream
+            # wait_for_selector('p-card', timeout=8000) below is the
+            # real "page is ready" signal we want.
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
             try:
                 page.wait_for_selector('[class*="p-card"]', timeout=8000)
             except Exception:
