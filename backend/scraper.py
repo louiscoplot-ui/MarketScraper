@@ -91,6 +91,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
             seen_urls = set()
             page_num = 1
             consecutive_empty = 0
+            consecutive_load_failures = 0
 
             while page_num <= MAX_PAGES:
                 if cancel_check and cancel_check():
@@ -102,9 +103,23 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     progress_callback(f'For-sale page {page_num}...')
 
                 if not _load_listing_page(listing_page, url):
-                    logger.error(f"Failed to load for-sale page {page_num}")
+                    # Single page load failure must NOT abort the whole
+                    # scrape — REIWA occasionally serves a slow/blank
+                    # response for one page while the next loads fine.
+                    # Skip this page, count the failure, only give up
+                    # after 2 consecutive failures (same threshold as
+                    # compare_suburb at scraper_browser.py:192).
+                    consecutive_load_failures += 1
+                    logger.warning(f"Failed to load for-sale page {page_num} "
+                                   f"(consecutive failures: {consecutive_load_failures})")
                     results['errors'].append(f"Failed to load for-sale page {page_num}")
-                    break
+                    if consecutive_load_failures >= 2:
+                        logger.error(f"2 consecutive for-sale page failures, stopping")
+                        break
+                    page_num += 1
+                    time.sleep(random.uniform(0.5, 1.0))
+                    continue
+                consecutive_load_failures = 0
 
                 html = listing_page.content()
                 soup = BeautifulSoup(html, "html.parser")
@@ -409,6 +424,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
             SOLD_MAX_PAGES = 10
             sold_seen = set()
+            sold_load_failures = 0
             for pg in range(1, SOLD_MAX_PAGES + 1):
                 if cancel_check and cancel_check():
                     break
@@ -417,7 +433,19 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     progress_callback(f'Sold page {pg}...')
 
                 if not _load_listing_page(listing_page, url):
-                    break
+                    # Mirror the for-sale skip-and-continue policy: one
+                    # bad sold page must not zero-out sold_pages_scraped
+                    # for the whole suburb. Give up after 2 in a row.
+                    sold_load_failures += 1
+                    logger.warning(f"Failed to load sold page {pg} "
+                                   f"(consecutive failures: {sold_load_failures})")
+                    results['errors'].append(f"Failed to load sold page {pg}")
+                    if sold_load_failures >= 2:
+                        logger.error(f"2 consecutive sold page failures, stopping")
+                        break
+                    time.sleep(random.uniform(0.3, 0.8))
+                    continue
+                sold_load_failures = 0
 
                 html = listing_page.content()
                 soup = BeautifulSoup(html, "html.parser")
