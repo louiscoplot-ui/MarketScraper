@@ -25,6 +25,15 @@ export function setAccessKey(key) {
 }
 
 export async function api(url, options = {}) {
+  // Rewrite bare /api/ paths to hit Render directly. The Vercel edge
+  // proxy adds 25s of timeout headroom we don't need and a Render
+  // cold-start (30-60s) returned 504 to the browser — every admin
+  // toggle felt frozen. The fetch interceptor in main.jsx injects
+  // X-Access-Key for both /api/* and BACKEND_DIRECT/api/* forms, so
+  // routing here is transparent to callers.
+  const finalUrl = (typeof url === 'string' && url.startsWith('/api/'))
+    ? `${BACKEND_DIRECT}${url}`
+    : url
   const key = getAccessKey()
   const headers = {
     ...(key ? { 'X-Access-Key': key } : {}),
@@ -32,7 +41,7 @@ export async function api(url, options = {}) {
       ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers || {}),
   }
-  return fetch(url, { ...options, headers })
+  return fetch(finalUrl, { ...options, headers })
 }
 
 // Same as `api()` but parses JSON and throws on non-2xx, surfacing the
