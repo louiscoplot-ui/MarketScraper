@@ -69,13 +69,16 @@ export default function Header({
   // Insert "Rental" between Hot Vendors and History when the caller has
   // access. Admin (role) implicitly has access. rental_access is a 0/1
   // INTEGER from SQLite / bool from psycopg2 — `!!` coerces both.
+  // Admin tab is filtered out entirely for non-admins — without this
+  // guard regular users saw the tab and got a permission error when
+  // they clicked it.
   const visibleTabs = (() => {
-    const hasRental = !!me && (
-      (me.role || '').toLowerCase() === 'admin' || !!me.rental_access
-    )
-    if (!hasRental) return TABS
+    const isAdmin = !!me && (me.role || '').toLowerCase() === 'admin'
+    const hasRental = isAdmin || !!(me && me.rental_access)
+    const base = TABS.filter(t => t.id !== 'admin' || isAdmin)
+    if (!hasRental) return base
     const out = []
-    for (const t of TABS) {
+    for (const t of base) {
       out.push(t)
       if (t.id === 'hot-vendors') out.push({ id: 'rentals', label: 'Rental' })
     }
