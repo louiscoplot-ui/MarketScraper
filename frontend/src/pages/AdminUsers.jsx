@@ -411,6 +411,7 @@ export default function AdminUsers() {
       rental_access: !!u.rental_access,
       rental_assigned: new Set(),
       rental_available: [],
+      all_suburbs: !!u.all_suburbs,
       digest_enabled: optimisticDigest,
       loading: true,
       saving: false,
@@ -582,12 +583,14 @@ export default function AdminUsers() {
         method: 'PUT',
         body: JSON.stringify({ suburb_ids: Array.from(m.sales_suburb_ids) }),
       })
-      // 2) Feature flags — rental_access + digest_enabled in one PATCH
+      // 2) Feature flags — rental_access + digest_enabled + all_suburbs
+      //    in one PATCH
       await apiJson(`/api/admin/users/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify({
           rental_access: m.rental_access,
           digest_enabled: m.digest_enabled,
+          all_suburbs: m.all_suburbs,
         }),
       })
       // 3) Rental suburb full-replace in ONE call — was a GET + a
@@ -1202,8 +1205,34 @@ export default function AdminUsers() {
               <div className="admin-assign-hint">Loading current access…</div>
             )}
 
-            {/* Sales suburbs */}
-            <div style={{ marginTop: 4 }}>
+            {/* All-suburbs access — full read scope without per-suburb
+                assignment. When on, the sales grid below is irrelevant
+                (the user already sees every suburb, current + future). */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+              padding: '10px 12px', marginTop: 4, marginBottom: 8,
+              background: managing.all_suburbs ? '#eff6ff' : 'transparent',
+              border: '1px solid', borderColor: managing.all_suburbs ? '#bfdbfe' : 'var(--border)',
+              borderRadius: 6, cursor: 'pointer',
+            }}>
+              <input
+                type="checkbox"
+                checked={!!managing.all_suburbs}
+                onChange={() => updateManaging({ all_suburbs: !managing.all_suburbs })}
+                disabled={managing.saving || managing.loading}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <strong style={{ fontSize: 13 }}>Access to all suburbs</strong>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Sees every suburb now and any added later — no per-suburb
+                  assignment needed. Stays a regular user (no admin powers).
+                </span>
+              </span>
+            </label>
+
+            {/* Sales suburbs — disabled when all-suburbs is on. */}
+            <div style={{ marginTop: 4, opacity: managing.all_suburbs ? 0.45 : 1, pointerEvents: managing.all_suburbs ? 'none' : 'auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <strong style={{ fontSize: 13 }}>Sales suburbs</strong>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -1459,7 +1488,7 @@ export default function AdminUsers() {
               gap: 12, background: '#fafafa',
             }}>
               <span style={{ fontSize: 12, color: '#6b7280' }}>
-                {managing.sales_suburb_ids.size} sales · {managing.rental_access ? `${managing.rental_assigned.size} rental` : 'rental off'} · digest {managing.digest_enabled ? 'on' : 'off'}
+                {managing.all_suburbs ? 'all suburbs' : `${managing.sales_suburb_ids.size} sales`} · {managing.rental_access ? `${managing.rental_assigned.size} rental` : 'rental off'} · digest {managing.digest_enabled ? 'on' : 'off'}
               </span>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button

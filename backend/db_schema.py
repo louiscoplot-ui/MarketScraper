@@ -755,6 +755,18 @@ def init_db():
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
                        label='users ADD COLUMN fallback')
 
+    # all_suburbs — a non-admin user who sees EVERY suburb (current +
+    # any added later) without per-suburb assignment. Lets a principal /
+    # office head get full read scope without the admin role (no user
+    # management, no suburb deletion). Default 0 so existing users keep
+    # their explicit assignments.
+    for col_sql in [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS all_suburbs INTEGER NOT NULL DEFAULT 0",
+    ]:
+        if not _safe_exec(conn, col_sql, label='users ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='users ADD COLUMN fallback')
+
     # Seed rental_suburbs once on first init — Perth WA inner-west +
     # western suburbs corridor the agency works. Idempotent: skipped
     # whenever the table already has rows.

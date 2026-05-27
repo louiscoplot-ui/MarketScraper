@@ -100,9 +100,16 @@ def resolve_request_scope():
     """Convenience for data routes: returns (user_dict_or_None, suburb_ids).
     `suburb_ids` is None when the caller is admin / unauthenticated (no
     filtering applied — admins see all). For regular users it's the list
-    of assigned suburb IDs (possibly empty → they see nothing)."""
+    of assigned suburb IDs (possibly empty → they see nothing).
+
+    A non-admin user with the `all_suburbs` flag also gets None (sees
+    every suburb, current + future) — full read scope without the admin
+    role. _require_admin() is unaffected, so they still can't reach
+    user-management or suburb-deletion routes."""
     user = get_current_user()
     if not user or user.get('role') == 'admin':
+        return user, None
+    if user.get('all_suburbs'):
         return user, None
     return user, get_user_suburb_ids(user['id'])
 
@@ -283,7 +290,7 @@ def register_admin_routes(app):
         conn = get_db()
         rows = conn.execute(
             "SELECT id, email, first_name, last_name, phone, role, "
-            "last_seen, created_at, rental_access, digest_enabled "
+            "last_seen, created_at, rental_access, digest_enabled, all_suburbs "
             "FROM users ORDER BY created_at DESC"
         ).fetchall()
         # Pull every assignment in one query and group by user, so the
@@ -409,8 +416,13 @@ def register_admin_routes(app):
         if 'rental_access' in body:
             sets.append('rental_access = ?')
             params.append(1 if body.get('rental_access') else 0)
+        # all_suburbs — full read scope for a non-admin (see every
+        # suburb). Pushed through the same Manage Access save.
+        if 'all_suburbs' in body:
+            sets.append('all_suburbs = ?')
+            params.append(1 if body.get('all_suburbs') else 0)
         if not sets:
-            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access'}), 400
+            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access, all_suburbs'}), 400
         params.append(user_id)
         conn = get_db()
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
