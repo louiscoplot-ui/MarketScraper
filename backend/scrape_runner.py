@@ -250,6 +250,17 @@ def run_scrape(suburb_id, slug, name):
             confident = False
         if candidates:
             confident = True
+        # A skipped for-sale page (transient load failure) means some
+        # genuinely-active listings never made it into forsale_urls.
+        # Never run the confident bulk-withdrawal path in that case —
+        # those listings would be wrongly marked withdrawn. They stay
+        # active and get picked up on the next clean scrape.
+        load_failed = any('Failed to load for-sale page' in str(e)
+                          for e in result.get('errors', []))
+        if load_failed and confident:
+            confident = False
+            logger.warning(f"[{name}] for-sale page load failure(s) detected — "
+                           f"forcing confident=False to avoid wrongful withdrawals")
         if confident:
             logger.info(f"[{name}] Confident scrape (verified): {our_count} found vs {reiwa_total} REIWA total — checking withdrawals")
         else:

@@ -425,6 +425,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
             SOLD_MAX_PAGES = 10
             sold_seen = set()
             sold_load_failures = 0
+            sold_consecutive_dup = 0
             for pg in range(1, SOLD_MAX_PAGES + 1):
                 if cancel_check and cancel_check():
                     break
@@ -495,9 +496,17 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                 logger.info(f"{suburb_name} sold p{pg}: {len(cards)} cards, {new_on_page} new")
 
                 if new_on_page == 0 and pg > 1:
-                    # Page returned only duplicates — REIWA likely loops back to
-                    # earlier results. No point scanning further.
-                    break
+                    # All-duplicate page. REIWA sometimes returns a page
+                    # whose ordering overlaps the previous one mid-run,
+                    # then serves genuinely new recent sales on the NEXT
+                    # page — so don't bail on the first dup page. Break
+                    # only after 2 consecutive all-dup pages (mirrors the
+                    # for-sale consecutive_empty policy).
+                    sold_consecutive_dup += 1
+                    if sold_consecutive_dup >= 2:
+                        break
+                else:
+                    sold_consecutive_dup = 0
                 time.sleep(random.uniform(0.3, 0.8))
 
             results['stats']['sold_count'] = len(results['sold_listings'])

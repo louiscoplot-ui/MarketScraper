@@ -1097,6 +1097,13 @@ def register_rental_routes(app):
                         )
                 conn.commit()
             except Exception as e:
+                # Roll back so the pooled connection isn't returned in an
+                # aborted-transaction state — on Postgres every later
+                # statement on a reused conn would fail otherwise.
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
                 return jsonify({'error': f'Replace failed: {e}'}), 500
         return jsonify({'success': True, 'assigned': desired, 'skipped': skipped})
 

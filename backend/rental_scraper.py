@@ -159,13 +159,34 @@ def _parse_card(card, suburb_name):
     # /week forms, so "$850 Weekly" was dropped and the listing showed
     # no rent even though REIWA displayed it. Add weekly / wk / /wk.
     price_week = ''
+    # Strict pass — a dollar amount immediately followed by a week-unit
+    # token (pw, p/w, p.w., per week, a week, /week, /wk, /w, weekly,
+    # wk). High confidence this is the advertised rent.
     m = re.search(
         r'\$\s*([\d,]+(?:\.\d+)?)\s*'
-        r'(?:pw|p/w|per\s*week|/\s*week|/\s*wk|weekly|wk)',
+        r'(?:p\.?\s*/?\s*w\.?|per\s*week|a\s*week|/\s*w(?:k|eek)?|weekly|wk)',
         card_text, re.I,
     )
     if m:
         price_week = f"${m.group(1)}"
+    else:
+        # Loose fallback — REIWA also advertises rentals as a bare
+        # "$850" or "From $850" / "$850 - $900" with "per week" implied.
+        # Take the FIRST dollar amount that (a) isn't preceded by a
+        # bond/deposit/fee label and (b) sits in a plausible weekly-rent
+        # range, so we never grab a multi-thousand bond or a $40
+        # application fee. Lower number of a range = the advertised rent.
+        for fm in re.finditer(r'\$\s*([\d,]+(?:\.\d+)?)', card_text):
+            before = card_text[max(0, fm.start() - 24):fm.start()].lower()
+            if any(w in before for w in ('bond', 'deposit', 'fee', 'application', 'surety')):
+                continue
+            try:
+                val = float(fm.group(1).replace(',', ''))
+            except ValueError:
+                continue
+            if 50 <= val <= 25000:
+                price_week = f"${fm.group(1)}"
+                break
 
     ptype = ''
     for t in PROPERTY_TYPES:
