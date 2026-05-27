@@ -290,7 +290,8 @@ def register_admin_routes(app):
         conn = get_db()
         rows = conn.execute(
             "SELECT id, email, first_name, last_name, phone, role, "
-            "last_seen, created_at, rental_access, digest_enabled, all_suburbs "
+            "last_seen, created_at, rental_access, digest_enabled, all_suburbs, "
+            "can_add_suburbs "
             "FROM users ORDER BY created_at DESC"
         ).fetchall()
         # Pull every assignment in one query and group by user, so the
@@ -421,8 +422,12 @@ def register_admin_routes(app):
         if 'all_suburbs' in body:
             sets.append('all_suburbs = ?')
             params.append(1 if body.get('all_suburbs') else 0)
+        # can_add_suburbs — self-service suburb creation for a non-admin.
+        if 'can_add_suburbs' in body:
+            sets.append('can_add_suburbs = ?')
+            params.append(1 if body.get('can_add_suburbs') else 0)
         if not sets:
-            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access, all_suburbs'}), 400
+            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access, all_suburbs, can_add_suburbs'}), 400
         params.append(user_id)
         conn = get_db()
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)

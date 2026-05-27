@@ -159,6 +159,18 @@ def create_suburb():
     assign it to the caller so they can subscribe to a shared suburb."""
     try:
         from admin_api import get_current_user
+        # Permission gate: only admins and users explicitly granted
+        # can_add_suburbs may introduce a new suburb to the system
+        # (it gets scraped nightly). Regular users see only what an
+        # admin assigned them — they can't self-expand coverage.
+        user = get_current_user()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        if user.get('role') != 'admin' and not user.get('can_add_suburbs'):
+            return jsonify({
+                'error': "You don't have permission to add suburbs. "
+                         "Ask your admin to enable it for your account."
+            }), 403
         data = request.json or {}
         name = (data.get('name') or '').strip()
         if not name:
@@ -197,7 +209,7 @@ def create_suburb():
             finally:
                 conn.close()
             status = 200
-        user = get_current_user()
+        # `user` already resolved by the permission gate above.
         if user and user.get('role') != 'admin':
             try:
                 conn = get_db()

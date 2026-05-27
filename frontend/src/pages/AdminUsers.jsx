@@ -412,6 +412,7 @@ export default function AdminUsers() {
       rental_assigned: new Set(),
       rental_available: [],
       all_suburbs: !!u.all_suburbs,
+      can_add_suburbs: !!u.can_add_suburbs,
       digest_enabled: optimisticDigest,
       loading: true,
       saving: false,
@@ -424,29 +425,29 @@ export default function AdminUsers() {
       rentalCustomSuggestions: [],
       rentalCustomAdding: false,
     })
-    try {
-      const [salesRes, rentalRes] = await Promise.all([
-        apiJson(`/api/admin/users/${u.id}/suburbs`),
-        apiJson(`/api/admin/users/${u.id}/rental-suburbs`),
-      ])
-      setManaging(prev => prev && prev.user.id === u.id ? {
+    // Fire both calls independently and paint each section as it lands
+    // — the sales grid (primary content) clears `loading` as soon as it
+    // arrives instead of waiting for the rental call too, so the modal
+    // feels responsive even when one endpoint is slower.
+    apiJson(`/api/admin/users/${u.id}/suburbs`)
+      .then(salesRes => setManaging(prev => prev && prev.user.id === u.id ? {
         ...prev,
         sales_suburb_ids: new Set(salesRes.suburb_ids || []),
-        // Carries the {id, name} pairs of every suburb assigned to the
-        // user — including ones with active=0 (custom-added via the
-        // search-to-add row below). Needed because /api/suburbs only
-        // returns active suburbs, so inactive customs are absent from
-        // allSuburbs and would otherwise not render as a checkbox row.
+        // {id, name} pairs of every assigned suburb — incl. active=0
+        // customs absent from allSuburbs — so they still render a row.
         sales_user_suburbs: salesRes.suburbs || [],
+        loading: false,
+      } : prev))
+      .catch(e => setManaging(prev => prev && prev.user.id === u.id
+        ? { ...prev, loading: false, error: `Load failed: ${e.message}` }
+        : prev))
+    apiJson(`/api/admin/users/${u.id}/rental-suburbs`)
+      .then(rentalRes => setManaging(prev => prev && prev.user.id === u.id ? {
+        ...prev,
         rental_assigned: new Set(rentalRes.assigned || []),
         rental_available: rentalRes.available || [],
-        loading: false,
-      } : prev)
-    } catch (e) {
-      setManaging(prev => prev && prev.user.id === u.id
-        ? { ...prev, loading: false, error: `Load failed: ${e.message}` }
-        : prev)
-    }
+      } : prev))
+      .catch(() => { /* rentals optional — sales already cleared loading */ })
   }
 
   // Debounced suburb search for the custom-add row in the Sales
@@ -591,6 +592,7 @@ export default function AdminUsers() {
           rental_access: m.rental_access,
           digest_enabled: m.digest_enabled,
           all_suburbs: m.all_suburbs,
+          can_add_suburbs: m.can_add_suburbs,
         }),
       })
       // 3) Rental suburb full-replace in ONE call — was a GET + a
@@ -1227,6 +1229,31 @@ export default function AdminUsers() {
                 <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                   Sees every suburb now and any added later — no per-suburb
                   assignment needed. Stays a regular user (no admin powers).
+                </span>
+              </span>
+            </label>
+
+            {/* Can add suburbs — lets this user introduce NEW suburbs
+                to the system (scraped nightly) without the admin role. */}
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+              padding: '10px 12px', marginBottom: 8,
+              background: managing.can_add_suburbs ? '#eff6ff' : 'transparent',
+              border: '1px solid', borderColor: managing.can_add_suburbs ? '#bfdbfe' : 'var(--border)',
+              borderRadius: 6, cursor: 'pointer',
+            }}>
+              <input
+                type="checkbox"
+                checked={!!managing.can_add_suburbs}
+                onChange={() => updateManaging({ can_add_suburbs: !managing.can_add_suburbs })}
+                disabled={managing.saving || managing.loading}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <strong style={{ fontSize: 13 }}>Can add new suburbs</strong>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  Shows the "+ add suburb" box in their sidebar so they can
+                  start scraping any WA suburb themselves. Still no admin powers.
                 </span>
               </span>
             </label>

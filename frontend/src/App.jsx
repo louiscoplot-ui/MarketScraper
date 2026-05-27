@@ -763,6 +763,10 @@ function App() {
         ) : (
         <aside className="sidebar">
           <h2>Suburbs</h2>
+          {/* Add form only for admins + users granted can_add_suburbs.
+              Everyone else sees just the suburbs an admin assigned them
+              and can't self-expand coverage. */}
+          {(me?.role === 'admin' || me?.can_add_suburbs) && (
           <form onSubmit={addSuburb} className="add-form" ref={suggestionsRef}>
             <div className="autocomplete-wrapper">
               <input
@@ -799,6 +803,7 @@ function App() {
             </div>
             <button type="submit" className="btn btn-small">+</button>
           </form>
+          )}
 
           {suburbs.length > 0 && (
             <div className="check-actions">
