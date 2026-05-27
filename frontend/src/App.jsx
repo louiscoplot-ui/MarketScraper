@@ -858,14 +858,12 @@ function App() {
                     title="Include in scrape"
                   />
                   <div className="suburb-info" onClick={() => toggleViewSuburb(s.id)}>
-                    <div className="suburb-row-top">
-                      <span className="suburb-name" title={s.name}>{s.name}</span>
-                      <div className="suburb-stats">
-                        <span className="stat active">{s.active_count || 0}</span>
-                        <span className="stat under-offer">{s.under_offer_count || 0}</span>
-                        <span className="stat sold">{s.sold_count || 0}</span>
-                        <span className="stat withdrawn">{s.withdrawn_count || 0}</span>
-                      </div>
+                    <span className="suburb-name" title={s.name}>{s.name}</span>
+                    <div className="suburb-stats">
+                      <span className="stat active">{s.active_count || 0}</span>
+                      <span className="stat under-offer">{s.under_offer_count || 0}</span>
+                      <span className="stat sold">{s.sold_count || 0}</span>
+                      <span className="stat withdrawn">{s.withdrawn_count || 0}</span>
                     </div>
                     {isRunning && <div className="scrape-progress">{job.progress}</div>}
                     {job?.status === 'completed' && <div className="scrape-done">{job.progress}</div>}

@@ -300,36 +300,21 @@ header h1 {
   min-width: 0;
 }
 
-/* Name + count badges share ONE line so each suburb row is compact
-   (was: name stacked above the badges, ~2x the height). Name takes
-   the slack and ellipsises; badges never shrink. Scrape-progress
-   still drops onto its own line below because it's outside this row. */
-.suburb-row-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .suburb-name {
   font-size: 12px;
   font-weight: 500;
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .suburb-stats {
   display: flex;
-  gap: 3px;
-  flex-shrink: 0;
+  gap: 4px;
+  margin-top: 1px;
 }
 
 .stat {
   font-size: 10px;
   font-weight: 600;
-  padding: 0px 4px;
+  padding: 0px 5px;
   border-radius: 10px;
 }
 
