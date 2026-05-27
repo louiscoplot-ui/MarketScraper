@@ -149,6 +149,21 @@ function App() {
     bootLoading: listingsBootLoading, soldLoadError,
   } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view })
 
+  // Clear an agent/agency filter that's no longer valid for the current
+  // suburb/status scope. Otherwise selecting one suburb while a filter
+  // from "All" is still active leaves the dropdown on a stale value
+  // showing "0 listings" (the filter matches nothing in the new scope).
+  useEffect(() => {
+    if (selectedAgent && !uniqueAgents.includes(selectedAgent)) {
+      setSelectedAgent('')
+    }
+  }, [uniqueAgents, selectedAgent])
+  useEffect(() => {
+    if (selectedAgency && !uniqueAgencies.includes(selectedAgency)) {
+      setSelectedAgency('')
+    }
+  }, [uniqueAgencies, selectedAgency])
+
   const [theme, setTheme] = useState(() => {
     try {
       const saved = localStorage.getItem(THEME_STORAGE_KEY)

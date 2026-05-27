@@ -185,14 +185,30 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     })
   }, [listings, checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, sortField, sortDir])
 
+  // Agent/Agency dropdown options scoped to the CURRENT suburb +
+  // status selection — not the whole dataset. Without this, picking a
+  // single suburb still showed every agent/agency across all 17
+  // suburbs, and a stale agent filter left over from "All" produced
+  // "0 listings". Intentionally NOT cross-filtered by selectedAgent /
+  // selectedAgency so picking an agency doesn't make the agent list
+  // collapse (and vice-versa).
+  const facetListings = useMemo(
+    () => listings.filter(l => {
+      if (checkedSuburbs.size > 0 && !checkedSuburbs.has(l.suburb_id)) return false
+      if (selectedStatuses.size > 0 && !selectedStatuses.has(l.status)) return false
+      return true
+    }),
+    [listings, checkedSuburbs, selectedStatuses]
+  )
+
   const uniqueAgents = useMemo(
-    () => [...new Set(listings.map(l => l.agent).filter(Boolean))].sort(),
-    [listings]
+    () => [...new Set(facetListings.map(l => l.agent).filter(Boolean))].sort(),
+    [facetListings]
   )
 
   const uniqueAgencies = useMemo(
-    () => [...new Set(listings.map(l => l.agency).filter(Boolean))].sort(),
-    [listings]
+    () => [...new Set(facetListings.map(l => l.agency).filter(Boolean))].sort(),
+    [facetListings]
   )
 
   const deleteListing = useCallback(async (listing) => {
