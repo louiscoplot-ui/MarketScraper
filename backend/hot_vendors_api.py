@@ -851,11 +851,18 @@ def register_hot_vendors_routes(app):
     def excel_job_start(upload_id):
         conn = get_db()
         row = conn.execute(
-            "SELECT uploaded_at FROM hot_vendor_uploads WHERE id = ?",
+            "SELECT uploaded_at, suburb FROM hot_vendor_uploads WHERE id = ?",
             (upload_id,)
         ).fetchone()
         conn.close()
-        if row and _expiry_fields(dict(row).get('uploaded_at'))['is_expired']:
+        # SECURITY: scope-gate before queuing — upload_id is enumerable,
+        # so this is the entry point that must reject cross-tenant access
+        # (the resulting job_id is random and only reachable after this).
+        if not row:
+            return jsonify({'error': 'Upload not found'}), 404
+        if not user_can_access_suburb(dict(row).get('suburb')):
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
+        if _expiry_fields(dict(row).get('uploaded_at'))['is_expired']:
             return jsonify({
                 'error': 'Upload expired. Please re-import your RP Data '
                          'to generate a fresh export.'
@@ -894,6 +901,17 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': 'Job not found'}), 404
         if not job.get('file_bytes'):
             return jsonify({'error': 'File not ready', 'status': job.get('status')}), 404
+        # Defense-in-depth: the start route already gates, but re-check
+        # the owning suburb here too (job carries the upload_id).
+        up_id = job.get('upload_id')
+        if up_id is not None:
+            conn = get_db()
+            r = conn.execute(
+                "SELECT suburb FROM hot_vendor_uploads WHERE id = ?", (up_id,)
+            ).fetchone()
+            conn.close()
+            if r and not user_can_access_suburb(dict(r).get('suburb')):
+                return jsonify({'error': 'Not authorised for that suburb'}), 403
         from io import BytesIO
         return send_file(
             BytesIO(job['file_bytes']),
@@ -933,6 +951,11 @@ def register_hot_vendors_routes(app):
         if not result:
             logger.warning(f"[Excel] upload_id={upload_id} not found")
             return jsonify({'error': 'Upload not found'}), 404
+        # SECURITY: scope-gate the export. upload_id is a sequential int,
+        # so without this a non-admin could enumerate ids and pull
+        # another agency's owner names/phones. Mirrors get_upload:801.
+        if not user_can_access_suburb(result.get('suburb')):
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
 
         logger.info(f"[Excel] Building workbook: suburb={result.get('suburb')}, "
                     f"properties={len(result.get('properties') or [])}")
