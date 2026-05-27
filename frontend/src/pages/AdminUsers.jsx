@@ -126,20 +126,20 @@ export default function AdminUsers() {
       })
       // Admin-only calls — wrapped so non-admins still reach the
       // profile form below instead of crashing the whole page.
+      // Fired in parallel (Promise.all) so the admin page bootstrap +
+      // every post-save refresh pays ONE round-trip latency, not three
+      // stacked. apiJson guards on res.ok and throws a clean error
+      // instead of choking on a Render cold-start HTML 502.
       try {
-        const list = await apiJson('/api/admin/users')
+        const [list, subRes, rs] = await Promise.all([
+          apiJson('/api/admin/users'),
+          apiJson('/api/suburbs'),
+          apiJson('/api/admin/rental-suburbs').catch(() => null),
+        ])
         setUsers(list.users)
-        // Previously: raw fetch().then(r => r.json()) — on a Render
-        // cold-start the Vercel proxy returns an HTML 502 page and
-        // JSON.parse throws "Unexpected token '<'" which bubbled all
-        // the way up and surfaced as the red banner above the modal.
-        // apiJson guards on res.ok and throws a clean error instead.
-        const subRes = await apiJson('/api/suburbs')
         setAllSuburbs(Array.isArray(subRes) ? subRes : [])
-        try {
-          const rs = await apiJson('/api/admin/rental-suburbs')
-          setRentalSuburbs(rs.suburbs || [])
-        } catch { /* rental tables not initialised yet — silent skip */ }
+        // rs null = rental tables not initialised yet — silent skip.
+        if (rs) setRentalSuburbs(rs.suburbs || [])
       } catch (e) {
         if (meRes.user?.role === 'admin') throw e
       }
@@ -590,37 +590,21 @@ export default function AdminUsers() {
           digest_enabled: m.digest_enabled,
         }),
       })
-      // 3) Rental suburb diff — only when rental access is on, otherwise
-      //    skip the per-name calls entirely (the rental_access=false
-      //    above effectively hides everything).
+      // 3) Rental suburb full-replace in ONE call — was a GET + a
+      //    POST-per-add + DELETE-per-remove loop (N sequential requests,
+      //    ~a minute over Render's US->AU latency). Skip entirely when
+      //    rental access is off.
       let failures = 0
       if (m.rental_access) {
-        const fresh = await apiJson(`/api/admin/users/${userId}/rental-suburbs`)
-        const currentSet = new Set(fresh.assigned || [])
-        const desired = m.rental_assigned
-        const toAdd = [...desired].filter(n => !currentSet.has(n))
-        const toRemove = [...currentSet].filter(n => !desired.has(n))
-        for (const name of toAdd) {
-          try {
-            await apiJson(`/api/admin/users/${userId}/rental-suburbs`, {
-              method: 'POST',
-              body: JSON.stringify({ suburb_name: name }),
-            })
-          } catch (e) {
-            console.warn(`Add ${name} failed:`, e.message)
-            failures++
-          }
-        }
-        for (const name of toRemove) {
-          try {
-            await apiJson(
-              `/api/admin/users/${userId}/rental-suburbs/${encodeURIComponent(name)}`,
-              { method: 'DELETE' }
-            )
-          } catch (e) {
-            console.warn(`Remove ${name} failed:`, e.message)
-            failures++
-          }
+        try {
+          const res = await apiJson(`/api/admin/users/${userId}/rental-suburbs`, {
+            method: 'PUT',
+            body: JSON.stringify({ suburb_names: [...m.rental_assigned] }),
+          })
+          failures = (res.skipped || []).length
+        } catch (e) {
+          console.warn('rental-suburbs PUT failed:', e.message)
+          failures = m.rental_assigned.size || 1
         }
       }
       const msg = failures > 0

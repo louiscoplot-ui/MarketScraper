@@ -1043,6 +1043,63 @@ def register_rental_routes(app):
                 return jsonify({'error': f'Insert failed: {e}'}), 500
         return jsonify({'success': True, 'user_id': user_id, 'suburb_name': name})
 
+    @app.route('/api/admin/users/<int:user_id>/rental-suburbs', methods=['PUT'])
+    def admin_replace_user_rental_suburbs(user_id):
+        """Full-replace a user's rental suburb assignment in ONE round
+        trip + ONE transaction. The Manage Access modal used to diff the
+        set client-side and fire a POST per add + DELETE per remove —
+        N sequential requests, each paying Render's US->AU latency, so
+        granting a handful of suburbs took the better part of a minute.
+        This collapses it to a single call."""
+        _u, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        names = body.get('suburb_names')
+        if not isinstance(names, list):
+            return jsonify({'error': 'suburb_names (list) required'}), 400
+        with get_db_conn() as conn:
+            if not conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone():
+                return jsonify({'error': 'User not found'}), 404
+            # Resolve each typed name to its canonical rental_suburbs
+            # casing; unknown names are reported, not inserted.
+            canonical = []
+            skipped = []
+            for raw in names:
+                nm = (raw or '').strip()
+                if not nm:
+                    continue
+                canon = conn.execute(
+                    "SELECT name FROM rental_suburbs WHERE LOWER(name) = LOWER(?) AND active = 1",
+                    (nm,)
+                ).fetchone()
+                if canon:
+                    canonical.append(dict(canon)['name'])
+                else:
+                    skipped.append(nm)
+            desired = sorted(set(canonical))
+            try:
+                conn.execute(
+                    "DELETE FROM rental_user_suburbs WHERE user_id = ?", (user_id,)
+                )
+                for nm in desired:
+                    if USE_POSTGRES:
+                        conn.execute(
+                            "INSERT INTO rental_user_suburbs (user_id, suburb_name) "
+                            "VALUES (?, ?) ON CONFLICT (user_id, suburb_name) DO NOTHING",
+                            (user_id, nm)
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO rental_user_suburbs "
+                            "(user_id, suburb_name) VALUES (?, ?)",
+                            (user_id, nm)
+                        )
+                conn.commit()
+            except Exception as e:
+                return jsonify({'error': f'Replace failed: {e}'}), 500
+        return jsonify({'success': True, 'assigned': desired, 'skipped': skipped})
+
     @app.route('/api/admin/users/<int:user_id>/rental-suburbs/<path:suburb_name>',
                methods=['DELETE'])
     def admin_remove_user_rental_suburb(user_id, suburb_name):
