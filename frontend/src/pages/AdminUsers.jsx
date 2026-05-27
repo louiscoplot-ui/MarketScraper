@@ -69,17 +69,6 @@ export default function AdminUsers() {
   const [pendingRental, setPendingRental] = useState({})
   const [savingRentalBatch, setSavingRentalBatch] = useState(false)
 
-  // Rental per-user assignment modal — mirrors `assigning` below but
-  // keyed on suburb_name (TEXT). { user, assigned: Set<string>,
-  // available: string[] } where `assigned` is the operator-visible
-  // editable state we POST/DELETE against the rental admin routes.
-  const [rentalAssigning, setRentalAssigning] = useState(null)
-  const [rentalAssignSaving, setRentalAssignSaving] = useState(false)
-
-  // Suburb-assignment modal — keyed by user id
-  const [assigning, setAssigning] = useState(null)  // { user, suburb_ids: Set }
-  const [assignSaving, setAssignSaving] = useState(false)
-
   // Unified Manage Access modal — sales suburbs + rental access +
   // rental suburbs + digest, all in one save. Shape:
   // { user, sales_suburb_ids: Set<int>, rental_access: bool,
@@ -99,11 +88,6 @@ export default function AdminUsers() {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [managing])
-  // Inline "add new suburb" input inside the assign modal — lets the
-  // admin set up the suburb for an agent without leaving the modal
-  // (the new suburb auto-checks for them; nightly scrape picks it up).
-  const [newSuburbDraft, setNewSuburbDraft] = useState('')
-  const [addingSuburb, setAddingSuburb] = useState(false)
 
   // Per-user prospecting-letter profile — fed by /api/admin/me, saved
   // via PATCH /api/users/me/profile. Available to every authenticated
@@ -242,148 +226,6 @@ export default function AdminUsers() {
       refresh()
     } catch (e) {
       alert(`Could not change role: ${e.message}`)
-    }
-  }
-
-  const openAssign = async (u) => {
-    try {
-      const res = await apiJson(`/api/admin/users/${u.id}/suburbs`)
-      setAssigning({ user: u, suburb_ids: new Set(res.suburb_ids) })
-    } catch (e) {
-      alert(`Could not load assignments: ${e.message}`)
-    }
-  }
-
-  const toggleAssignedSuburb = (sid) => {
-    setAssigning(a => {
-      const next = new Set(a.suburb_ids)
-      if (next.has(sid)) next.delete(sid)
-      else next.add(sid)
-      return { ...a, suburb_ids: next }
-    })
-  }
-
-  const saveAssignments = async () => {
-    if (!assigning) return
-    setAssignSaving(true)
-    try {
-      await apiJson(`/api/admin/users/${assigning.user.id}/suburbs`, {
-        method: 'PUT',
-        body: JSON.stringify({ suburb_ids: Array.from(assigning.suburb_ids) }),
-      })
-      setAssigning(null)
-      // Refresh the users table so the Suburbs column reflects the
-      // new assignment immediately — without this the admin sees the
-      // old chip list and assumes the save failed.
-      refresh()
-    } catch (e) {
-      alert(`Could not save: ${e.message}`)
-    } finally {
-      setAssignSaving(false)
-    }
-  }
-
-  // Add a brand-new suburb from inside the assign modal. The new entry
-  // is auto-ticked for the current user so the admin doesn't have to
-  // click twice. Nightly scrape picks it up on the next run because
-  // `run_daily_scrape.py` reads the suburbs table at runtime.
-  const addSuburbFromModal = async () => {
-    const name = newSuburbDraft.trim()
-    if (!name || !assigning) return
-    setAddingSuburb(true)
-    try {
-      const res = await apiJson('/api/suburbs', {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      })
-      // Insert into the local list, sorted alphabetically.
-      setAllSuburbs(prev => [...prev, res].sort((a, b) =>
-        (a.name || '').localeCompare(b.name || '')
-      ))
-      // Auto-tick for the current user.
-      setAssigning(a => ({
-        ...a,
-        suburb_ids: new Set([...a.suburb_ids, res.id]),
-      }))
-      setNewSuburbDraft('')
-    } catch (e) {
-      alert(`Could not add suburb: ${e.message}`)
-    } finally {
-      setAddingSuburb(false)
-    }
-  }
-
-  // Open the per-user rental-suburb assignment modal. Fetches both
-  // assigned + available lists in one round-trip from the backend.
-  const openRentalAssign = async (u) => {
-    try {
-      const res = await apiJson(`/api/admin/users/${u.id}/rental-suburbs`)
-      setRentalAssigning({
-        user: u,
-        assigned: new Set(res.assigned || []),
-        available: res.available || [],
-      })
-    } catch (e) {
-      alert(`Could not load rental assignments: ${e.message}`)
-    }
-  }
-  // Click on a suburb chip → toggle locally. Persisted to the
-  // backend only when the operator hits Save.
-  const toggleRentalSuburbInModal = (name) => {
-    setRentalAssigning(a => {
-      if (!a) return a
-      const next = new Set(a.assigned)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return { ...a, assigned: next }
-    })
-  }
-  // Save the diff: compare modal state vs backend (re-fetch the
-  // current assignment list, compute add + remove sets, fire the
-  // minimum number of POST/DELETE calls). Atomic-ish — failures on
-  // individual calls log a warning and continue, surfacing a count
-  // at the end so the operator can retry if needed.
-  const saveRentalAssignments = async () => {
-    if (!rentalAssigning) return
-    setRentalAssignSaving(true)
-    try {
-      const userId = rentalAssigning.user.id
-      const fresh = await apiJson(`/api/admin/users/${userId}/rental-suburbs`)
-      const currentSet = new Set(fresh.assigned || [])
-      const desired = rentalAssigning.assigned
-      const toAdd = [...desired].filter(n => !currentSet.has(n))
-      const toRemove = [...currentSet].filter(n => !desired.has(n))
-      let failures = 0
-      for (const name of toAdd) {
-        try {
-          await apiJson(`/api/admin/users/${userId}/rental-suburbs`, {
-            method: 'POST',
-            body: JSON.stringify({ suburb_name: name }),
-          })
-        } catch (e) {
-          console.warn(`Add ${name} failed:`, e.message)
-          failures++
-        }
-      }
-      for (const name of toRemove) {
-        try {
-          await apiJson(
-            `/api/admin/users/${userId}/rental-suburbs/${encodeURIComponent(name)}`,
-            { method: 'DELETE' }
-          )
-        } catch (e) {
-          console.warn(`Remove ${name} failed:`, e.message)
-          failures++
-        }
-      }
-      setRentalAssigning(null)
-      if (failures > 0) {
-        alert(`${failures} rental suburb change(s) failed — please retry.`)
-      }
-    } catch (e) {
-      alert(`Save failed: ${e.message}`)
-    } finally {
-      setRentalAssignSaving(false)
     }
   }
 
@@ -923,7 +765,7 @@ export default function AdminUsers() {
                   <button
                     type="button"
                     className="admin-suburbs-chips"
-                    onClick={() => openAssign(u)}
+                    onClick={() => openManage(u)}
                     title={u.suburbs.map(s => s.name).join(', ')}
                   >
                     {u.suburbs.slice(0, 3).map(s => (
@@ -937,7 +779,7 @@ export default function AdminUsers() {
                   <button
                     type="button"
                     className="admin-suburbs-empty"
-                    onClick={() => openAssign(u)}
+                    onClick={() => openManage(u)}
                   >
                     None — click to assign
                   </button>
@@ -1551,140 +1393,6 @@ export default function AdminUsers() {
         </div>
       )}
 
-      {assigning && (
-        // Backdrop is non-interactive — clicking outside the modal does
-        // NOT close it. The previous behavior (close on backdrop click)
-        // was eating the user's progress: tick a few suburbs, click
-        // anywhere outside the panel by accident → ticks gone, no save.
-        // Use the × or Cancel button to close explicitly.
-        <div className="note-modal-overlay">
-          <div className="note-modal admin-assign-modal">
-            <div className="note-modal-header">
-              <div>
-                <div className="note-modal-title">Assign suburbs</div>
-                <div className="note-modal-sub">{assigning.user.email}</div>
-              </div>
-              <button className="btn-icon" onClick={() => setAssigning(null)} title="Close">×</button>
-            </div>
-            <div className="admin-assign-hint">
-              Tick the suburbs this user can see and scrape. Untick to revoke.
-            </div>
-            <div className="admin-assign-add">
-              <input
-                className="admin-assign-add-input"
-                placeholder="+ Add a new suburb (e.g. Karrinyup) — picked up by tonight's scrape"
-                value={newSuburbDraft}
-                onChange={(e) => setNewSuburbDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    addSuburbFromModal()
-                  }
-                }}
-              />
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={addSuburbFromModal}
-                disabled={!newSuburbDraft.trim() || addingSuburb}
-              >
-                {addingSuburb ? 'Adding…' : 'Add'}
-              </button>
-            </div>
-            <div className="admin-assign-grid">
-              {allSuburbs.map(s => (
-                <label key={s.id} className="admin-assign-row">
-                  <input
-                    type="checkbox"
-                    checked={assigning.suburb_ids.has(s.id)}
-                    onChange={() => toggleAssignedSuburb(s.id)}
-                  />
-                  <span className="admin-assign-name">{s.name}</span>
-                  <span className="admin-assign-count">
-                    {(s.active_count || 0) + (s.under_offer_count || 0)} live
-                  </span>
-                </label>
-              ))}
-              {!allSuburbs.length && (
-                <div className="empty">No suburbs in the system yet.</div>
-              )}
-            </div>
-            <div className="note-modal-footer">
-              <span className="note-hint">{assigning.suburb_ids.size} selected</span>
-              <div className="note-modal-actions">
-                <button className="btn btn-ghost btn-sm" onClick={() => setAssigning(null)} disabled={assignSaving}>
-                  Cancel
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={saveAssignments}
-                  disabled={assignSaving}
-                >
-                  {assignSaving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {rentalAssigning && (
-        // Same shell as the sales assign modal — different mutation
-        // shape (POST/DELETE diff against rental_user_suburbs instead
-        // of PUT replace-all). Suburb chips toggle on click.
-        <div className="note-modal-overlay">
-          <div className="note-modal admin-assign-modal">
-            <div className="note-modal-header">
-              <div>
-                <div className="note-modal-title">Rental suburbs</div>
-                <div className="note-modal-sub">{rentalAssigning.user.email}</div>
-              </div>
-              <button className="btn-icon" onClick={() => setRentalAssigning(null)} title="Close">×</button>
-            </div>
-            <div className="admin-assign-hint">
-              Tick the rental suburbs this user can see and import.
-              Empty assignment = legacy fallback (all active rental
-              suburbs visible). Untick to remove a suburb from their scope.
-            </div>
-            <div className="admin-assign-grid">
-              {(rentalAssigning.available || []).map(name => (
-                <label key={name} className="admin-assign-row">
-                  <input
-                    type="checkbox"
-                    checked={rentalAssigning.assigned.has(name)}
-                    onChange={() => toggleRentalSuburbInModal(name)}
-                  />
-                  <span className="admin-assign-name">{name}</span>
-                </label>
-              ))}
-              {(rentalAssigning.available || []).length === 0 && (
-                <div className="empty">
-                  No active rental suburbs configured yet — add some via the
-                  Rental Suburbs panel.
-                </div>
-              )}
-            </div>
-            <div className="note-modal-footer">
-              <span className="note-hint">{rentalAssigning.assigned.size} selected</span>
-              <div className="note-modal-actions">
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setRentalAssigning(null)}
-                  disabled={rentalAssignSaving}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={saveRentalAssignments}
-                  disabled={rentalAssignSaving}
-                >
-                  {rentalAssignSaving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
