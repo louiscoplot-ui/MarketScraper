@@ -5,7 +5,7 @@
 // patch; admins see everything.
 
 import { useState, useEffect, useRef } from 'react'
-import { apiJson, getAccessKey, setAccessKey } from '../lib/api'
+import { apiJson, getAccessKey, setAccessKey, readCache, writeCache } from '../lib/api'
 
 // Backend stores timestamps as naive UTC (datetime.utcnow().isoformat()
 // or SQLite datetime('now')). JS new Date() treats a naive ISO string
@@ -43,10 +43,16 @@ function fmtPerthDate(s) {
 }
 
 export default function AdminUsers() {
-  const [me, setMe] = useState(null)
-  const [users, setUsers] = useState([])
-  const [allSuburbs, setAllSuburbs] = useState([])
-  const [loading, setLoading] = useState(true)
+  // Stale-while-revalidate: hydrate from localStorage synchronously so
+  // returning to the Admin tab paints the user list INSTANTLY instead
+  // of a 15-20s "Loading…" while Render wakes + the fetch lands. The
+  // background refresh below overwrites once fresh data arrives.
+  const [me, setMe] = useState(() => readCache('admin_me') || null)
+  const [users, setUsers] = useState(() => readCache('admin_users') || [])
+  const [allSuburbs, setAllSuburbs] = useState(() => readCache('admin_all_suburbs') || [])
+  // Only block the page with "Loading…" when there's nothing cached to
+  // show yet (first ever visit). With cache, refresh is silent.
+  const [loading, setLoading] = useState(() => (readCache('admin_users') || []).length === 0)
   const [error, setError] = useState('')
 
   // New-user form
@@ -55,7 +61,7 @@ export default function AdminUsers() {
   const [newKey, setNewKey] = useState(null)
 
   // Rental module: separate admin allowlist + per-user toggle.
-  const [rentalSuburbs, setRentalSuburbs] = useState([])
+  const [rentalSuburbs, setRentalSuburbs] = useState(() => readCache('admin_rental_suburbs') || [])
   const [newRentalSuburb, setNewRentalSuburb] = useState('')
   const [addingRentalSuburb, setAddingRentalSuburb] = useState(false)
   // Pending checkbox edits — keyed by suburb id, value is the new
@@ -111,11 +117,14 @@ export default function AdminUsers() {
   const [profileError, setProfileError] = useState('')
 
   const refresh = async () => {
-    setLoading(true)
+    // Don't flash the "Loading…" blocker when we already have cached
+    // rows on screen — refresh silently in the background instead.
+    if (users.length === 0) setLoading(true)
     setError('')
     try {
       const meRes = await apiJson('/api/admin/me')
       setMe(meRes.user)
+      writeCache('admin_me', meRes.user)
       setProfileDraft({
         agency_name: meRes.user?.agency_name || '',
         agent_name: meRes.user?.agent_name || '',
@@ -137,9 +146,15 @@ export default function AdminUsers() {
           apiJson('/api/admin/rental-suburbs').catch(() => null),
         ])
         setUsers(list.users)
-        setAllSuburbs(Array.isArray(subRes) ? subRes : [])
+        writeCache('admin_users', list.users)
+        const subs = Array.isArray(subRes) ? subRes : []
+        setAllSuburbs(subs)
+        writeCache('admin_all_suburbs', subs)
         // rs null = rental tables not initialised yet — silent skip.
-        if (rs) setRentalSuburbs(rs.suburbs || [])
+        if (rs) {
+          setRentalSuburbs(rs.suburbs || [])
+          writeCache('admin_rental_suburbs', rs.suburbs || [])
+        }
       } catch (e) {
         if (meRes.user?.role === 'admin') throw e
       }
