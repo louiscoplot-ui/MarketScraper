@@ -271,7 +271,7 @@ header h1 {
 .suburb-check {
   width: 14px;
   height: 14px;
-  margin-right: 6px;
+  margin-right: 4px;
   cursor: pointer;
   accent-color: var(--primary);
   flex-shrink: 0;
@@ -331,8 +331,18 @@ header h1 {
 
 .suburb-actions {
   display: flex;
-  gap: 2px;
-  margin-left: 4px;
+  gap: 0;
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* Tighten the per-row action buttons (↻ ×) ONLY in the sidebar so the
+   name column is wider — without this the longest names (Peppermint
+   Grove, North Fremantle) wrapped to a second line. Scoped so the
+   global .btn-icon used in modals is untouched. */
+.suburb-actions .btn-icon {
+  padding: 2px 4px;
+  font-size: 14px;
 }
 
 .scrape-progress {
