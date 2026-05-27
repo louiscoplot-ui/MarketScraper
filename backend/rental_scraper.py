@@ -153,15 +153,19 @@ def _parse_card(card, suburb_name):
 
     card_text = card.get_text(' ', strip=True)
 
-    # Price per week — REIWA uses "$X pw" or "$X per week" labels.
+    # Price per week — REIWA labels it "$X pw" / "$X per week" /
+    # "$X/week" and, increasingly, "$X Weekly" (the wording in their
+    # current template). The old pattern only matched the pw/per-week/
+    # /week forms, so "$850 Weekly" was dropped and the listing showed
+    # no rent even though REIWA displayed it. Add weekly / wk / /wk.
     price_week = ''
-    m = re.search(r'\$([\d,]+(?:\.\d+)?)\s*(?:pw|p/w|per\s*week|/\s*week)', card_text, re.I)
+    m = re.search(
+        r'\$\s*([\d,]+(?:\.\d+)?)\s*'
+        r'(?:pw|p/w|per\s*week|/\s*week|/\s*wk|weekly|wk)',
+        card_text, re.I,
+    )
     if m:
         price_week = f"${m.group(1)}"
-    else:
-        m = re.search(r'\$([\d,]+)\s*(?=pw|per\s*week|/wk|/week)', card_text, re.I)
-        if m:
-            price_week = f"${m.group(1)}"
 
     ptype = ''
     for t in PROPERTY_TYPES:
