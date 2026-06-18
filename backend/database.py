@@ -533,7 +533,7 @@ def get_existing_urls(suburb_id):
     return complete
 
 
-def trim_sold_listings(suburb_id, keep=40):
+def trim_sold_listings(suburb_id, keep=200):
     conn = get_db()
     rows = conn.execute(
         "SELECT id FROM listings WHERE suburb_id = ? AND status = 'sold' ORDER BY last_seen DESC",

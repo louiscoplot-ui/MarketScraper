@@ -301,9 +301,9 @@ def run_scrape(suburb_id, slug, name):
                 logger.info(f"[{name}] Incomplete scrape: {our_count} found vs {reiwa_total} REIWA total — skipping withdrawals")
             withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
 
-        trimmed = trim_sold_listings(suburb_id, keep=40)
+        trimmed = trim_sold_listings(suburb_id, keep=200)
         if trimmed:
-            logger.info(f"[{name}] Trimmed {trimmed} old sold listings (keeping 40 most recent)")
+            logger.info(f"[{name}] Trimmed {trimmed} old sold listings (keeping 200 most recent)")
 
         actual_forsale = len(forsale_urls)
         update_scrape_log(
