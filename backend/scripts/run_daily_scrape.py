@@ -230,7 +230,27 @@ def scrape_one(suburb):
         # Every candidate was individually verified — coverage % no longer matters.
         confident = True
 
-    withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
+    # Safety guard: if we found ZERO actives AND there are 5+ candidates
+    # we'd be flipping to withdrawn, refuse the sweep. Almost certainly a
+    # parser fault on our side (REIWA DOM change, page-load timeout,
+    # verify_disappeared_listings returning a blanket 'gone' on a network
+    # blip) — not a real "everyone withdrew today" event. Mirrors the
+    # RENTAL_SCRAPE_ABORT_THRESHOLD guard in rental_scraper.py.
+    #
+    # This bug, latent for months, manifested over a 2-week vacation
+    # window and silently withdrew ~50 listings in Cottesloe + ~17 in
+    # Crawley. The next healthy scrape will pick up genuinely-gone
+    # listings; we'd rather defer the sweep than mass-corrupt data.
+    if our_count == 0 and len(candidates) >= 5:
+        log.error(
+            "[%s] ABORT withdraw sweep — 0 active scraped but %d candidates "
+            "flagged. Likely REIWA DOM change or detail-page timeout. "
+            "Status flips deferred to next run.",
+            name, len(candidates)
+        )
+        withdrawn_count = 0
+    else:
+        withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
     trim_sold_listings(suburb_id, keep=SOLD_KEEP)
 
     update_scrape_log(

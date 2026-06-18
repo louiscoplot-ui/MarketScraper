@@ -509,6 +509,73 @@ def reset_listing_dates():
     return jsonify({'cleared': affected})
 
 
+@app.route('/api/admin/restore-recent-withdrawals', methods=['POST'])
+def restore_recent_withdrawals():
+    """Bulk-restore listings that were marked withdrawn within the past
+    `days` window. Recovery tool for the mass-withdraw cascade bug:
+    a scrape that found 0 actives + had >=5 candidates used to flip
+    every candidate to withdrawn (now guarded — see run_daily_scrape.py
+    and scrape_runner.py). To clean up data corrupted before the guard
+    landed, hit this endpoint with a window covering the bad period,
+    then trigger a fresh scrape per suburb — upsert_listing will flip
+    re-seen listings back through 'active' via its clear_withdrawn
+    branch, and genuinely-gone listings get re-withdrawn correctly by
+    the next scrape's mark_withdrawn.
+
+    Body (all optional): {
+      "days":      int (default 14)        — window from today UTC
+      "suburb_id": int (optional)          — limit to one suburb
+    }
+    Admin-only. Returns the count of rows whose status was flipped.
+    """
+    from admin_api import _require_admin
+    _, err = _require_admin()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    try:
+        days = int(body.get('days', 14))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'days must be an integer'}), 400
+    days = max(1, min(days, 90))
+    suburb_id = body.get('suburb_id')
+    if suburb_id is not None:
+        try:
+            suburb_id = int(suburb_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'suburb_id must be an integer'}), 400
+
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    conn = get_db()
+    try:
+        if suburb_id is not None:
+            cur = conn.execute(
+                "UPDATE listings SET status = 'active', withdrawn_date = NULL "
+                "WHERE status = 'withdrawn' AND withdrawn_date >= ? "
+                "AND suburb_id = ?",
+                (cutoff, suburb_id)
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE listings SET status = 'active', withdrawn_date = NULL "
+                "WHERE status = 'withdrawn' AND withdrawn_date >= ?",
+                (cutoff,)
+            )
+        affected = cur.rowcount or 0
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({
+        'restored': affected,
+        'days_window': days,
+        'cutoff_iso': cutoff,
+        'suburb_id': suburb_id,
+        'next_step': 'Trigger a fresh scrape per suburb to reconcile real '
+                     'vs false withdrawals (UI: tick suburb + click Scrape).',
+    })
+
+
 @app.route('/api/scrape/debug-detail', methods=['GET'])
 def debug_scrape_detail():
     """Debug a single listing URL: returns extracted fields, text snippets,

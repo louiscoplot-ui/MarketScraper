@@ -261,11 +261,29 @@ def run_scrape(suburb_id, slug, name):
             confident = False
             logger.warning(f"[{name}] for-sale page load failure(s) detected — "
                            f"forcing confident=False to avoid wrongful withdrawals")
-        if confident:
-            logger.info(f"[{name}] Confident scrape (verified): {our_count} found vs {reiwa_total} REIWA total — checking withdrawals")
+
+        # Belt-and-braces guard: even WITHOUT an explicit load failure,
+        # a scrape that returned ZERO actives while flagging 5+ DB-known
+        # URLs for withdrawal is almost certainly a parser fault (REIWA
+        # DOM rename, verify_disappeared_listings blanket 'gone' on a
+        # network blip). Refuse the sweep — defer to the next healthy
+        # scrape. Same threshold + intent as RENTAL_SCRAPE_ABORT_THRESHOLD
+        # in rental_scraper.py.
+        abort_withdraw = (our_count == 0 and len(candidates) >= 5)
+        if abort_withdraw:
+            logger.error(
+                f"[{name}] ABORT withdraw sweep — 0 active scraped but "
+                f"{len(candidates)} candidates flagged. Status flips "
+                f"deferred to next run."
+            )
+        if abort_withdraw:
+            withdrawn_count = 0
         else:
-            logger.info(f"[{name}] Incomplete scrape: {our_count} found vs {reiwa_total} REIWA total — skipping withdrawals")
-        withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
+            if confident:
+                logger.info(f"[{name}] Confident scrape (verified): {our_count} found vs {reiwa_total} REIWA total — checking withdrawals")
+            else:
+                logger.info(f"[{name}] Incomplete scrape: {our_count} found vs {reiwa_total} REIWA total — skipping withdrawals")
+            withdrawn_count = mark_withdrawn(suburb_id, forsale_urls, sold_urls, confident=confident)
 
         trimmed = trim_sold_listings(suburb_id, keep=40)
         if trimmed:
