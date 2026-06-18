@@ -487,6 +487,201 @@ def debug_scrape(suburb_id):
     return jsonify(result)
 
 
+@app.route('/api/admin/suspect-scrape-runs', methods=['GET'])
+def suspect_scrape_runs():
+    """Diagnostic: list scrape_logs entries that look like mass-withdraw
+    cascade victims. A run is "suspect" when forsale_count = 0 AND
+    withdrawn_count >= 5 — exactly the pattern the new guards block now.
+    Returns one row per (suburb_id, started_at) sorted oldest-first.
+
+    Query params:
+      ?days=N  (default 30) — lookback window
+    """
+    from admin_api import _require_admin
+    _, err = _require_admin()
+    if err:
+        return err
+    try:
+        days = int(request.args.get('days', 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT sl.id, sl.suburb_id, s.name AS suburb_name, "
+            "       sl.started_at, sl.completed_at, "
+            "       sl.forsale_count, sl.sold_count, sl.withdrawn_count, "
+            "       sl.new_count, sl.errors "
+            "FROM scrape_logs sl "
+            "JOIN suburbs s ON sl.suburb_id = s.id "
+            "WHERE sl.started_at >= ? "
+            "  AND sl.forsale_count = 0 "
+            "  AND sl.withdrawn_count >= 5 "
+            "ORDER BY sl.started_at ASC",
+            (cutoff,)
+        ).fetchall()
+    finally:
+        conn.close()
+    runs = [dict(r) for r in rows]
+    total_withdrawn = sum(r.get('withdrawn_count', 0) for r in runs)
+    return jsonify({
+        'days_window': days,
+        'cutoff_iso': cutoff,
+        'suspect_run_count': len(runs),
+        'total_withdrawn_in_suspect_runs': total_withdrawn,
+        'runs': runs,
+    })
+
+
+@app.route('/api/admin/restore-cascade-withdrawals', methods=['POST'])
+def restore_cascade_withdrawals():
+    """Surgical recovery: restore listings that were withdrawn DURING a
+    cascade run (forsale_count=0 + withdrawn_count>=5) but NOT touch
+    listings withdrawn during healthy scrape passes.
+
+    Strategy: identify each suspect run's [started_at, completed_at]
+    window, then UPDATE only the listings whose withdrawn_date falls
+    inside any of those windows. Preserves all legitimate withdrawals.
+
+    Body (optional): { "days": int (default 30) }
+    Returns count of rows flipped + per-suburb breakdown.
+    """
+    from admin_api import _require_admin
+    _, err = _require_admin()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    try:
+        days = int(body.get('days', 30))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'days must be an integer'}), 400
+    days = max(1, min(days, 365))
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    conn = get_db()
+    try:
+        suspect = conn.execute(
+            "SELECT id, suburb_id, started_at, completed_at, withdrawn_count "
+            "FROM scrape_logs "
+            "WHERE started_at >= ? "
+            "  AND forsale_count = 0 "
+            "  AND withdrawn_count >= 5",
+            (cutoff,)
+        ).fetchall()
+        suspect = [dict(r) for r in suspect]
+        if not suspect:
+            return jsonify({
+                'restored': 0,
+                'suspect_run_count': 0,
+                'note': 'No cascade runs detected in the window — nothing to do.',
+            })
+        total_restored = 0
+        per_suburb = {}
+        for run in suspect:
+            sid = run['suburb_id']
+            # Use a generous window: started_at → completed_at + 5 min
+            # to catch listings flipped by the post-pass _backfill /
+            # mark_withdrawn that ran slightly after the scrape proper.
+            started = run['started_at']
+            ended = run.get('completed_at') or run['started_at']
+            cur = conn.execute(
+                "UPDATE listings SET status = 'active', withdrawn_date = NULL "
+                "WHERE suburb_id = ? AND status = 'withdrawn' "
+                "  AND withdrawn_date >= ? AND withdrawn_date <= ?",
+                (sid, started, ended)
+            )
+            n = cur.rowcount or 0
+            total_restored += n
+            per_suburb[sid] = per_suburb.get(sid, 0) + n
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({
+        'restored': total_restored,
+        'suspect_run_count': len(suspect),
+        'per_suburb_restored': per_suburb,
+        'next_step': 'Trigger a fresh scrape per affected suburb so '
+                     'mark_withdrawn can re-flag any genuinely-gone '
+                     'listings with the new guard in place.',
+    })
+
+
+@app.route('/api/admin/force-reconcile-suburb', methods=['POST'])
+def force_reconcile_suburb():
+    """Force-withdraw orphan listings against the latest scrape data
+    without re-running Playwright. Use case: REIWA shows 62 listings,
+    DB shows 69 → the 7 extras were over-restored by an aggressive
+    recovery, and the normal mark_withdrawn skipped them because the
+    scrape's confident threshold was below 95%.
+
+    Strategy: take every row in `listings` for the target suburb where
+    last_seen falls inside the scrape-day window (last N hours, default
+    24h) → consider those "still alive on REIWA". Every OTHER row
+    currently active or under_offer in that suburb is an orphan → flip
+    to withdrawn with today's date. confident=True is implicit
+    (admin-triggered, operator-vetted).
+
+    Body: { suburb_id: int (required), hours: int (default 24) }
+    Returns: { withdrawn: N, suburb_id, kept_alive: N }
+    """
+    from admin_api import _require_admin
+    _, err = _require_admin()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    suburb_id = body.get('suburb_id')
+    if suburb_id is None:
+        return jsonify({'error': 'suburb_id required'}), 400
+    try:
+        suburb_id = int(suburb_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'suburb_id must be an integer'}), 400
+    try:
+        hours = int(body.get('hours', 24))
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(hours, 168))  # cap at 1 week
+
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_db()
+    try:
+        # Count what we're about to keep alive (sanity check for the
+        # response payload).
+        kept = conn.execute(
+            "SELECT COUNT(*) AS n FROM listings "
+            "WHERE suburb_id = ? AND status IN ('active', 'under_offer') "
+            "  AND last_seen >= ?",
+            (suburb_id, cutoff)
+        ).fetchone()
+        kept_alive = dict(kept)['n'] if kept else 0
+        # The withdrawal pass: any active/UO row in this suburb that
+        # WASN'T touched by a recent scrape → mark withdrawn.
+        cur = conn.execute(
+            "UPDATE listings SET status = 'withdrawn', withdrawn_date = ? "
+            "WHERE suburb_id = ? AND status IN ('active', 'under_offer') "
+            "  AND (last_seen IS NULL OR last_seen < ?)",
+            (now_iso, suburb_id, cutoff)
+        )
+        flipped = cur.rowcount or 0
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({
+        'withdrawn': flipped,
+        'kept_alive': kept_alive,
+        'suburb_id': suburb_id,
+        'window_hours': hours,
+        'cutoff_iso': cutoff,
+        'next_step': 'Verify sidebar count matches REIWA. Repeat per '
+                     'suburb if needed.',
+    })
+
+
 @app.route('/api/admin/reset-listing-dates', methods=['POST'])
 def reset_listing_dates():
     """Clear listing_date on all rows so the next scrape repopulates them.
