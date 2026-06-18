@@ -230,23 +230,26 @@ def scrape_one(suburb):
         # Every candidate was individually verified — coverage % no longer matters.
         confident = True
 
-    # Safety guard: if we found ZERO actives AND there are 5+ candidates
-    # we'd be flipping to withdrawn, refuse the sweep. Almost certainly a
-    # parser fault on our side (REIWA DOM change, page-load timeout,
-    # verify_disappeared_listings returning a blanket 'gone' on a network
-    # blip) — not a real "everyone withdrew today" event. Mirrors the
-    # RENTAL_SCRAPE_ABORT_THRESHOLD guard in rental_scraper.py.
-    #
-    # This bug, latent for months, manifested over a 2-week vacation
-    # window and silently withdrew ~50 listings in Cottesloe + ~17 in
-    # Crawley. The next healthy scrape will pick up genuinely-gone
-    # listings; we'd rather defer the sweep than mass-corrupt data.
-    if our_count == 0 and len(candidates) >= 5:
+    # Safety guards against wrongful mass-withdraw:
+    #   1. ZERO actives + 5+ candidates → parser fault (DOM rename,
+    #      Playwright blanket timeout).
+    #   2. COVERAGE < 50% with non-trivial volume → scrape returned
+    #      suspiciously few cards vs DB. Catches lazy-load truncation
+    #      (saw exactly this on Cottesloe: 4 scraped vs 45 in DB →
+    #      `if candidates: confident=True` wiped 41 real listings).
+    total_known = our_count + len(candidates)
+    coverage_low = (total_known >= 5 and our_count < total_known * 0.5)
+    abort_withdraw = (
+        (our_count == 0 and len(candidates) >= 5)
+        or coverage_low
+    )
+    if abort_withdraw:
         log.error(
-            "[%s] ABORT withdraw sweep — 0 active scraped but %d candidates "
-            "flagged. Likely REIWA DOM change or detail-page timeout. "
-            "Status flips deferred to next run.",
-            name, len(candidates)
+            "[%s] ABORT withdraw sweep — %d active scraped vs %d "
+            "candidates (%d%% coverage). Likely incomplete scrape, "
+            "status flips deferred.",
+            name, our_count, len(candidates),
+            our_count * 100 // max(total_known, 1)
         )
         withdrawn_count = 0
     else:

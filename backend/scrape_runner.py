@@ -262,19 +262,35 @@ def run_scrape(suburb_id, slug, name):
             logger.warning(f"[{name}] for-sale page load failure(s) detected — "
                            f"forcing confident=False to avoid wrongful withdrawals")
 
-        # Belt-and-braces guard: even WITHOUT an explicit load failure,
-        # a scrape that returned ZERO actives while flagging 5+ DB-known
-        # URLs for withdrawal is almost certainly a parser fault (REIWA
-        # DOM rename, verify_disappeared_listings blanket 'gone' on a
-        # network blip). Refuse the sweep — defer to the next healthy
-        # scrape. Same threshold + intent as RENTAL_SCRAPE_ABORT_THRESHOLD
-        # in rental_scraper.py.
-        abort_withdraw = (our_count == 0 and len(candidates) >= 5)
+        # Belt-and-braces guards against wrongful mass-withdraw:
+        #
+        # 1. ZERO actives + 5+ candidates → almost certainly a parser
+        #    fault (DOM rename, blanket Playwright timeout). Refuse
+        #    sweep.
+        # 2. COVERAGE < 50% with non-trivial volume → scrape returned
+        #    suspiciously few cards vs what's in the DB. This catches
+        #    the case where wait_for_selector picks up the first batch
+        #    of REIWA's lazy-loaded grid but the scroll loop doesn't
+        #    surface the rest before timeout. Concrete trigger: Cottesloe
+        #    scrape returned 4 active vs 45 in DB → 8% coverage → the
+        #    `if candidates: confident = True` rescue used to force a
+        #    sweep that wiped 41 real listings.
+        total_known = our_count + len(candidates)
+        coverage_low = (
+            total_known >= 5
+            and our_count < total_known * 0.5
+        )
+        abort_withdraw = (
+            (our_count == 0 and len(candidates) >= 5)
+            or coverage_low
+        )
         if abort_withdraw:
             logger.error(
-                f"[{name}] ABORT withdraw sweep — 0 active scraped but "
-                f"{len(candidates)} candidates flagged. Status flips "
-                f"deferred to next run."
+                f"[{name}] ABORT withdraw sweep — {our_count} active "
+                f"scraped vs {len(candidates)} candidates "
+                f"({our_count}/{total_known} = "
+                f"{(our_count*100//max(total_known,1))}% coverage). "
+                f"Likely incomplete scrape, status flips deferred."
             )
         if abort_withdraw:
             withdrawn_count = 0
