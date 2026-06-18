@@ -609,6 +609,76 @@ def restore_cascade_withdrawals():
     })
 
 
+@app.route('/api/admin/force-reconcile-all', methods=['POST'])
+def force_reconcile_all():
+    """Force-withdraw orphans across EVERY active suburb in one call.
+    Convenience wrapper around force-reconcile-suburb — same logic
+    (any active/UO row whose last_seen falls outside the window is
+    marked withdrawn) applied per suburb in a single transaction.
+
+    Use case: operator just clicked "Scrape (N)" in the UI and wants
+    a one-shot cleanup of orphans across the whole portfolio without
+    looking up each suburb_id manually.
+
+    Body: { hours: int (default 24) }
+    Returns { restored: 0, withdrawn: N, per_suburb: {...}, kept_alive: N }
+    """
+    from admin_api import _require_admin
+    _, err = _require_admin()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    try:
+        hours = int(body.get('hours', 24))
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(hours, 168))
+
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_db()
+    try:
+        suburbs = conn.execute(
+            "SELECT id, name FROM suburbs WHERE active = 1 ORDER BY name"
+        ).fetchall()
+        per_suburb = {}
+        total_flipped = 0
+        total_kept = 0
+        for s in suburbs:
+            sid = dict(s)['id']
+            name = dict(s)['name']
+            kept_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM listings "
+                "WHERE suburb_id = ? AND status IN ('active', 'under_offer') "
+                "  AND last_seen >= ?",
+                (sid, cutoff)
+            ).fetchone()
+            kept = dict(kept_row)['n'] if kept_row else 0
+            cur = conn.execute(
+                "UPDATE listings SET status = 'withdrawn', withdrawn_date = ? "
+                "WHERE suburb_id = ? AND status IN ('active', 'under_offer') "
+                "  AND (last_seen IS NULL OR last_seen < ?)",
+                (now_iso, sid, cutoff)
+            )
+            flipped = cur.rowcount or 0
+            if flipped or kept:
+                per_suburb[name] = {'withdrawn': flipped, 'kept_alive': kept}
+            total_flipped += flipped
+            total_kept += kept
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({
+        'withdrawn': total_flipped,
+        'kept_alive': total_kept,
+        'suburbs_processed': len(suburbs),
+        'per_suburb': per_suburb,
+        'window_hours': hours,
+        'cutoff_iso': cutoff,
+    })
+
+
 @app.route('/api/admin/force-reconcile-suburb', methods=['POST'])
 def force_reconcile_suburb():
     """Force-withdraw orphan listings against the latest scrape data
