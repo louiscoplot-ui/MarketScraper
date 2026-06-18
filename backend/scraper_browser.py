@@ -57,32 +57,29 @@ def extract_all_listing_urls_js(page):
 def load_listing_page(page, url, retries=2):
     """Load a REIWA listing page, wait for cards, scroll repeatedly to load all.
 
-    Wait strategy: `wait_until='commit'` (returns the moment navigation
-    starts, ~instant) instead of `domcontentloaded`. REIWA's DOM build
-    is blocked behind sync analytics scripts that can hang 60+ seconds
-    on Render free tier — domcontentloaded never fires reliably. We
-    decouple "navigation done" from "page is usable" and lean on
-    wait_for_selector('p-card', timeout=40s) as the real readiness
-    signal. Falls back to scrolling even if the selector wait times
-    out: REIWA sometimes lazy-loads cards on first scroll.
+    2 attempts × 60s timeout with wait_until='domcontentloaded'.
+    domcontentloaded is REIWA's reliable readiness signal — by the
+    time it fires, the lazy-loaded grid is populated and we can
+    scroll for the rest. A previous attempt to switch to
+    wait_until='commit' (return early, then wait_for_selector for
+    cards) returned too eagerly and only saw 4 cards on a 45-listing
+    Cottesloe page — REIWA needs domcontentloaded for its own lazy-
+    load triggers to fire.
 
-    2 attempts. 1.5s × attempt backoff between retries.
+    60s timeout (was 45s) gives Render free-tier US→AU enough margin
+    on cold connections without dragging total scrape time too much.
 
-    networkidle never works on REIWA — analytics/ad pixels keep the
-    network busy >40s indefinitely."""
+    networkidle is intentionally absent — REIWA's analytics/ad pixels
+    keep the network busy >40s so it never resolves. The downstream
+    wait_for_selector('p-card', timeout=8000) after goto is the real
+    "page is ready" signal."""
     for attempt in range(1, retries + 1):
         try:
-            page.goto(url, wait_until='commit', timeout=20000)
-            # Now wait for cards to actually appear in the DOM. This is
-            # the wait that matters — if it times out we still try to
-            # extract whatever rendered before giving up.
-            cards_appeared = False
+            page.goto(url, wait_until='domcontentloaded', timeout=60000)
             try:
-                page.wait_for_selector('[class*="p-card"]', timeout=40000)
-                cards_appeared = True
-            except Exception as e:
-                logger.info(f"p-card selector wait timed out for {url}: {e}; "
-                            f"attempting extraction anyway")
+                page.wait_for_selector('[class*="p-card"]', timeout=8000)
+            except Exception:
+                pass
 
             prev_count = 0
             no_change_rounds = 0
