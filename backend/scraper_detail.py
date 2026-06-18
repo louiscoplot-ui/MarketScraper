@@ -17,15 +17,36 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_detail(page, url):
-    """Visit listing detail page for sizes and under_offer status."""
+    """Visit listing detail page for sizes and under_offer status.
+
+    Uses 2 attempts at 35s timeout. On Render free tier the round-trip
+    to REIWA AU + DOM build genuinely runs 18-30s during peak; the
+    previous single-shot 20s tripped routinely and silently returned
+    empty data, which fed the cascade-withdraw bug. 35s + 1 retry
+    covers the worst case without dragging total scrape time up too
+    much (verify pass remains ~5-10s per URL on warm runs)."""
     out = {"land_size": "", "internal_size": "", "price_text": "", "status": None,
            "listing_date": "", "address": "", "agency": "", "agent": "",
            "bedrooms": None, "bathrooms": None, "parking": None, "listing_type": ""}
     if not url:
         return out
 
+    last_exc = None
+    for attempt in range(1, 3):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=35000)
+            last_exc = None
+            break
+        except Exception as e:
+            last_exc = e
+            if attempt < 2:
+                logger.info(f"Detail retry {attempt} for {url}: {e}")
+                continue
+    if last_exc is not None:
+        logger.warning(f"Detail error {url}: {last_exc}")
+        return out
+
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=20000)
         try:
             page.wait_for_function(
                 "document.body && /landsize|land\\s+size|floor\\s+area|internal|bedroom/i"
