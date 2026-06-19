@@ -38,6 +38,7 @@ import database  # noqa: E402
 from database import get_db  # noqa: E402
 from scraper_utils import (  # noqa: E402
     REIWA_BASE, UA, CHROMIUM_PATH, EXTRA_HTTP_HEADERS, pick_user_agent,
+    get_scrape_proxy,
 )
 
 
@@ -257,6 +258,9 @@ def scrape_suburb(suburb_name):
     launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
     if CHROMIUM_PATH:
         launch_opts['executable_path'] = CHROMIUM_PATH
+    _proxy = get_scrape_proxy()
+    if _proxy:
+        launch_opts['proxy'] = _proxy
 
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_opts)

@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 from scraper_utils import (
     UA, CHROMIUM_PATH, MAX_PAGES, build_url, clean_listing_url,
-    EXTRA_HTTP_HEADERS, pick_user_agent,
+    EXTRA_HTTP_HEADERS, pick_user_agent, get_scrape_proxy,
 )
 from scraper_detail import fetch_detail
 
@@ -164,6 +164,9 @@ def debug_page(suburb_slug):
             launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
             if CHROMIUM_PATH:
                 launch_opts['executable_path'] = CHROMIUM_PATH
+            _proxy = get_scrape_proxy()
+            if _proxy:
+                launch_opts['proxy'] = _proxy
             browser = p.chromium.launch(**launch_opts)
             context = browser.new_context(user_agent=pick_user_agent(),
                                           viewport={'width': 1280, 'height': 800},
@@ -212,6 +215,9 @@ def compare_suburb(suburb_slug, db_urls):
             launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
             if CHROMIUM_PATH:
                 launch_opts['executable_path'] = CHROMIUM_PATH
+            _proxy = get_scrape_proxy()
+            if _proxy:
+                launch_opts['proxy'] = _proxy
             browser = p.chromium.launch(**launch_opts)
             context = browser.new_context(user_agent=pick_user_agent(),
                                           viewport={'width': 1280, 'height': 800},

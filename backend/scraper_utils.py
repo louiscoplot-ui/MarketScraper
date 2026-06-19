@@ -123,3 +123,36 @@ _build_url = build_url
 _build_sold_url = build_sold_url
 _listing_id = listing_id
 _normalise_agency = normalise_agency
+
+
+def get_scrape_proxy():
+    """Playwright proxy dict from the SCRAPE_PROXY env var, or None.
+
+    REIWA sits behind Cloudflare, which challenges datacenter IPs (Render,
+    GitHub Actions). Routing through a residential proxy (IPRoyal) is what
+    gets past it — proven via probe: an AU residential exit returns the
+    real listing grid (HTTP 200, 114 cards) where the bare datacenter IP
+    gets the "Just a moment" challenge.
+
+    SCRAPE_PROXY format: http://USERNAME:PASSWORD@geo.iproyal.com:12321
+    IPRoyal targeting params go on the PASSWORD; we append `_country-au`
+    (the format that passed) unless the password already carries a
+    `_country-` param. Returns None when unset so local dev / a
+    residential laptop runs direct without a proxy.
+    """
+    raw = (os.environ.get('SCRAPE_PROXY') or '').strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    if not parsed.hostname:
+        return None
+    proxy = {'server': f"{parsed.scheme or 'http'}://{parsed.hostname}:{parsed.port}"}
+    if parsed.username:
+        proxy['username'] = parsed.username
+    if parsed.password:
+        pw = parsed.password
+        if '_country-' not in pw:
+            pw = pw + '_country-au'
+        proxy['password'] = pw
+    return proxy
+

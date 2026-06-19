@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup
 
 from scraper_utils import (
     REIWA_BASE, MAX_PAGES, UA, DETAIL_TABS, CHROMIUM_PATH,
-    EXTRA_HTTP_HEADERS, pick_user_agent, normalize_reiwa_url,
+    EXTRA_HTTP_HEADERS, pick_user_agent, normalize_reiwa_url, get_scrape_proxy,
     _clean_listing_url, _build_url, _build_sold_url, _listing_id, _normalise_agency,
 )
 from scraper_dates import _parse_date_text, _extract_date
@@ -63,6 +63,11 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
         }
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
+        # Route through the residential proxy (SCRAPE_PROXY) when set —
+        # required to get past REIWA's Cloudflare from datacenter IPs.
+        _proxy = get_scrape_proxy()
+        if _proxy:
+            launch_opts['proxy'] = _proxy
 
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(
@@ -73,6 +78,12 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
         )
 
         listing_page = context.new_page()
+        # Block heavy assets on the list pages too (detail tabs already do)
+        # — cuts residential-proxy bandwidth (billed per GB) sharply with
+        # no effect on the p-card DOM the parser reads.
+        listing_page.route("**/*", lambda route: route.abort()
+                           if route.request.resource_type in ("image", "media", "font", "stylesheet")
+                           else route.continue_())
 
         # Create multiple detail tabs for faster fetching
         detail_pages = []

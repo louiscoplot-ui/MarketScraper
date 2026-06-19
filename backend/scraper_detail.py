@@ -10,7 +10,7 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
-from scraper_utils import UA, CHROMIUM_PATH, normalise_agency
+from scraper_utils import UA, CHROMIUM_PATH, normalise_agency, get_scrape_proxy
 from scraper_dates import parse_date_text, parse_date_relaxed
 
 logger = logging.getLogger(__name__)
@@ -315,6 +315,9 @@ def verify_disappeared_listings(urls):
         launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
+        _proxy = get_scrape_proxy()
+        if _proxy:
+            launch_opts['proxy'] = _proxy
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},
                                       locale='en-AU')
@@ -358,6 +361,9 @@ def debug_detail(url):
             launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
             if CHROMIUM_PATH:
                 launch_opts['executable_path'] = CHROMIUM_PATH
+            _proxy = get_scrape_proxy()
+            if _proxy:
+                launch_opts['proxy'] = _proxy
             browser = p.chromium.launch(**launch_opts)
             context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},
                                           locale='en-AU')

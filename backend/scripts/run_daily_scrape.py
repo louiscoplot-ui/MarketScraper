@@ -51,7 +51,7 @@ from database import (  # noqa: E402
 )
 from scraper import scrape_suburb, verify_disappeared_listings  # noqa: E402
 from scraper_detail import fetch_detail  # noqa: E402
-from scraper_utils import UA, CHROMIUM_PATH  # noqa: E402
+from scraper_utils import UA, CHROMIUM_PATH, get_scrape_proxy  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 
@@ -107,6 +107,9 @@ def _backfill_sold_dates(suburb_id, suburb_name):
         launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
+        _proxy = get_scrape_proxy()
+        if _proxy:
+            launch_opts['proxy'] = _proxy
         with sync_playwright() as p:
             browser = p.chromium.launch(**launch_opts)
             context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},

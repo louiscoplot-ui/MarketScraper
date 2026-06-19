@@ -43,5 +43,8 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Residential proxy (IPRoyal) — get past REIWA's Cloudflare from
+          # the datacenter runner IP (same as the sales scrape).
+          SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
         run: |
           python rental_scraper.py

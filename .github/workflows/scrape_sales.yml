@@ -43,6 +43,10 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Residential proxy (IPRoyal) — routes the scrape through an AU
+          # residential IP so REIWA's Cloudflare serves the real grid
+          # instead of the "Just a moment" challenge it gives datacenter IPs.
+          SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
           # Morning digest pipeline reads these. EMAIL_FROM is the
           # short-circuit guard at the top of the digest pass — without
           # it set the cron logs "EMAIL_FROM not set" and exits silently.
