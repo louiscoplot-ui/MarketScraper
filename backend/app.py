@@ -645,6 +645,13 @@ def force_reconcile_all():
         per_suburb = {}
         total_flipped = 0
         total_kept = 0
+        total_skipped = 0
+        # Cascade guard (same rationale as force-reconcile-suburb): a
+        # suburb with kept==0 had no successful scrape in the window, so
+        # a sweep would withdraw ALL of it — almost always a blocked
+        # scraper, not a real mass-withdrawal. Skip those suburbs unless
+        # the operator passes {"force": true}.
+        force = bool(body.get('force'))
         for s in suburbs:
             sid = dict(s)['id']
             name = dict(s)['name']
@@ -655,6 +662,12 @@ def force_reconcile_all():
                 (sid, cutoff)
             ).fetchone()
             kept = dict(kept_row)['n'] if kept_row else 0
+            if kept == 0 and not force:
+                per_suburb[name] = {'skipped': 'no recent scrape — '
+                                    'would withdraw all', 'withdrawn': 0,
+                                    'kept_alive': 0}
+                total_skipped += 1
+                continue
             cur = conn.execute(
                 "UPDATE listings SET status = 'withdrawn', withdrawn_date = ? "
                 "WHERE suburb_id = ? AND status IN ('active', 'under_offer') "
@@ -672,6 +685,7 @@ def force_reconcile_all():
     return jsonify({
         'withdrawn': total_flipped,
         'kept_alive': total_kept,
+        'suburbs_skipped_no_recent_scrape': total_skipped,
         'suburbs_processed': len(suburbs),
         'per_suburb': per_suburb,
         'window_hours': hours,
@@ -729,6 +743,24 @@ def force_reconcile_suburb():
             (suburb_id, cutoff)
         ).fetchone()
         kept_alive = dict(kept)['n'] if kept else 0
+        # Cascade guard: if NOTHING was seen in the window, there was no
+        # successful scrape — flipping everything to withdrawn would wipe
+        # the whole suburb (exactly the failure mode when the scraper is
+        # blocked, e.g. Cloudflare). Refuse unless the operator overrides
+        # with {"force": true}. Mirrors the coverage guard in the scrape
+        # path (scrape_runner.py:283).
+        force = bool(body.get('force'))
+        if kept_alive == 0 and not force:
+            conn.close()
+            return jsonify({
+                'error': f'No listings seen in the last {hours}h for this '
+                         f'suburb — a withdraw sweep now would flip the '
+                         f'ENTIRE suburb. This usually means the scraper is '
+                         f'blocked, not that everything was withdrawn. '
+                         f'Re-send with {{"force": true}} to override.',
+                'kept_alive': 0,
+                'would_withdraw': 'all active/under_offer in suburb',
+            }), 409
         # The withdrawal pass: any active/UO row in this suburb that
         # WASN'T touched by a recent scrape → mark withdrawn.
         cur = conn.execute(

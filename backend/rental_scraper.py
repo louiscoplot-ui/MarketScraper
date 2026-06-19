@@ -350,6 +350,23 @@ def _merge_into_db(suburb_name, scraped):
             )
             return (0, 0, 0)
 
+        # Partial-scrape coverage guard — mirrors the sales path
+        # (run_daily_scrape.py:241). A non-empty but truncated scrape
+        # (e.g. Cloudflare/lazy-load only surfaced a handful of cards)
+        # would otherwise flip the rest to 'Leased'. If we scraped fewer
+        # than half the suburb's known active rentals, treat it as an
+        # incomplete run and defer the Leased transitions to a clean pass.
+        if (scraped
+                and existing_active >= RENTAL_SCRAPE_ABORT_THRESHOLD
+                and len(scraped) < existing_active * 0.5):
+            log.warning(
+                "Partial scrape for %s — %d card(s) vs %d active in DB "
+                "(<50%% coverage). Skipping Leased transitions to avoid "
+                "mass-leasing on a truncated scrape.",
+                suburb_name, len(scraped), existing_active
+            )
+            return (0, 0, 0)
+
         seen_keys = set()
         new_count = 0
         active_count = 0
