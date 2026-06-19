@@ -24,6 +24,7 @@ import random
 import logging
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 HERE = Path(__file__).resolve().parent
@@ -64,6 +65,14 @@ log = logging.getLogger('daily_scrape')
 # Politeness — random sleep between suburbs to look human and dodge
 # rate-limit fingerprinting. Adjust if REIWA tightens anti-scrape.
 INTER_SUBURB_DELAY = (5, 15)  # seconds
+
+# How many suburbs to scrape concurrently. The old cron was strictly
+# sequential (datacenter IP — parallel hits got challenged fast). With
+# the residential proxy in place, a modest fan-out is safe and cuts the
+# total run time ~3x. Kept low (3) to avoid hammering REIWA. Detail-page
+# fetches WITHIN each suburb stay sequential — REIWA aborts burst detail
+# requests (see fetch_details_batch).
+SCRAPE_CONCURRENCY = 3
 
 # How many sold listings to retain per suburb in the DB. Scraper already
 # walks up to 10 sold pages (~200 listings) per run, but the DB was being
@@ -321,22 +330,26 @@ def main():
                     "Add some via the UI or seed the suburbs table.")
         return
 
-    log.info(f"Starting daily scrape across {len(suburbs)} suburb(s)")
+    max_workers = min(SCRAPE_CONCURRENCY, len(suburbs))
+    log.info(f"Starting daily scrape across {len(suburbs)} suburb(s), "
+             f"{max_workers} in parallel")
     started = time.time()
     summary = []
 
-    for i, suburb in enumerate(suburbs, 1):
-        log.info(f"--- {i}/{len(suburbs)}: {suburb['name']} ---")
-        try:
-            summary.append(scrape_one(suburb))
-        except Exception as e:
-            log.exception(f"[{suburb['name']}] unexpected: {e}")
-            summary.append({'name': suburb['name'], 'error': str(e)})
-
-        if i < len(suburbs):
-            delay = random.uniform(*INTER_SUBURB_DELAY)
-            log.info(f"sleeping {delay:.1f}s (polite delay)")
-            time.sleep(delay)
+    # Fan out across suburbs. Each scrape_one owns its own Playwright
+    # browser + DB connections, so the threads don't share state; Postgres
+    # handles the concurrent writes. Mirrors the Flask manual-scrape path
+    # (scrape_runner.run_scrape_all), proven to work with sync Playwright
+    # in a thread pool.
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(scrape_one, s): s for s in suburbs}
+        for fut in as_completed(futures):
+            s = futures[fut]
+            try:
+                summary.append(fut.result())
+            except Exception as e:
+                log.exception(f"[{s['name']}] unexpected: {e}")
+                summary.append({'name': s['name'], 'error': str(e)})
 
     elapsed = (time.time() - started) / 60.0
     log.info(f"=== Daily scrape finished in {elapsed:.1f} min ===")
