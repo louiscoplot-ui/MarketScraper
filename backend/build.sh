@@ -15,7 +15,16 @@ echo "==> pip install"
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "==> playwright install chromium"
+echo "==> playwright install chromium + chromium-headless-shell"
 # Render's free tier already has the OS libs Chromium needs, and
 # --with-deps requires sudo which the build user doesn't have.
+#
+# Playwright 1.49+ split headless launches into a separate
+# `chromium-headless-shell` binary. `playwright install chromium` no
+# longer covers it on every channel, so headless=True launches fail
+# with: "Executable doesn't exist at .../chromium_headless_shell-XXXX/...".
+# We install both variants explicitly — the shell install is cheap (~80MB)
+# and idempotent, so `|| true` keeps the build green even if a future
+# Playwright release renames or removes the channel.
 python -m playwright install chromium
+python -m playwright install chromium-headless-shell || true
