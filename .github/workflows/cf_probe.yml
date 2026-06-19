@@ -32,6 +32,11 @@ jobs:
 
       - name: Run probe (xvfb for the headed patchright variant)
         working-directory: backend
+        env:
+          # Set this repo secret to your residential proxy URL, e.g.
+          #   http://user:pass@geo.iproyal.com:12321
+          # Empty/unset → probe runs datacenter-only (control) variants.
+          SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
         run: |
           sudo apt-get update && sudo apt-get install -y xvfb
           xvfb-run -a python scripts/cf_probe.py

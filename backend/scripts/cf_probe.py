@@ -21,9 +21,11 @@ Interpretation:
 No DB writes. No secrets. Safe to run on a throwaway workflow_dispatch.
 """
 
+import os
 import sys
 import time
 import tempfile
+from urllib.parse import urlsplit
 
 URL = ("https://reiwa.com.au/for-sale/cottesloe/"
        "?includesurroundingsuburbs=false&sortby=listdate")
@@ -74,8 +76,25 @@ def _judge(page):
     return cards, title, challenge, body.replace("\n", " ")[:200], html_len
 
 
-def probe(label, sync_pw, headless=True, persistent=False):
-    print(f"\n{'='*70}\n[{label}] headless={headless} persistent={persistent}\n{'='*70}")
+def parse_proxy(url):
+    """Turn 'http://user:pass@host:port' into Playwright's proxy dict.
+    Returns None when url is empty. Username/password omitted when absent."""
+    if not url:
+        return None
+    parts = urlsplit(url)
+    scheme = parts.scheme or "http"
+    server = f"{scheme}://{parts.hostname}:{parts.port}"
+    proxy = {"server": server}
+    if parts.username:
+        proxy["username"] = parts.username
+    if parts.password:
+        proxy["password"] = parts.password
+    return proxy
+
+
+def probe(label, sync_pw, headless=True, persistent=False, proxy=None):
+    print(f"\n{'='*70}\n[{label}] headless={headless} persistent={persistent} "
+          f"proxy={'yes' if proxy else 'no'}\n{'='*70}")
     t0 = time.time()
     launch_args = ['--no-sandbox', '--disable-setuid-sandbox']
     try:
@@ -89,13 +108,15 @@ def probe(label, sync_pw, headless=True, persistent=False):
                     args=launch_args,
                     locale="en-AU",
                     no_viewport=True,
+                    proxy=proxy,
                 )
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 browser = None
             else:
                 browser = p.chromium.launch(headless=headless, args=launch_args)
                 ctx = browser.new_context(locale="en-AU",
-                                          viewport={'width': 1280, 'height': 800})
+                                          viewport={'width': 1280, 'height': 800},
+                                          proxy=proxy)
                 page = ctx.new_page()
 
             try:
@@ -140,38 +161,61 @@ def probe(label, sync_pw, headless=True, persistent=False):
 
 def main():
     results = []
+    proxy = parse_proxy(os.environ.get("SCRAPE_PROXY", "").strip())
+    if proxy:
+        print(f"SCRAPE_PROXY set → server={proxy['server']} "
+              f"(auth={'yes' if proxy.get('username') else 'no'})")
+    else:
+        print("SCRAPE_PROXY not set → running datacenter-IP variants only.")
 
-    # 1. Control — vanilla Playwright, exactly like prod.
+    # Always run the no-proxy control so the log shows the contrast.
     try:
         from playwright.sync_api import sync_playwright as pw_vanilla
-        results.append(probe("playwright/vanilla", pw_vanilla, headless=True))
+        results.append(probe("playwright/vanilla (no proxy)", pw_vanilla,
+                             headless=True))
     except Exception as e:
         print(f"playwright import failed: {e}")
 
-    # 2 & 3. patchright candidate.
     try:
         from patchright.sync_api import sync_playwright as pw_patch
-        results.append(probe("patchright/headless", pw_patch, headless=True))
-        results.append(probe("patchright/headed+persistent", pw_patch,
-                             headless=False, persistent=True))
     except Exception as e:
+        pw_patch = None
         print(f"patchright import failed: {e}")
+
+    # The real test: same engines THROUGH the residential proxy.
+    if proxy:
+        try:
+            from playwright.sync_api import sync_playwright as pw_v2
+            results.append(probe("playwright/vanilla + PROXY", pw_v2,
+                                 headless=True, proxy=proxy))
+        except Exception as e:
+            print(f"playwright(proxy) failed: {e}")
+        if pw_patch:
+            results.append(probe("patchright/headless + PROXY", pw_patch,
+                                 headless=True, proxy=proxy))
+            results.append(probe("patchright/headed+persistent + PROXY", pw_patch,
+                                 headless=False, persistent=True, proxy=proxy))
+    elif pw_patch:
+        # No proxy supplied → still show patchright-on-datacenter for reference.
+        results.append(probe("patchright/headless (no proxy)", pw_patch,
+                             headless=True))
 
     print(f"\n{'#'*70}\nSUMMARY\n{'#'*70}")
     for r in results:
-        print(f"  {r['label']:34s} -> {'PASS' if r['pass'] else 'FAIL'} "
+        print(f"  {r['label']:38s} -> {'PASS' if r['pass'] else 'FAIL'} "
               f"(cards={r['cards']}, challenge={r['challenge']})")
 
-    vanilla_pass = any(r['pass'] for r in results if 'vanilla' in r['label'])
-    patch_pass = any(r['pass'] for r in results if 'patchright' in r['label'])
+    proxy_pass = any(r['pass'] for r in results if 'PROXY' in r['label'])
     print(f"\nREAD:")
-    if patch_pass and not vanilla_pass:
-        print("  → FINGERPRINT was the block. patchright drop-in = FREE fix. Proceed.")
-    elif patch_pass and vanilla_pass:
-        print("  → Both passed — block may be intermittent / IP-reputation based today.")
+    if not proxy:
+        print("  → No proxy tested. Add SCRAPE_PROXY secret and re-run to test "
+              "the residential-proxy fix.")
+    elif proxy_pass:
+        print("  → ✅ RESIDENTIAL PROXY PASSES. This is the fix — wire the proxy "
+              "into the scraper's browser launches and the nightly cron is back.")
     else:
-        print("  → patchright did NOT pass from this datacenter IP. Likely IP reputation.")
-        print("    Free cloud fix won't cut it → residential IP (laptop) or paid proxy.")
+        print("  → ❌ Proxy did NOT pass. Check proxy is RESIDENTIAL (not datacenter) "
+              "and geo/credentials are right, or escalate to a managed unlocker.")
     sys.exit(0)
 
 
