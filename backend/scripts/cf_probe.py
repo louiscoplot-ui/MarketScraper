@@ -113,16 +113,24 @@ def probe(label, sync_pw, headless=True, persistent=False, proxy=None):
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 browser = None
             else:
-                browser = p.chromium.launch(headless=headless, args=launch_args)
+                # Proxy MUST go at launch level for authenticated proxies —
+                # passing it to new_context() triggers Chromium's
+                # net::ERR_PROXY_AUTH_UNSUPPORTED in headless mode.
+                browser = p.chromium.launch(headless=headless, args=launch_args,
+                                            proxy=proxy)
                 ctx = browser.new_context(locale="en-AU",
-                                          viewport={'width': 1280, 'height': 800},
-                                          proxy=proxy)
+                                          viewport={'width': 1280, 'height': 800})
                 page = ctx.new_page()
 
-            try:
-                page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-            except Exception as e:
-                print(f"  goto error: {e}")
+            # Residential exits are flaky — give the navigation 2 tries.
+            for goto_attempt in range(1, 3):
+                try:
+                    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+                    break
+                except Exception as e:
+                    print(f"  goto attempt {goto_attempt} error: {e}")
+                    if goto_attempt < 2:
+                        time.sleep(3)
 
             # Poll while the JS challenge may be auto-solving.
             deadline = time.time() + SETTLE_SECONDS
@@ -182,19 +190,32 @@ def main():
         pw_patch = None
         print(f"patchright import failed: {e}")
 
-    # The real test: same engines THROUGH the residential proxy.
+    # Derive a no-geo proxy (strip any _country-xx / _session-xx params from
+    # the username) — if the AU residential pool gives flaky exits, plain
+    # residential may route to REIWA fine.
+    proxy_nogeo = None
+    if proxy and proxy.get("username") and "_" in proxy["username"]:
+        proxy_nogeo = dict(proxy)
+        proxy_nogeo["username"] = proxy["username"].split("_")[0]
+
+    # The real test: same engines THROUGH the residential proxy, with the
+    # proxy now applied at LAUNCH level (fixes ERR_PROXY_AUTH_UNSUPPORTED).
     if proxy:
         try:
             from playwright.sync_api import sync_playwright as pw_v2
-            results.append(probe("playwright/vanilla + PROXY", pw_v2,
+            results.append(probe("playwright/headless + PROXY(geo-au)", pw_v2,
                                  headless=True, proxy=proxy))
         except Exception as e:
             print(f"playwright(proxy) failed: {e}")
         if pw_patch:
-            results.append(probe("patchright/headless + PROXY", pw_patch,
+            results.append(probe("patchright/headless + PROXY(geo-au)", pw_patch,
                                  headless=True, proxy=proxy))
-            results.append(probe("patchright/headed+persistent + PROXY", pw_patch,
-                                 headless=False, persistent=True, proxy=proxy))
+            if proxy_nogeo:
+                results.append(probe("patchright/headless + PROXY(no-geo)", pw_patch,
+                                     headless=True, proxy=proxy_nogeo))
+            results.append(probe("patchright/headed+persistent + PROXY(geo-au)",
+                                 pw_patch, headless=False, persistent=True,
+                                 proxy=proxy))
     elif pw_patch:
         # No proxy supplied → still show patchright-on-datacenter for reference.
         results.append(probe("patchright/headless (no proxy)", pw_patch,
