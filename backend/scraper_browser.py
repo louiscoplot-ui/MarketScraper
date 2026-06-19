@@ -109,6 +109,21 @@ def load_listing_page(page, url, retries=2):
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(1200)
 
+            if final_count == 0:
+                try:
+                    diag_title = page.title()
+                    diag_url = page.url
+                    diag_body = page.evaluate("() => document.body ? document.body.innerText.slice(0, 1500) : '<no body>'")
+                    diag_links = page.evaluate("() => document.querySelectorAll('a[href]').length")
+                    diag_html_len = page.evaluate("() => document.documentElement.outerHTML.length")
+                    logger.warning(
+                        f"DIAG 0-cards | url={url} | final_url={diag_url} | "
+                        f"title={diag_title!r} | links={diag_links} | html_len={diag_html_len} | "
+                        f"body_text={diag_body!r}"
+                    )
+                except Exception as diag_e:
+                    logger.warning(f"DIAG 0-cards failed: {diag_e}")
+
             try:
                 for selector in [
                     'button:has-text("Load More")',
