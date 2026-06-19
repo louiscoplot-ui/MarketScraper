@@ -77,7 +77,13 @@ def load_listing_page(page, url, retries=2):
         try:
             page.goto(url, wait_until='domcontentloaded', timeout=60000)
             try:
-                page.wait_for_selector('[class*="p-card"]', timeout=8000)
+                # Bumped 8s → 30s mid-June 2026: REIWA's grid started
+                # rendering cards via a heavier JS framework that takes
+                # 10-20s on Render free tier (US→AU). 8s was returning
+                # before cards landed in DOM → 0 BS4 cards across most
+                # suburbs in the GHA cron. 30s gives the lazy-load
+                # enough headroom without ballooning total scrape time.
+                page.wait_for_selector('[class*="p-card"]', timeout=30000)
             except Exception:
                 pass
 

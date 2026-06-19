@@ -450,7 +450,17 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                 html = listing_page.content()
                 soup = BeautifulSoup(html, "html.parser")
-                cards = soup.find_all("article", class_=lambda c: c and "p-card" in c)
+                # Match for-sale's tag-agnostic selector — REIWA
+                # changed sold cards from <article> to a different
+                # element (observed mid-June 2026), and the previous
+                # article-only filter returned 0 matches → sold_count
+                # fell to 0 across every suburb. find_all(True, ...)
+                # matches any tag with p-card in its class, same as
+                # for-sale uses. Dedup nested wrappers explicitly so
+                # we don't double-count.
+                cards = soup.find_all(True, class_=lambda c: c and "p-card" in c)
+                cards = [c for c in cards
+                         if c.find_parent(True, class_=lambda x: x and "p-card" in x) is None]
 
                 if not cards:
                     break
