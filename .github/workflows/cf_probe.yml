@@ -1,62 +1,63 @@
 name: Cloudflare bypass probe (throwaway)
 
-# Manual-only diagnostic. Loads ONE REIWA page from the GHA runner IP
-# with vanilla Playwright vs patchright to find out whether REIWA's
-# Cloudflare block is fingerprint-based (free fix possible) or
-# IP-reputation-based (needs residential IP). No DB, no secrets.
-# Delete this workflow + backend/scripts/cf_probe.py once the question
-# is answered.
+# Manual-only diagnostic. Lean curl-based test of the residential proxy
+# (no browser install — runs in ~20s). Tries the targeting param on the
+# password vs username vs none, to fix the IPRoyal 407 auth error.
+# Credentials come from the SCRAPE_PROXY secret and are NEVER printed.
+# Delete this workflow + backend/scripts/cf_probe.py once REIWA loads.
 on:
   workflow_dispatch:
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Playwright + patchright
-        working-directory: backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install playwright patchright
-          python -m playwright install --with-deps chromium
-          python -m patchright install chromium
-
-      - name: curl test through proxy (isolates network vs Chromium)
+      - name: curl proxy auth-format test (no creds printed)
         env:
           SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
         run: |
           UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
           URL="https://reiwa.com.au/for-sale/cottesloe/?includesurroundingsuburbs=false&sortby=listdate"
-          echo "=== curl via proxy (config as-is, geo-au) ==="
-          code=$(curl -sS -x "$SCRAPE_PROXY" -o /tmp/r.html -w "%{http_code}" \
-            --max-time 90 -A "$UA" -H "Accept-Language: en-AU,en;q=0.9" "$URL" \
-            2>/tmp/curlerr || echo "CURL_FAILED")
-          echo "HTTP code : $code"
-          echo "curl err  : $(cat /tmp/curlerr)"
-          echo "bytes     : $(wc -c < /tmp/r.html 2>/dev/null || echo 0)"
-          echo "--- marker counts (challenge vs real cards) ---"
-          grep -io -e "just a moment" -e "performing security verification" \
-                   -e "p-card" -e "cloudflare" /tmp/r.html 2>/dev/null \
-            | tr 'A-Z' 'a-z' | sort | uniq -c || echo "(no markers / empty)"
-          echo "--- <title> ---"
-          grep -io "<title>[^<]*</title>" /tmp/r.html 2>/dev/null | head -1 || echo "(no title)"
 
-      - name: Run probe (xvfb for the headed patchright variant)
-        working-directory: backend
-        env:
-          # Set this repo secret to your residential proxy URL, e.g.
-          #   http://user:pass@geo.iproyal.com:12321
-          # Empty/unset → probe runs datacenter-only (control) variants.
-          SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
-        run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
-          xvfb-run -a python scripts/cf_probe.py
+          # Decompose the secret: http://USER:PASS@HOST:PORT
+          RAW="$SCRAPE_PROXY"
+          creds="${RAW#http://}"
+          userpass="${creds%@*}"
+          hostport="${creds#*@}"
+          user="${userpass%%:*}"
+          pass="${userpass#*:}"
+          baseuser="${user%%_*}"          # username without any _params
+          basepass="${pass%%_*}"          # password without any _params
+
+          # Build candidate proxy URLs (NEVER echoed).
+          P_ASIS="$RAW"
+          P_PLAIN="http://$baseuser:$basepass@$hostport"
+          P_PWPARAM="http://$baseuser:${basepass}_country-au@$hostport"
+
+          test_one () {
+            local name="$1" purl="$2"
+            local out="/tmp/${name}.html"
+            local code
+            code=$(curl -sS -x "$purl" -o "$out" -w "%{http_code}" \
+              --max-time 90 -A "$UA" -H "Accept-Language: en-AU,en;q=0.9" \
+              "$URL" 2>/tmp/err_${name} || echo "CURLFAIL")
+            echo "=================================================="
+            echo "[$name]"
+            echo "  http_code : $code"
+            echo "  curl_err  : $(cat /tmp/err_${name})"
+            echo "  bytes     : $(wc -c < "$out" 2>/dev/null || echo 0)"
+            echo "  markers   :"
+            grep -io -e "just a moment" -e "performing security verification" \
+                     -e "p-card" -e "cloudflare" "$out" 2>/dev/null \
+              | tr 'A-Z' 'a-z' | sort | uniq -c | sed 's/^/    /' || echo "    (none)"
+          }
+
+          test_one "asis_param_on_user" "$P_ASIS"
+          test_one "param_on_password"  "$P_PWPARAM"
+          test_one "plain_no_param"     "$P_PLAIN"
+
+          echo ""
+          echo "READ: a variant with http_code=200 and a 'p-card' marker = WORKING."
+          echo "      http_code=200 + 'just a moment' = auth OK but CF still blocks (need unlocker)."
+          echo "      407 / CURLFAIL = auth rejected for that format."
