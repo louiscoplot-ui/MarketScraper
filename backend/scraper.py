@@ -23,6 +23,7 @@ from bs4 import BeautifulSoup
 from scraper_utils import (
     REIWA_BASE, MAX_PAGES, UA, DETAIL_TABS, CHROMIUM_PATH,
     EXTRA_HTTP_HEADERS, pick_user_agent, normalize_reiwa_url, get_scrape_proxy,
+    route_filter,
     _clean_listing_url, _build_url, _build_sold_url, _listing_id, _normalise_agency,
 )
 from scraper_dates import _parse_date_text, _extract_date
@@ -78,20 +79,16 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
         )
 
         listing_page = context.new_page()
-        # Block heavy assets on the list pages too (detail tabs already do)
+        # Block heavy assets + all third-party hosts on the list pages too
         # — cuts residential-proxy bandwidth (billed per GB) sharply with
         # no effect on the p-card DOM the parser reads.
-        listing_page.route("**/*", lambda route: route.abort()
-                           if route.request.resource_type in ("image", "media", "font", "stylesheet")
-                           else route.continue_())
+        listing_page.route("**/*", route_filter)
 
         # Create multiple detail tabs for faster fetching
         detail_pages = []
         for _ in range(DETAIL_TABS):
             dp = context.new_page()
-            dp.route("**/*", lambda route: route.abort()
-                     if route.request.resource_type in ("image", "media", "font", "stylesheet")
-                     else route.continue_())
+            dp.route("**/*", route_filter)
             detail_pages.append(dp)
 
         try:

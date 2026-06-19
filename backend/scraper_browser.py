@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 from scraper_utils import (
     UA, CHROMIUM_PATH, MAX_PAGES, build_url, clean_listing_url,
-    EXTRA_HTTP_HEADERS, pick_user_agent, get_scrape_proxy,
+    EXTRA_HTTP_HEADERS, pick_user_agent, get_scrape_proxy, route_filter,
 )
 from scraper_detail import fetch_detail
 
@@ -288,9 +288,7 @@ def compare_suburb(suburb_slug, db_urls):
             sold_excluded = []
             real_missing = []
             detail_page = context.new_page()
-            detail_page.route("**/*", lambda route: route.abort()
-                              if route.request.resource_type in ("image", "media", "font", "stylesheet")
-                              else route.continue_())
+            detail_page.route("**/*", route_filter)
             for url in initial_missing:
                 detail = fetch_detail(detail_page, url)
                 if detail.get('status') == 'sold':

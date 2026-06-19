@@ -156,3 +156,43 @@ def get_scrape_proxy():
         proxy['password'] = pw
     return proxy
 
+
+# --- Bandwidth control for the residential proxy (billed per GB) ---------
+# Block heavy asset types AND every third-party host. REIWA's pages drag a
+# lot of weight that the parser never reads — analytics, ad networks, map
+# tiles, web fonts, chat widgets, social embeds. We allow only requests
+# whose host belongs to REIWA itself (so the listing grid's own JS/XHR
+# still loads) plus Cloudflare (so a challenge can still solve when one is
+# served). Everything else is aborted. This cut the per-page transfer
+# dramatically vs the image-only block.
+_HEAVY_RESOURCE_TYPES = ('image', 'media', 'font', 'stylesheet')
+_PROXY_ALLOWED_HOSTS = ('reiwa', 'cloudflare', 'cf-')
+
+
+def _should_abort_request(request):
+    if request.resource_type in _HEAVY_RESOURCE_TYPES:
+        return True
+    try:
+        host = (urlparse(request.url).hostname or '').lower()
+    except Exception:
+        return False
+    return not any(tok in host for tok in _PROXY_ALLOWED_HOSTS)
+
+
+def route_filter(route):
+    """Playwright route handler — abort heavy/third-party requests, let
+    REIWA's own traffic through. Use everywhere we open a scraping page:
+        page.route("**/*", route_filter)
+    """
+    try:
+        if _should_abort_request(route.request):
+            route.abort()
+        else:
+            route.continue_()
+    except Exception:
+        try:
+            route.continue_()
+        except Exception:
+            pass
+
+

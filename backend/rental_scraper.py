@@ -38,7 +38,7 @@ import database  # noqa: E402
 from database import get_db  # noqa: E402
 from scraper_utils import (  # noqa: E402
     REIWA_BASE, UA, CHROMIUM_PATH, EXTRA_HTTP_HEADERS, pick_user_agent,
-    get_scrape_proxy,
+    get_scrape_proxy, route_filter,
 )
 
 
@@ -271,10 +271,9 @@ def scrape_suburb(suburb_name):
             extra_http_headers=EXTRA_HTTP_HEADERS,
         )
         page = context.new_page()
-        # Skip heavy assets — same trick the sales detail-fetcher uses.
-        page.route("**/*", lambda route: route.abort()
-                   if route.request.resource_type in ('image', 'media', 'font', 'stylesheet')
-                   else route.continue_())
+        # Skip heavy assets + third-party hosts — same helper the sales
+        # scraper uses, to keep residential-proxy bandwidth down.
+        page.route("**/*", route_filter)
 
         try:
             for pg in range(1, MAX_PAGES + 1):

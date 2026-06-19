@@ -10,7 +10,7 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
-from scraper_utils import UA, CHROMIUM_PATH, normalise_agency, get_scrape_proxy
+from scraper_utils import UA, CHROMIUM_PATH, normalise_agency, get_scrape_proxy, route_filter
 from scraper_dates import parse_date_text, parse_date_relaxed
 
 logger = logging.getLogger(__name__)
@@ -322,9 +322,7 @@ def verify_disappeared_listings(urls):
         context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},
                                       locale='en-AU')
         page = context.new_page()
-        page.route("**/*", lambda route: route.abort()
-                   if route.request.resource_type in ("image", "media", "font", "stylesheet")
-                   else route.continue_())
+        page.route("**/*", route_filter)
         for url in urls:
             try:
                 detail = fetch_detail(page, url)

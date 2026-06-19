@@ -52,7 +52,7 @@ from database import (  # noqa: E402
 )
 from scraper import scrape_suburb, verify_disappeared_listings  # noqa: E402
 from scraper_detail import fetch_detail  # noqa: E402
-from scraper_utils import UA, CHROMIUM_PATH, get_scrape_proxy  # noqa: E402
+from scraper_utils import UA, CHROMIUM_PATH, get_scrape_proxy, route_filter  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 
@@ -124,9 +124,7 @@ def _backfill_sold_dates(suburb_id, suburb_name):
             context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},
                                           locale='en-AU')
             page = context.new_page()
-            page.route("**/*", lambda route: route.abort()
-                       if route.request.resource_type in ("image", "media", "font", "stylesheet")
-                       else route.continue_())
+            page.route("**/*", route_filter)
 
             for i, row in enumerate(rows):
                 if i > 0:

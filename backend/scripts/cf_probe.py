@@ -58,10 +58,28 @@ def run(engine_sync, label, proxy, at="context", headless=True):
                                           viewport={"width": 1280, "height": 800},
                                           proxy=proxy)
             page = ctx.new_page()
-            # Block heavy resources — saves the operator's proxy GB.
-            page.route("**/*", lambda r: r.abort()
-                       if r.request.resource_type in ("image", "media", "font", "stylesheet")
-                       else r.continue_())
+            # Mirror the real scraper's route_filter (heavy assets +
+            # third-party hosts blocked) so we measure realistic bandwidth.
+            def _filter(route):
+                req = route.request
+                host = (urlsplit(req.url).hostname or "").lower()
+                if (req.resource_type in ("image", "media", "font", "stylesheet")
+                        or not any(t in host for t in ("reiwa", "cloudflare", "cf-"))):
+                    route.abort()
+                else:
+                    route.continue_()
+            page.route("**/*", _filter)
+            # Tally transferred bytes via Content-Length to size the saving.
+            bytes_seen = {"n": 0}
+
+            def _tally(resp):
+                try:
+                    cl = resp.headers.get("content-length")
+                    if cl:
+                        bytes_seen["n"] += int(cl)
+                except Exception:
+                    pass
+            page.on("response", _tally)
             err = None
             for att in range(1, 3):
                 try:
@@ -88,8 +106,10 @@ def run(engine_sync, label, proxy, at="context", headless=True):
             except Exception:
                 title = "<err>"
             ok = bool(cards and cards > 0)
+            kb = bytes_seen["n"] / 1024.0
             print(f"  VERDICT : {'PASS ✅' if ok else 'FAIL ❌'}  cards={cards} "
-                  f"title={title!r} elapsed={time.time()-t0:.1f}s")
+                  f"title={title!r} elapsed={time.time()-t0:.1f}s "
+                  f"transfer≈{kb:.0f} KB (1 for-sale page)")
             browser.close()
             return ok
     except Exception as e:
