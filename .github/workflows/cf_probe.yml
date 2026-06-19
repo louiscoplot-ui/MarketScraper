@@ -1,0 +1,37 @@
+name: Cloudflare bypass probe (throwaway)
+
+# Manual-only diagnostic. Loads ONE REIWA page from the GHA runner IP
+# with vanilla Playwright vs patchright to find out whether REIWA's
+# Cloudflare block is fingerprint-based (free fix possible) or
+# IP-reputation-based (needs residential IP). No DB, no secrets.
+# Delete this workflow + backend/scripts/cf_probe.py once the question
+# is answered.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Playwright + patchright
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright patchright
+          python -m playwright install --with-deps chromium
+          python -m patchright install chromium
+
+      - name: Run probe (xvfb for the headed patchright variant)
+        working-directory: backend
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+          xvfb-run -a python scripts/cf_probe.py
