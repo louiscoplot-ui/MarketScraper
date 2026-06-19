@@ -30,6 +30,26 @@ jobs:
           python -m playwright install --with-deps chromium
           python -m patchright install chromium
 
+      - name: curl test through proxy (isolates network vs Chromium)
+        env:
+          SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
+        run: |
+          UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+          URL="https://reiwa.com.au/for-sale/cottesloe/?includesurroundingsuburbs=false&sortby=listdate"
+          echo "=== curl via proxy (config as-is, geo-au) ==="
+          code=$(curl -sS -x "$SCRAPE_PROXY" -o /tmp/r.html -w "%{http_code}" \
+            --max-time 90 -A "$UA" -H "Accept-Language: en-AU,en;q=0.9" "$URL" \
+            2>/tmp/curlerr || echo "CURL_FAILED")
+          echo "HTTP code : $code"
+          echo "curl err  : $(cat /tmp/curlerr)"
+          echo "bytes     : $(wc -c < /tmp/r.html 2>/dev/null || echo 0)"
+          echo "--- marker counts (challenge vs real cards) ---"
+          grep -io -e "just a moment" -e "performing security verification" \
+                   -e "p-card" -e "cloudflare" /tmp/r.html 2>/dev/null \
+            | tr 'A-Z' 'a-z' | sort | uniq -c || echo "(no markers / empty)"
+          echo "--- <title> ---"
+          grep -io "<title>[^<]*</title>" /tmp/r.html 2>/dev/null | head -1 || echo "(no title)"
+
       - name: Run probe (xvfb for the headed patchright variant)
         working-directory: backend
         env:
