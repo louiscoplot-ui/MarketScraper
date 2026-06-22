@@ -301,8 +301,12 @@ def verify_disappeared_listings(urls):
     there, we should NOT mark withdrawn.
 
     Returns dict {url: {status, sold_price, sold_date}} where status is
-    one of: 'sold' | 'under_offer' | 'active' | 'gone'.
-        'gone'        = page returned no usable data → safe to withdraw
+    one of: 'sold' | 'under_offer' | 'gone'.
+        'gone'        = not sold/under-offer AND already absent from REIWA's
+                        for-sale grid → no longer listed, safe to withdraw.
+                        (We do NOT return 'active' on a still-rendering detail
+                        page: REIWA leaves withdrawn listings' pages online, so
+                        that would rescue them back to active forever.)
         sold_price    = transaction price string (digits only, "4450000")
                         when status == 'sold' AND REIWA's "Last Sold on
                         DD MMM YYYY for $X" block was parseable; else None
@@ -330,9 +334,17 @@ def verify_disappeared_listings(urls):
                 if status in ('sold', 'under_offer'):
                     resolved = status
                 else:
-                    has_content = bool(detail.get('address') or detail.get('agent')
-                                       or detail.get('agency') or detail.get('bedrooms'))
-                    resolved = 'active' if has_content else 'gone'
+                    # Absent from REIWA's for-sale grid AND no sold/under-offer
+                    # badge on the detail page → no longer for sale. REIWA keeps
+                    # withdrawn listings' detail pages live (address/agent still
+                    # render), so "has content" is NOT proof it is still listed
+                    # — the for-sale grid is the source of truth. Resolve 'gone'
+                    # so the coverage-gated withdraw sweep can flip it.
+                    # Previously this returned 'active' on any content, which
+                    # rescued every withdrawn listing straight back to active →
+                    # counts drifted above REIWA's real total and withdrawn
+                    # stayed 0 every night (e.g. Cottesloe 50 vs 43).
+                    resolved = 'gone'
                 out[url] = {
                     'status': resolved,
                     'sold_price': detail.get('sold_price') or None,

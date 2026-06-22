@@ -248,8 +248,11 @@ def run_scrape(suburb_id, slug, name):
             )
         else:
             confident = False
-        if candidates:
-            confident = True
+        # NOTE: confidence comes ONLY from full grid coverage (our_count vs
+        # REIWA's stated total), never from "candidates were verified". A
+        # disappeared listing now resolves to 'gone' and is withdrawn by the
+        # sweep — but only when we saw REIWA's whole grid, so a partial-miss
+        # scrape can never wrongly withdraw a still-listed property.
         # A skipped for-sale page (transient load failure) means some
         # genuinely-active listings never made it into forsale_urls.
         # Never run the confident bulk-withdrawal path in that case —

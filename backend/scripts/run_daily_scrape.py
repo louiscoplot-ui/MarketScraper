@@ -236,9 +236,13 @@ def scrape_one(suburb):
                      or (our_count >= reiwa_total * 0.95 and reiwa_total - our_count <= 3))
     else:
         confident = False
-    if candidates:
-        # Every candidate was individually verified — coverage % no longer matters.
-        confident = True
+    # NOTE: confidence comes ONLY from full grid coverage (our_count vs
+    # REIWA's stated total), never from "candidates were verified". A
+    # disappeared listing now resolves to 'gone' (verify_disappeared_listings)
+    # and is withdrawn by the sweep — but only when we actually saw REIWA's
+    # whole grid, so a partial-miss scrape can never wrongly withdraw a
+    # still-listed property. (Forcing confident=True here is what let the
+    # rescue mask every withdrawal → counts never came back down.)
 
     # Safety guards against wrongful mass-withdraw:
     #   1. ZERO actives + 5+ candidates → parser fault (DOM rename,
