@@ -41,7 +41,8 @@ from scraper_browser import (
 logger = logging.getLogger(__name__)
 
 
-def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=None, cancel_check=None):
+def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=None,
+                  cancel_check=None, known_sold_urls=None):
     """Scrape all for-sale and sold listings for a suburb."""
     suburb_name = suburb_slug.replace("-", " ").title()
     results = {
@@ -434,6 +435,14 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
             sold_seen = set()
             sold_load_failures = 0
             sold_consecutive_dup = 0
+            # Sales already stored for this suburb. REIWA lists /sold/
+            # newest-first and settled sales never change, so once a whole
+            # page is already in our DB we've caught up to the last scrape
+            # and every later page is older/known too → stop paginating.
+            # Saves re-downloading all 10 sold pages through the billed
+            # residential proxy every night. Empty on a suburb's first
+            # scrape → falls back to the full pagination to build history.
+            _known_sold = {normalize_reiwa_url(u) for u in (known_sold_urls or set())}
             for pg in range(1, SOLD_MAX_PAGES + 1):
                 if cancel_check and cancel_check():
                     break
@@ -474,6 +483,7 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     break
 
                 new_on_page = 0
+                new_vs_db_on_page = 0
                 for card in cards:
                     rec = _parse_card(card, suburb_name)
                     card_url = rec['url']
@@ -486,6 +496,8 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                     rec['status'] = 'sold'
                     rec['reiwa_url'] = normalize_reiwa_url(card_url)
+                    if rec['reiwa_url'] not in _known_sold:
+                        new_vs_db_on_page += 1
                     # _parse_card pulls a date via extract_date() which
                     # tries the card's <time> element first. On REIWA's
                     # /sold/ grid that element is a page-level timestamp
@@ -512,6 +524,14 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
 
                 results['stats']['sold_pages_scraped'] = pg
                 logger.info(f"{suburb_name} sold p{pg}: {len(cards)} cards, {new_on_page} new")
+
+                # Caught up to the previous scrape: this whole page is
+                # already in our DB. Settled sales don't change and REIWA
+                # orders the /sold/ grid newest-first, so everything beyond
+                # here is known too — stop now instead of pulling the rest.
+                if _known_sold and new_vs_db_on_page == 0:
+                    logger.info(f"{suburb_name} sold p{pg}: all already in DB — caught up, stopping")
+                    break
 
                 if new_on_page == 0 and pg > 1:
                     # All-duplicate page. REIWA sometimes returns a page

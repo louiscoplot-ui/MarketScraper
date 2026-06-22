@@ -48,6 +48,7 @@ from database import (  # noqa: E402
     create_scrape_log,
     update_scrape_log,
     get_existing_urls,
+    get_sold_urls,
     trim_sold_listings,
 )
 from scraper import scrape_suburb, verify_disappeared_listings  # noqa: E402
@@ -164,7 +165,9 @@ def scrape_one(suburb):
 
     try:
         known = get_existing_urls(suburb_id)
-        result = scrape_suburb(slug, suburb_id, known_urls=known)
+        known_sold = get_sold_urls(suburb_id)
+        result = scrape_suburb(slug, suburb_id, known_urls=known,
+                               known_sold_urls=known_sold)
     except Exception as e:
         log.exception(f"[{name}] scrape_suburb crashed: {e}")
         update_scrape_log(

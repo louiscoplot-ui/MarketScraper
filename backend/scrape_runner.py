@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from database import (
     get_db, upsert_listing, mark_withdrawn, create_scrape_log,
-    update_scrape_log, get_existing_urls, trim_sold_listings,
+    update_scrape_log, get_existing_urls, get_sold_urls, trim_sold_listings,
     take_market_snapshot,
 )
 from scraper import scrape_suburb, verify_disappeared_listings
@@ -152,8 +152,10 @@ def run_scrape(suburb_id, slug, name):
         def cancel_check():
             return suburb_id in scrape_cancel
 
+        known_sold = get_sold_urls(suburb_id)
         result = scrape_suburb(slug, suburb_id, progress_callback=progress_cb,
-                               known_urls=known_urls, cancel_check=cancel_check)
+                               known_urls=known_urls, cancel_check=cancel_check,
+                               known_sold_urls=known_sold)
 
         if suburb_id in scrape_cancel:
             scrape_cancel.discard(suburb_id)

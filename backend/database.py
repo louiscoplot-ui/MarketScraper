@@ -547,6 +547,24 @@ def get_existing_urls(suburb_id):
     return complete
 
 
+def get_sold_urls(suburb_id):
+    """Normalized set of reiwa_urls already stored as 'sold' for a suburb.
+
+    Lets the scraper stop paginating REIWA's /sold/ grid as soon as it
+    reaches sales it already has. Sold listings are settled — they never
+    change — so re-downloading the older pages every night is pure wasted
+    (proxy-billed) bandwidth."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT reiwa_url FROM listings WHERE suburb_id = ? AND status = 'sold' "
+        "AND reiwa_url IS NOT NULL",
+        (suburb_id,)
+    ).fetchall()
+    conn.close()
+    from scraper_utils import normalize_reiwa_url
+    return {normalize_reiwa_url(r['reiwa_url']) for r in rows}
+
+
 def trim_sold_listings(suburb_id, keep=200):
     conn = get_db()
     rows = conn.execute(
