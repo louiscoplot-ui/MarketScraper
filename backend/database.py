@@ -358,14 +358,13 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
 
 def upsert_listing(suburb_id, reiwa_url, data):
     """Insert or update a listing keyed by reiwa_url."""
-    from scraper_utils import normalize_reiwa_url
+    from scraper_utils import normalize_reiwa_url, better_address
     # Single source of truth — same helper the scraper-side comparison
     # uses, so a URL stored here will always match the lookup the next
     # scrape does.
     reiwa_url = normalize_reiwa_url(reiwa_url)
     conn = get_db()
     now = datetime.utcnow().isoformat()
-    norm_addr = normalize_address(data.get('address') or '')
     new_status = data.get('status', 'active')
 
     existing = conn.execute(
@@ -376,6 +375,15 @@ def upsert_listing(suburb_id, reiwa_url, data):
     if existing and existing['reiwa_url'] != reiwa_url:
         conn.execute("UPDATE listings SET reiwa_url = ? WHERE id = ?", (reiwa_url, existing['id']))
         conn.commit()
+
+    # Choose the most complete address: a real disclosed address always
+    # wins over a placeholder/partial one, and a real address is never
+    # downgraded back to a placeholder. REIWA discloses some addresses only
+    # after a listing has been live a while, so a later scrape can upgrade
+    # "Address not disclosed" → the full street address.
+    final_address = better_address(existing['address'] if existing else '',
+                                   data.get('address'))
+    norm_addr = normalize_address(final_address)
 
     if norm_addr and new_status in ('active', 'under_offer', 'sold'):
         excluded_id = existing['id'] if existing else -1
@@ -431,7 +439,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 source = COALESCE(NULLIF(?, ''), source)
             WHERE id = ?
         """, (
-            data.get('address'), norm_addr, data.get('price_text'),
+            final_address, norm_addr, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
@@ -453,7 +461,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 sold_price, sold_date, listing_type, listing_date, source
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            suburb_id, data.get('address', ''), norm_addr, reiwa_url, data.get('price_text'),
+            suburb_id, final_address, norm_addr, reiwa_url, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
@@ -507,13 +515,13 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
 def get_existing_urls(suburb_id):
     conn = get_db()
     rows = conn.execute(
-        "SELECT reiwa_url, listing_type, land_size, internal_size, listing_date "
+        "SELECT reiwa_url, listing_type, land_size, internal_size, listing_date, address "
         "FROM listings WHERE suburb_id = ? AND reiwa_url IS NOT NULL",
         (suburb_id,)
     ).fetchall()
     conn.close()
 
-    from scraper_utils import normalize_reiwa_url
+    from scraper_utils import normalize_reiwa_url, is_real_address
     STRATA_TYPES = {'unit', 'apartment', 'townhouse', 'villa', 'studio', 'duplex'}
     complete = set()
     for r in rows:
@@ -528,6 +536,12 @@ def get_existing_urls(suburb_id):
         if t == 'house' and not land:
             continue
         if t in STRATA_TYPES and not internal:
+            continue
+        # Treat a withheld/partial address as "incomplete" so the listing
+        # falls out of the known set and its detail page is re-fetched —
+        # that's how a later REIWA disclosure ("Address not disclosed" →
+        # full street address) gets picked up instead of staying frozen.
+        if not is_real_address(r['address']):
             continue
         complete.add(normalize_reiwa_url(r['reiwa_url']))
     return complete

@@ -196,3 +196,53 @@ def route_filter(route):
             pass
 
 
+# --- Address quality helpers --------------------------------------------
+# REIWA withholds the street address on some listings ("Address available
+# on application"); the grid card then only yields the suburb or a street
+# name with no number, while the listing's own detail page shows the full
+# address once it's disclosed. These helpers let us (a) prefer a real
+# disclosed address over a placeholder/partial one and (b) never overwrite
+# a real address with a placeholder.
+_ADDR_PLACEHOLDERS = (
+    'address not disclosed', 'address available on application',
+    'address available on request', 'address on application',
+    'address on request', 'address available', 'on application',
+    'address withheld', 'contact agent', 'no address',
+)
+
+
+def is_real_address(addr):
+    """True when `addr` looks like a real, disclosed street address —
+    i.e. non-empty, not a 'withheld' placeholder, and containing a street
+    number (a digit). A street-only ("Jarrad Street") or suburb-only
+    ("Cottesloe") value returns False so it can be re-fetched/replaced."""
+    a = (addr or '').strip()
+    if not a:
+        return False
+    low = a.lower()
+    if any(p in low for p in _ADDR_PLACEHOLDERS):
+        return False
+    return any(ch.isdigit() for ch in a)
+
+
+def better_address(old, new):
+    """Pick the more complete of two addresses. A real disclosed address
+    always wins over a placeholder/partial one. When neither is real,
+    keep a longer non-empty value over a shorter one, else keep `old`.
+    Guarantees we never downgrade a real address to a placeholder."""
+    old_s = (old or '').strip()
+    new_s = (new or '').strip()
+    if is_real_address(new_s) and not is_real_address(old_s):
+        return new_s
+    if is_real_address(old_s) and not is_real_address(new_s):
+        return old_s
+    if is_real_address(new_s) and is_real_address(old_s):
+        # Both real — keep the longer (usually fuller: number + street +
+        # suburb + postcode) so we trend toward the most complete form.
+        return new_s if len(new_s) > len(old_s) else old_s
+    # Neither real: prefer any non-empty, longer string; fall back to old.
+    if new_s and len(new_s) > len(old_s):
+        return new_s
+    return old_s or new_s
+
+

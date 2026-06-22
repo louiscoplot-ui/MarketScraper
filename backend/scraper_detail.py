@@ -10,7 +10,8 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
-from scraper_utils import UA, CHROMIUM_PATH, normalise_agency, get_scrape_proxy, route_filter
+from scraper_utils import (UA, CHROMIUM_PATH, normalise_agency, get_scrape_proxy,
+                           route_filter, better_address)
 from scraper_dates import parse_date_text, parse_date_relaxed
 
 logger = logging.getLogger(__name__)
@@ -286,6 +287,19 @@ def fetch_details_batch(detail_pages, listings, cancel_check=None,
             rec['listing_date'] = detail['listing_date']
         if detail['status'] == 'under_offer':
             rec['status'] = 'under_offer'
+
+        # Prefer the detail page's disclosed address over the card's
+        # placeholder/partial value. fetch_detail reads it from the
+        # listing's own <h2 class="p-details__add">/<h1>, which carries
+        # the full "12 Jarrad Street, Cottesloe" once REIWA discloses it —
+        # the grid card often only yields the street name or "Address not
+        # disclosed". Previously detail['address'] was fetched then dropped.
+        rec['address'] = better_address(rec.get('address'), detail.get('address'))
+        # Fill the other detail-only fields the card may have missed
+        # (orphan/JS-rescued listings arrive with none of these).
+        for _f in ('agency', 'agent', 'bedrooms', 'bathrooms', 'parking', 'listing_type'):
+            if detail.get(_f) and not rec.get(_f):
+                rec[_f] = detail[_f]
 
         results.append(rec)
 
