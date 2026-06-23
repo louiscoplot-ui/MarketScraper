@@ -358,7 +358,7 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
 
 def upsert_listing(suburb_id, reiwa_url, data):
     """Insert or update a listing keyed by reiwa_url."""
-    from scraper_utils import normalize_reiwa_url, better_address
+    from scraper_utils import normalize_reiwa_url, better_address, listing_id
     # Single source of truth — same helper the scraper-side comparison
     # uses, so a URL stored here will always match the lookup the next
     # scrape does.
@@ -367,13 +367,39 @@ def upsert_listing(suburb_id, reiwa_url, data):
     now = datetime.utcnow().isoformat()
     new_status = data.get('status', 'active')
 
-    existing = conn.execute(
-        "SELECT * FROM listings WHERE reiwa_url = ? OR reiwa_url = ?",
-        (reiwa_url, reiwa_url + '/')
-    ).fetchone()
+    # Match an existing row by the STABLE numeric listing ID, not just the
+    # exact URL. When REIWA discloses a previously-withheld address it
+    # rewrites the URL slug (".../cottesloe-1234567" →
+    # ".../12-jarrad-street-cottesloe-1234567") while keeping the same ID.
+    # Matching the slug alone made the renamed listing look brand-new → a
+    # duplicate row, while the old slug (now gone from the grid) got marked
+    # withdrawn. Prefer the exact-URL row, else any row sharing the ID.
+    lid = listing_id(reiwa_url)
+    if lid:
+        existing = conn.execute(
+            "SELECT * FROM listings WHERE reiwa_url = ? OR reiwa_url = ? "
+            "OR reiwa_url LIKE ? OR reiwa_url LIKE ? "
+            "ORDER BY (reiwa_url = ?) DESC, last_seen DESC",
+            (reiwa_url, reiwa_url + '/', f"%-{lid}", f"%-{lid}/", reiwa_url)
+        ).fetchone()
+    else:
+        existing = conn.execute(
+            "SELECT * FROM listings WHERE reiwa_url = ? OR reiwa_url = ?",
+            (reiwa_url, reiwa_url + '/')
+        ).fetchone()
 
-    if existing and existing['reiwa_url'] != reiwa_url:
-        conn.execute("UPDATE listings SET reiwa_url = ? WHERE id = ?", (reiwa_url, existing['id']))
+    if existing:
+        if lid:
+            # Collapse any other rows sharing this listing ID (stale slug
+            # duplicates left by an earlier rename) into the matched row,
+            # so a disclosure updates in place instead of duplicating.
+            conn.execute(
+                "DELETE FROM listings WHERE id != ? "
+                "AND (reiwa_url LIKE ? OR reiwa_url LIKE ?)",
+                (existing['id'], f"%-{lid}", f"%-{lid}/")
+            )
+        if existing['reiwa_url'] != reiwa_url:
+            conn.execute("UPDATE listings SET reiwa_url = ? WHERE id = ?", (reiwa_url, existing['id']))
         conn.commit()
 
     # Choose the most complete address: a real disclosed address always
