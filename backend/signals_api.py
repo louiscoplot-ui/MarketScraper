@@ -59,3 +59,25 @@ def register_signals_routes(app):
             mimetype=_DOCX_MIME,
             headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
+
+    @app.route('/api/signals/sale-fallen/run', methods=['POST'])
+    def run_sale_fallen():
+        """LOOP-3 manual trigger — alert agents about sale-fallen listings and
+        expire stale ones. Admin-only. Sends are gated behind SIGNALS_LIVE; the
+        response reports dry_run=true when the flag is off (nothing sent)."""
+        _u, err = _require_admin()
+        if err:
+            return err
+        from signals.sale_fallen import (
+            process_sale_fallen_alerts, expire_old_sale_fallen)
+        result = process_sale_fallen_alerts()
+        result['expired'] = expire_old_sale_fallen()
+        return jsonify(result)
+
+    @app.route('/api/signals/sale-fallen/count', methods=['GET'])
+    def sale_fallen_count():
+        """LOOP-3 dashboard badge — live (≤14d) sale-fallen count, scoped to
+        the caller's suburbs (admins see all)."""
+        _user, allowed_ids = resolve_request_scope()
+        from signals.sale_fallen import active_sale_fallen_count
+        return jsonify({'count': active_sale_fallen_count(allowed_ids)})

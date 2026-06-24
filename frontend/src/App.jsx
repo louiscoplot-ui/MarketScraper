@@ -51,6 +51,9 @@ function App() {
   const [scrapeConnecting, setScrapeConnecting] = useState(false)
   const [scrapeConnectError, setScrapeConnectError] = useState(null)
   const [logs, setLogs] = useState([])
+  // LOOP-3: live "sale fallen" (under_offer → active) count for the badge.
+  // Scoped server-side to the caller's suburbs. Best-effort — never blocks.
+  const [saleFallenCount, setSaleFallenCount] = useState(0)
   const [view, setView] = useState(readViewFromHash)
   // Current user — fetched once on mount so Header can decide whether
   // to show the Rental tab (gated by rental_access / admin role) and
@@ -304,6 +307,17 @@ function App() {
   }, [])
 
   useEffect(() => { if (view === 'logs') fetchLogs() }, [view])
+
+  // LOOP-3: fetch the live sale-fallen count once on mount (BACKEND_DIRECT
+  // bypasses the Vercel edge timeout). Silently ignores failures.
+  useEffect(() => {
+    let cancelled = false
+    fetch(`${BOOT_API}/signals/sale-fallen/count`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setSaleFallenCount(d.count || 0) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   const suggestionsRef = useRef(null)
 
@@ -763,6 +777,22 @@ function App() {
         ) : (
         <aside className="sidebar">
           <h2>Suburbs</h2>
+          {saleFallenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setView('listings')}
+              title="Under-offer listings that returned to active in the last 14 days — motivated vendors. Click to view listings."
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                margin: '0 0 12px', padding: '8px 12px', cursor: 'pointer',
+                background: '#fff7ed', border: '1px solid #fdba74',
+                borderRadius: 6, color: '#7c2d12', fontWeight: 600, fontSize: 13,
+                textAlign: 'left',
+              }}
+            >
+              🔔 {saleFallenCount} sale{saleFallenCount > 1 ? 's' : ''} fallen through
+            </button>
+          )}
           {/* Add form only for admins + users granted can_add_suburbs.
               Everyone else sees just the suburbs an admin assigned them
               and can't self-expand coverage. */}

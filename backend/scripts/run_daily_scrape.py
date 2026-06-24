@@ -412,6 +412,23 @@ def main():
     except Exception as e:
         log.warning(f"withdrawn-orphan pass failed: {e}")
 
+    # LOOP-3: sale-fallen alerts (under_offer → active). Sends are gated
+    # behind SIGNALS_LIVE — dry-run by default (logs intent, sends nothing,
+    # leaves the signal unprocessed so it fires once enabled). Also ages out
+    # alerts older than 14 days. Never fails the cron.
+    try:
+        from signals.sale_fallen import (
+            process_sale_fallen_alerts, expire_old_sale_fallen)
+        sf = process_sale_fallen_alerts()
+        sf_expired = expire_old_sale_fallen()
+        log.info(
+            "Sale-fallen: sent=%d would_send=%d no_recipient=%d expired=%d (dry_run=%s)",
+            sf.get('sent', 0), sf.get('would_send', 0), sf.get('no_recipient', 0),
+            sf_expired, sf.get('dry_run')
+        )
+    except Exception as e:
+        log.warning(f"sale-fallen pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy
