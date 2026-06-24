@@ -73,6 +73,8 @@ from signals_api import register_signals_routes
 register_signals_routes(app)
 from appraisals_api import register_appraisals_routes
 register_appraisals_routes(app)
+from roi_api import register_roi_routes
+register_roi_routes(app)
 
 
 # --- GLOBAL AUTH GATE ---

@@ -167,6 +167,17 @@ def init_db():
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
                        label='listings ADD COLUMN fallback')
 
+    # PERF-2 (ROI tracker) — commission + mandate source on appraisals.
+    # Idempotent ALTERs because LOOP-5 may have already created the table
+    # without these columns on an earlier deploy.
+    for col_sql in [
+        "ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS commission_value INTEGER",
+        "ALTER TABLE appraisals ADD COLUMN IF NOT EXISTS mandate_source TEXT",
+    ]:
+        if not _safe_exec(conn, col_sql, label='appraisals ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='appraisals ADD COLUMN fallback')
+
     # One-shot backfill: prior to scraper.py commit 190fed0, the sold-page
     # card scraper wrote REIWA's "Sold DD/MM/YYYY" stamp into
     # listings.listing_date instead of listings.sold_date — leaving the

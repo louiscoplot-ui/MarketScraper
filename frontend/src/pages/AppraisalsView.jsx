@@ -31,6 +31,14 @@ export default function AppraisalsView() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [roi, setRoi] = useState(null)  // PERF-2 ROI summary
+
+  const loadRoi = useCallback(async () => {
+    try {
+      const res = await authFetch(`${API}/roi/summary`)
+      if (res.ok) setRoi(await res.json())
+    } catch { /* non-critical */ }
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -42,7 +50,8 @@ export default function AppraisalsView() {
       setItems([])
     }
     setLoading(false)
-  }, [])
+    loadRoi()
+  }, [loadRoi])
 
   useEffect(() => { load() }, [load])
 
@@ -85,6 +94,20 @@ export default function AppraisalsView() {
     } catch { /* ignore — list reload will reflect server state */ }
   }
 
+  // PERF-2 — mark won and capture commission for the ROI tracker.
+  const markWon = async (id) => {
+    const raw = window.prompt('Commission value (AUD)?', '')
+    if (raw === null) return
+    const commission = parseInt(String(raw).replace(/[^\d]/g, ''), 10) || 0
+    try {
+      const res = await authFetch(`${API}/appraisals/${id}/won`, {
+        method: 'PATCH',
+        body: JSON.stringify({ commission_value: commission, mandate_source: 'manual' }),
+      })
+      if (res.ok) load()
+    } catch { /* list reload reflects server state */ }
+  }
+
   const wonCount = items.filter(a => a.status === 'won').length
   const activeCount = items.filter(a => a.status === 'active').length
 
@@ -102,6 +125,13 @@ export default function AppraisalsView() {
           borderRadius: 6, fontWeight: 600, fontSize: 13 }}>
           {activeCount} active
         </span>
+        {roi && (
+          <span style={{ background: '#386350', color: '#fff', padding: '4px 10px',
+            borderRadius: 6, fontWeight: 700, fontSize: 13 }}
+            title={`${roi.total_mandates_won} mandates · this quarter $${(roi.this_quarter?.commission || 0).toLocaleString()}`}>
+            ${Number(roi.total_commission_aud || 0).toLocaleString()} commissions
+          </span>
+        )}
       </div>
 
       <form onSubmit={submit} style={{ display: 'grid',
@@ -160,7 +190,7 @@ export default function AppraisalsView() {
                 <td style={{ padding: 6 }}>
                   {a.status === 'active' && (
                     <span style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => setStatus(a.id, 'won')}
+                      <button onClick={() => markWon(a.id)}
                         style={{ cursor: 'pointer', fontSize: 12 }}>Won</button>
                       <button onClick={() => setStatus(a.id, 'lost')}
                         style={{ cursor: 'pointer', fontSize: 12 }}>Lost</button>
