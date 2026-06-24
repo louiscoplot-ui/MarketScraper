@@ -111,7 +111,10 @@ export default function ListingsView({
       })
       .catch((e) => {
         mirrorListing(target.id, { note: previous })
-        alert(`Could not save note: ${e.message}`)
+        // Name the property in the alert — the modal already closed
+        // (optimistic), so without the address the agent can't tell
+        // which note failed to save (D17: "alerte tardive sans contexte").
+        alert(`Could not save note for ${target.address}: ${e.message}`)
       })
       .finally(() => setNoteSaving(false))
   }
