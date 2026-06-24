@@ -398,6 +398,20 @@ def main():
         log.error("Browser launch failed — exiting with code 1")
         sys.exit(1)
 
+    # LOOP-2: withdrawn-orphan detection. Runs after the scrape (fresh
+    # withdrawn_date values) and BEFORE the digest so new orphan leads
+    # surface in this morning's email. Generates Pipeline targets only —
+    # no outbound email here. Never fails the cron.
+    try:
+        from signals.withdrawn_orphan import process_withdrawn_orphans
+        wo = process_withdrawn_orphans()
+        log.info(
+            "Withdrawn orphans: %d new lead(s) across %s",
+            wo.get('detected', 0), ', '.join(wo.get('suburbs_covered') or []) or '—'
+        )
+    except Exception as e:
+        log.warning(f"withdrawn-orphan pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy

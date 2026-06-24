@@ -392,3 +392,99 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
             re_ = p.add_run(agent_email); re_.font.size = Pt(10); re_.font.name = 'Arial'
 
     return doc
+
+
+def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
+                                 days_withdrawn, active_count=None,
+                                 median_text=None, user_profile=None):
+    """LOOP-2 — letter for a withdrawn-orphan vendor (property pulled from
+    market 60–120 days ago, never relisted). Same Acton|Belle styling and
+    signature block as render_letter_docx (shared helpers), different body.
+    Identity falls back to env vars when user_profile is None — matches the
+    existing single-agent letter path."""
+    profile = user_profile or {}
+    agency_name = _resolve(profile, 'agency_name', 'AGENCY_NAME')
+    agent_name = _resolve(profile, 'agent_name', 'AGENT_NAME')
+    agent_phone = _resolve(profile, 'agent_phone', 'AGENT_PHONE')
+    agent_email = _resolve(profile, 'agent_email', 'AGENT_EMAIL')
+    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
+    line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
+    line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Cm(0)
+        section.bottom_margin = Cm(2.0)
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2.5)
+
+    _green_header(doc)
+    _agency_footer(doc, agency_name, line_1, line_2, line_3)
+
+    today = datetime.utcnow().strftime('%d/%m/%Y')
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    r = p.add_run(today); r.font.size = Pt(11); r.font.name = 'Arial'
+
+    doc.add_paragraph()
+    p = doc.add_paragraph()
+    r = p.add_run('Dear Owner,'); r.font.size = Pt(11); r.font.name = 'Arial'
+    doc.add_paragraph()
+
+    def body_para(text=None):
+        p = doc.add_paragraph()
+        if text is not None:
+            r = p.add_run(text); r.font.size = Pt(11); r.font.name = 'Arial'
+        return p
+
+    # Opening — reference the withdrawal directly, with the day count.
+    days_phrase = f"{days_withdrawn} days ago" if days_withdrawn else "some months ago"
+    p = body_para()
+    r1 = p.add_run('We noticed that your property at ')
+    r1.font.size = Pt(11); r1.font.name = 'Arial'
+    r2 = p.add_run(target_address); r2.bold = True; r2.font.size = Pt(11); r2.font.name = 'Arial'
+    r3 = p.add_run(f' was taken off the market {days_phrase}.')
+    r3.font.size = Pt(11); r3.font.name = 'Arial'
+
+    # Market-moved-since paragraph, with live suburb stats when available.
+    stat_bits = []
+    if active_count is not None:
+        stat_bits.append(f"{active_count} active listings")
+    if median_text:
+        stat_bits.append(f"a median of {median_text}")
+    if stat_bits:
+        stats_sentence = (f"The Western Suburbs market has shifted since — "
+                          f"{suburb} currently shows {' and '.join(stat_bits)}.")
+    else:
+        stats_sentence = ("The Western Suburbs market has shifted since, and "
+                          f"conditions in {suburb} may look very different today.")
+    body_para(stats_sentence)
+
+    body_para('We would like to share a confidential analysis of what your '
+              'property could achieve in the current market — no obligation, '
+              'just clarity.')
+
+    body_para("Please don't hesitate to reach out.")
+
+    doc.add_paragraph()
+    body_para('Kind regards,')
+    doc.add_paragraph()
+
+    if agent_name:
+        sig = doc.add_paragraph()
+        r = sig.add_run(agent_name); r.bold = True; r.font.size = Pt(12); r.font.name = 'Arial'
+    if agent_role:
+        p = doc.add_paragraph()
+        r = p.add_run(agent_role); r.font.size = Pt(10); r.font.name = 'Arial'
+        r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+    if agent_phone or agent_email:
+        p = doc.add_paragraph()
+        if agent_phone:
+            rb = p.add_run('M: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
+            rp = p.add_run(f'{agent_phone}    '); rp.font.size = Pt(10); rp.font.name = 'Arial'
+        if agent_email:
+            rb = p.add_run('E: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
+            re_ = p.add_run(agent_email); re_.font.size = Pt(10); re_.font.name = 'Arial'
+
+    return doc

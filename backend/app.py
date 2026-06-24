@@ -69,6 +69,8 @@ register_admin_routes(app)
 register_auth_routes(app)
 register_rental_routes(app)
 register_legal_routes(app)
+from signals_api import register_signals_routes
+register_signals_routes(app)
 
 
 # --- GLOBAL AUTH GATE ---

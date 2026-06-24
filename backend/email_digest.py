@@ -64,7 +64,8 @@ def _build_sections(suburb_rows, user_id, since_iso):
     hot_vendor_alerts: [...]} with each list flat (sorted by suburb,
     then date desc) so the renderer can section-header them once."""
     if not suburb_rows:
-        return {'new_listings': [], 'status_changes': [], 'hot_vendor_alerts': []}
+        return {'new_listings': [], 'status_changes': [],
+                'hot_vendor_alerts': [], 'withdrawn_orphans': []}
     suburb_ids = tuple(s['id'] for s in suburb_rows)
     placeholders = ','.join(['?'] * len(suburb_ids))
     conn = get_db()
@@ -137,10 +138,31 @@ def _build_sections(suburb_rows, user_id, since_iso):
     except Exception:
         logger.exception("Hot vendor alert query failed (suppressed)")
 
+    # Withdrawn orphans (LOOP-2) — pipeline leads created since the cutoff,
+    # scoped to the user's suburbs by name. Failure is suppressed so the
+    # digest still sends its other sections.
+    orphan_rows = []
+    try:
+        names = [dict(s)['name'] for s in suburb_rows]
+        if names:
+            name_ph = ','.join(['?'] * len(names))
+            orphan_rows = conn.execute(
+                f"SELECT target_address AS address, source_suburb AS suburb, "
+                f"notes, sent_date FROM pipeline_tracking "
+                f"WHERE status = 'withdrawn_orphan' "
+                f"AND source_suburb IN ({name_ph}) "
+                f"AND created_at >= ? "
+                f"ORDER BY source_suburb, created_at DESC",
+                (*names, since_iso)
+            ).fetchall()
+    except Exception:
+        logger.exception("Withdrawn orphan digest query failed (suppressed)")
+
     return {
         'new_listings': [dict(r) for r in (new_listings or [])],
         'status_changes': [dict(r) for r in (status_changes or [])],
         'hot_vendor_alerts': [dict(r) for r in (hv_alerts or [])],
+        'withdrawn_orphans': [dict(r) for r in (orphan_rows or [])],
     }
 
 
@@ -236,6 +258,15 @@ def _build_digest_text(user, sections, suburb_names, today_au):
                     lines.append(f"      View: {r['reiwa_url']}")
         lines.append('')
 
+        # Section — withdrawn orphans (LOOP-2), omitted entirely if empty
+        if sections.get('withdrawn_orphans'):
+            lines.append('=== WITHDRAWN ORPHANS (LIKELY MOTIVATED VENDORS) ===')
+            for r in sections['withdrawn_orphans']:
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
+                if r.get('notes'):
+                    lines.append(f"      {r['notes']}")
+            lines.append('')
+
         # Section 3 — hot vendor alerts (omitted entirely if empty)
         if sections['hot_vendor_alerts']:
             lines.append('=== HOT VENDOR NOW LISTED ===')
@@ -330,6 +361,21 @@ def _render_hv_alert_html(r):
             f'{inner}</div>')
 
 
+def _render_orphan_html(r):
+    parts = [
+        '<div style="margin:0 0 4px;font-weight:700;color:#7c2d12;font-size:13px;">'
+        '🏷️ WITHDRAWN — LIKELY MOTIVATED VENDOR</div>',
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>',
+    ]
+    if r.get('notes'):
+        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(r["notes"])}</div>')
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fff7ed;'
+            f'border-left:4px solid #ea580c;border-radius:0 4px 4px 0;">{inner}</div>')
+
+
 def _section_header(text):
     return (f'<h3 style="margin:18px 0 8px;color:#386350;font-size:14px;'
             f'font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">'
@@ -354,6 +400,12 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             if sections['status_changes']
             else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No status changes yesterday.</p>'
         )
+        orphan_section = ''
+        if sections.get('withdrawn_orphans'):
+            orphan_section = (
+                _section_header('Withdrawn Orphans')
+                + ''.join(_render_orphan_html(r) for r in sections['withdrawn_orphans'])
+            )
         hv_section = ''
         if sections['hot_vendor_alerts']:
             hv_section = (
@@ -363,6 +415,7 @@ def _build_digest_html(user, sections, suburb_names, today_au):
         body = (
             _section_header('New Listings') + new_html
             + _section_header('Status Changes') + change_html
+            + orphan_section
             + hv_section
         )
 
