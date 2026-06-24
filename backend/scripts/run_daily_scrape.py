@@ -55,6 +55,7 @@ from scraper import scrape_suburb, verify_disappeared_listings  # noqa: E402
 from scraper_detail import fetch_detail  # noqa: E402
 from scraper_utils import UA, CHROMIUM_PATH, get_scrape_proxy, route_filter  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
+import healing_loop  # noqa: E402
 
 
 logging.basicConfig(
@@ -346,8 +347,16 @@ def main():
     # handles the concurrent writes. Mirrors the Flask manual-scrape path
     # (scrape_runner.run_scrape_all), proven to work with sync Playwright
     # in a thread pool.
+    # Each suburb scrape runs through the self-healing wrapper instead of
+    # calling scrape_one directly: it detects/classifies failures, retries
+    # transient ones with backoff, and emails an alert on structural breaks
+    # (layout change, CAPTCHA) or exhausted retries. scrape_one's own logic
+    # is untouched — healing_loop only wraps the call.
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(scrape_one, s): s for s in suburbs}
+        futures = {
+            executor.submit(healing_loop.run_with_recovery, s, scrape_one): s
+            for s in suburbs
+        }
         for fut in as_completed(futures):
             s = futures[fut]
             try:
@@ -367,6 +376,14 @@ def main():
                 f"  {s['name']}: active={s['active']} sold={s['sold']} "
                 f"withdrawn={s['withdrawn']} new={s['new']}"
             )
+
+    # Hard failure: Playwright couldn't launch a browser at all (e.g. the
+    # CI runner is missing the Chromium binary). The healing loop already
+    # alerted; fail the cron with a non-zero exit so GitHub Actions marks
+    # the run red instead of green-with-no-data.
+    if any(s.get('fatal') for s in summary):
+        log.error("Browser launch failed — exiting with code 1")
+        sys.exit(1)
 
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
