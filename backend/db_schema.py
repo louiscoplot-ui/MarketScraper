@@ -87,6 +87,42 @@ def init_db():
             errors TEXT,
             FOREIGN KEY (suburb_id) REFERENCES suburbs(id) ON DELETE CASCADE
         );
+
+        -- LOOP-1: signal-loop foundation.
+        -- listing_transitions records a detected state change between two
+        -- scrape runs (written by signals/diff_engine.run_diff).
+        -- listing_snapshots holds the PREVIOUS run's per-listing state so
+        -- run_diff has something to compare against — listings.status is
+        -- overwritten in place, so without this the prior value is lost.
+        -- JSONB/BOOLEAN are avoided (no SQLite equivalent): metadata is a
+        -- JSON TEXT blob, processed is an INTEGER flag — matching the rest
+        -- of this schema. _translate_sql maps AUTOINCREMENT/datetime('now')
+        -- to the Postgres equivalents at runtime.
+        CREATE TABLE IF NOT EXISTS listing_transitions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            listing_id INTEGER,
+            suburb TEXT,
+            address TEXT,
+            transition_type TEXT,
+            from_status TEXT,
+            to_status TEXT,
+            detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+            metadata TEXT,
+            processed INTEGER NOT NULL DEFAULT 0,
+            processed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_transitions_suburb ON listing_transitions(suburb);
+        CREATE INDEX IF NOT EXISTS idx_transitions_type ON listing_transitions(transition_type);
+        CREATE INDEX IF NOT EXISTS idx_transitions_processed ON listing_transitions(processed);
+
+        CREATE TABLE IF NOT EXISTS listing_snapshots (
+            listing_id INTEGER PRIMARY KEY,
+            suburb TEXT,
+            status TEXT,
+            sold_price TEXT,
+            price_text TEXT,
+            captured_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
     """)
 
     for col_sql in [

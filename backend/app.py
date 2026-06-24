@@ -1090,6 +1090,53 @@ def list_scrape_logs():
     return jsonify(rows[:20])
 
 
+@app.route('/api/admin/transitions', methods=['GET'])
+def list_transitions():
+    """LOOP-1 monitoring — recent listing transitions detected by the diff
+    engine. Admin-only (read-only). Filters: ?suburb=&type=&processed=&limit=."""
+    import json as _json
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
+    suburb = request.args.get('suburb')
+    ttype = request.args.get('type')
+    processed = request.args.get('processed')
+    limit = request.args.get('limit', type=int) or 50
+    limit = max(1, min(limit, 500))
+
+    clauses, params = [], []
+    if suburb:
+        clauses.append("suburb = ?"); params.append(suburb)
+    if ttype:
+        clauses.append("transition_type = ?"); params.append(ttype)
+    if processed is not None and processed != '':
+        val = 1 if str(processed).lower() in ('1', 'true', 'yes') else 0
+        clauses.append("processed = ?"); params.append(val)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, listing_id, suburb, address, transition_type, from_status, "
+        "to_status, detected_at, metadata, processed, processed_at "
+        "FROM listing_transitions" + where +
+        " ORDER BY detected_at DESC, id DESC LIMIT ?",
+        tuple(params + [limit])
+    ).fetchall()
+    conn.close()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get('metadata'):
+            try:
+                d['metadata'] = _json.loads(d['metadata'])
+            except Exception:
+                pass
+        out.append(d)
+    return jsonify(out)
+
+
 if __name__ == '__main__':
     init_db()
     backup_db()

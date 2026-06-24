@@ -284,6 +284,19 @@ def scrape_one(suburb):
         errors=None,
     )
 
+    # LOOP-1: detect listing transitions for the signal loops. Compares the
+    # freshly-scraped state against the previous run's snapshot and records
+    # withdrawn / sale_fallen / sold_price_revealed / price_drop / relisted
+    # into listing_transitions. Errors are swallowed inside run_diff — a diff
+    # failure must never fail the suburb's scrape.
+    try:
+        from signals.diff_engine import run_diff
+        trans = run_diff(name)
+        if trans:
+            log.info(f"[{name}] {len(trans)} listing transition(s) detected")
+    except Exception as e:
+        log.warning(f"[{name}] diff engine failed: {e}")
+
     # Post-pass: backfill sold_date for listings stuck on the old bulk-date
     # bug or with NULL date. ~10s per listing × up to 30 = ~5 min/suburb.
     _backfill_sold_dates(suburb_id, name)
