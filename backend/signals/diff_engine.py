@@ -67,6 +67,23 @@ def _days_between(start, end):
     return (d2 - d1).days
 
 
+def detect_strata(address):
+    """Return (is_strata, unit_number, complex_address) for a unit address.
+    Handles '2/80 Mooro Drive' and 'Unit 5, 12 Stirling Hwy'. complex_address
+    is the building address with the unit portion stripped, used to group
+    sales in the same strata complex (LOOP-6)."""
+    if not address:
+        return (False, None, None)
+    a = str(address).strip()
+    m = re.match(r'^\s*(\d+)\s*/\s*(\d+.*)$', a)   # "2/80 Mooro Drive"
+    if m:
+        return (True, m.group(1), m.group(2).strip())
+    m = re.match(r'^\s*unit\s+(\d+)[,\s]+(.*)$', a, re.I)  # "Unit 5, 12 ..."
+    if m:
+        return (True, m.group(1), m.group(2).strip())
+    return (False, None, None)
+
+
 def _t(lid, suburb, address, ttype, frm, to, metadata):
     return {
         'listing_id': lid, 'suburb': suburb, 'address': address,
@@ -112,10 +129,14 @@ def _classify(cur, old, suburb):
     old_sp = (old['sold_price'] or '').strip()
     new_sp = (cur['sold_price'] or '').strip()
     if not old_sp and new_sp:
+        is_strata, unit_no, complex_addr = detect_strata(address)
         return _t(lid, suburb, address, 'sold_price_revealed', old_status, new_status, {
             'sold_price': cur['sold_price'],
             'sold_date': cur['sold_date'],
             'suburb': suburb,
+            'is_strata': is_strata,
+            'strata_unit': unit_no,
+            'complex_address': complex_addr,
         })
 
     # list price reduced > 3%

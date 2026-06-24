@@ -155,6 +155,19 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'pending'
         );
         CREATE INDEX IF NOT EXISTS idx_followups_due ON appraisal_followups(scheduled_for, status);
+
+        -- LOOP-6: strata contagion. One row per strata complex, updated with
+        -- its latest unit sale so neighbour-unit letters can anchor on it.
+        CREATE TABLE IF NOT EXISTS strata_complexes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            street_address TEXT NOT NULL,
+            suburb TEXT,
+            last_sale_date TEXT,
+            last_sale_price TEXT,
+            last_unit_address TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(street_address)
+        );
     """)
 
     for col_sql in [

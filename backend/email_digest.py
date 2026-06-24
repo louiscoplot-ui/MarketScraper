@@ -65,7 +65,7 @@ def _build_sections(suburb_rows, user_id, since_iso):
     then date desc) so the renderer can section-header them once."""
     if not suburb_rows:
         return {'new_listings': [], 'status_changes': [], 'hot_vendor_alerts': [],
-                'withdrawn_orphans': [], 'sold_reveals': []}
+                'withdrawn_orphans': [], 'sold_reveals': [], 'strata_sales': []}
     suburb_ids = tuple(s['id'] for s in suburb_rows)
     placeholders = ','.join(['?'] * len(suburb_ids))
     conn = get_db()
@@ -166,12 +166,21 @@ def _build_sections(suburb_rows, user_id, since_iso):
     except Exception:
         logger.exception("Sold-reveal digest query failed (suppressed)")
 
+    # Strata contagion (LOOP-6) — strata unit sales, scoped, last 24h.
+    strata_sales = []
+    try:
+        from signals.strata_contagion import list_strata_sales
+        strata_sales = list_strata_sales(list(suburb_ids), since_iso)
+    except Exception:
+        logger.exception("Strata digest query failed (suppressed)")
+
     return {
         'new_listings': [dict(r) for r in (new_listings or [])],
         'status_changes': [dict(r) for r in (status_changes or [])],
         'hot_vendor_alerts': [dict(r) for r in (hv_alerts or [])],
         'withdrawn_orphans': [dict(r) for r in (orphan_rows or [])],
         'sold_reveals': [dict(r) for r in (sold_reveals or [])],
+        'strata_sales': [dict(r) for r in (strata_sales or [])],
     }
 
 
@@ -285,6 +294,16 @@ def _build_digest_text(user, sections, suburb_names, today_au):
             lines.append('  (Generate neighbour letters from the app.)')
             lines.append('')
 
+        # Section — strata contagion (LOOP-6), omitted if empty
+        if sections.get('strata_sales'):
+            lines.append('=== STRATA CONTAGION ===')
+            for r in sections['strata_sales']:
+                price = r.get('sold_price') or 'price disclosed'
+                lines.append(f"  - {r.get('complex_address', '')} — {r.get('suburb', '')}: "
+                             f"unit sold {price}")
+            lines.append('  (Generate building letters from the app.)')
+            lines.append('')
+
         # Section 3 — hot vendor alerts (omitted entirely if empty)
         if sections['hot_vendor_alerts']:
             lines.append('=== HOT VENDOR NOW LISTED ===')
@@ -379,6 +398,23 @@ def _render_hv_alert_html(r):
             f'{inner}</div>')
 
 
+def _render_strata_html(r):
+    price = r.get('sold_price') or 'Price disclosed'
+    parts = [
+        '<div style="margin:0 0 4px;font-weight:700;color:#5b21b6;font-size:13px;">'
+        '🏢 STRATA CONTAGION</div>',
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("complex_address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>',
+        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Unit sold for <strong>{_esc(price)}</strong></div>',
+        '<div style="margin:0;color:#666;font-size:12px;font-style:italic;">'
+        'Generate letters for the rest of the building from the app.</div>',
+    ]
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#f5f3ff;'
+            f'border-left:4px solid #8b5cf6;border-radius:0 4px 4px 0;">{inner}</div>')
+
+
 def _render_sold_reveal_html(r):
     price = r.get('sold_price') or 'Price disclosed'
     parts = [
@@ -447,6 +483,12 @@ def _build_digest_html(user, sections, suburb_names, today_au):
                 _section_header('Sold Prices Revealed')
                 + ''.join(_render_sold_reveal_html(r) for r in sections['sold_reveals'])
             )
+        strata_section = ''
+        if sections.get('strata_sales'):
+            strata_section = (
+                _section_header('Strata Contagion')
+                + ''.join(_render_strata_html(r) for r in sections['strata_sales'])
+            )
         hv_section = ''
         if sections['hot_vendor_alerts']:
             hv_section = (
@@ -458,6 +500,7 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             + _section_header('Status Changes') + change_html
             + orphan_section
             + reveal_section
+            + strata_section
             + hv_section
         )
 

@@ -123,3 +123,34 @@ def register_signals_routes(app):
             data, mimetype='application/zip',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
+
+    @app.route('/api/signals/strata/letters', methods=['GET'])
+    def strata_letters():
+        """LOOP-6 — letters to every other unit in the strata complex of a
+        sold unit, as a ZIP. Scope-gated on the sale's suburb."""
+        tid = request.args.get('transition_id', type=int)
+        if not tid:
+            return jsonify({'error': 'transition_id required'}), 400
+        _user, allowed_ids = resolve_request_scope()
+        conn = get_db()
+        row = conn.execute(
+            "SELECT l.suburb_id FROM listing_transitions t "
+            "LEFT JOIN listings l ON l.id = t.listing_id WHERE t.id = ?",
+            (tid,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'sale not found'}), 404
+        if allowed_ids is not None and dict(row).get('suburb_id') not in allowed_ids:
+            return jsonify({'error': 'forbidden'}), 403
+
+        from signals.strata_contagion import build_strata_letters_zip
+        data, filename, _ = build_strata_letters_zip(tid)
+        if data is None:
+            return jsonify({'error': 'not a strata sale'}), 404
+        if not data or len(data) < 30:
+            return jsonify({'error': 'no other units found in this complex'}), 404
+        return Response(
+            data, mimetype='application/zip',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )

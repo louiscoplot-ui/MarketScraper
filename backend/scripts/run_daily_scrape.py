@@ -439,6 +439,16 @@ def main():
     except Exception as e:
         log.warning(f"sold-reveal pass failed: {e}")
 
+    # LOOP-6: strata contagion. Records each strata unit sale into
+    # strata_complexes (neighbour-unit letters generated on demand). Never
+    # fails the cron.
+    try:
+        from signals.strata_contagion import process_strata_sales
+        st = process_strata_sales()
+        log.info("Strata contagion: %d complex sale(s) recorded", st.get('complexes', 0))
+    except Exception as e:
+        log.warning(f"strata-contagion pass failed: {e}")
+
     # LOOP-5: appraisal follow-ups (J+30/60/90). Sends are gated behind
     # SIGNALS_LIVE — dry-run by default (logs intent, leaves pending). Never
     # fails the cron.
