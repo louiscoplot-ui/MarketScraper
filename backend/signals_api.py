@@ -81,3 +81,45 @@ def register_signals_routes(app):
         _user, allowed_ids = resolve_request_scope()
         from signals.sale_fallen import active_sale_fallen_count
         return jsonify({'count': active_sale_fallen_count(allowed_ids)})
+
+    @app.route('/api/signals/sold-reveals', methods=['GET'])
+    def sold_reveals_list():
+        """LOOP-4 — recent sold-price reveals, scoped to the caller's suburbs."""
+        _user, allowed_ids = resolve_request_scope()
+        from signals.sold_reveal import list_sold_reveals
+        return jsonify(list_sold_reveals(allowed_ids))
+
+    @app.route('/api/signals/sold-reveals/letters', methods=['GET'])
+    def sold_reveal_letters():
+        """LOOP-4 — neighbour-letter ZIP for one sold-price reveal. Scope-gated
+        on the reveal's suburb. May exceed 25s (OSM), so the frontend must call
+        this via BACKEND_DIRECT, not the Vercel proxy."""
+        tid = request.args.get('transition_id', type=int)
+        if not tid:
+            return jsonify({'error': 'transition_id required'}), 400
+
+        _user, allowed_ids = resolve_request_scope()
+        conn = get_db()
+        row = conn.execute(
+            "SELECT l.suburb_id FROM listing_transitions t "
+            "LEFT JOIN listings l ON l.id = t.listing_id WHERE t.id = ?",
+            (tid,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'reveal not found'}), 404
+        sub_id = dict(row).get('suburb_id')
+        if allowed_ids is not None and sub_id not in allowed_ids:
+            return jsonify({'error': 'forbidden'}), 403
+
+        from signals.sold_reveal import build_sold_reveal_zip
+        data, filename, _ = build_sold_reveal_zip(tid)
+        if data is None:
+            return jsonify({'error': 'reveal not found'}), 404
+        if not data or len(data) < 30:
+            # ZIP with no neighbour letters — OSM had nothing for the street.
+            return jsonify({'error': 'no neighbours found for this sale'}), 404
+        return Response(
+            data, mimetype='application/zip',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )

@@ -64,8 +64,8 @@ def _build_sections(suburb_rows, user_id, since_iso):
     hot_vendor_alerts: [...]} with each list flat (sorted by suburb,
     then date desc) so the renderer can section-header them once."""
     if not suburb_rows:
-        return {'new_listings': [], 'status_changes': [],
-                'hot_vendor_alerts': [], 'withdrawn_orphans': []}
+        return {'new_listings': [], 'status_changes': [], 'hot_vendor_alerts': [],
+                'withdrawn_orphans': [], 'sold_reveals': []}
     suburb_ids = tuple(s['id'] for s in suburb_rows)
     placeholders = ','.join(['?'] * len(suburb_ids))
     conn = get_db()
@@ -158,11 +158,20 @@ def _build_sections(suburb_rows, user_id, since_iso):
     except Exception:
         logger.exception("Withdrawn orphan digest query failed (suppressed)")
 
+    # Sold-price reveals (LOOP-4) — scoped to the user's suburbs, last 24h.
+    sold_reveals = []
+    try:
+        from signals.sold_reveal import list_sold_reveals
+        sold_reveals = list_sold_reveals(list(suburb_ids), since_iso)
+    except Exception:
+        logger.exception("Sold-reveal digest query failed (suppressed)")
+
     return {
         'new_listings': [dict(r) for r in (new_listings or [])],
         'status_changes': [dict(r) for r in (status_changes or [])],
         'hot_vendor_alerts': [dict(r) for r in (hv_alerts or [])],
         'withdrawn_orphans': [dict(r) for r in (orphan_rows or [])],
+        'sold_reveals': [dict(r) for r in (sold_reveals or [])],
     }
 
 
@@ -267,6 +276,15 @@ def _build_digest_text(user, sections, suburb_names, today_au):
                     lines.append(f"      {r['notes']}")
             lines.append('')
 
+        # Section — sold price reveals (LOOP-4), omitted if empty
+        if sections.get('sold_reveals'):
+            lines.append('=== SOLD PRICES REVEALED ===')
+            for r in sections['sold_reveals']:
+                price = r.get('sold_price') or 'price disclosed'
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}: {price}")
+            lines.append('  (Generate neighbour letters from the app.)')
+            lines.append('')
+
         # Section 3 — hot vendor alerts (omitted entirely if empty)
         if sections['hot_vendor_alerts']:
             lines.append('=== HOT VENDOR NOW LISTED ===')
@@ -361,6 +379,23 @@ def _render_hv_alert_html(r):
             f'{inner}</div>')
 
 
+def _render_sold_reveal_html(r):
+    price = r.get('sold_price') or 'Price disclosed'
+    parts = [
+        '<div style="margin:0 0 4px;font-weight:700;color:#1e40af;font-size:13px;">'
+        '💰 SOLD PRICE REVEALED</div>',
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>',
+        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Sold for <strong>{_esc(price)}</strong></div>',
+        '<div style="margin:0;color:#666;font-size:12px;font-style:italic;">'
+        'Generate neighbour appraisal letters from the app.</div>',
+    ]
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#eff6ff;'
+            f'border-left:4px solid #3b82f6;border-radius:0 4px 4px 0;">{inner}</div>')
+
+
 def _render_orphan_html(r):
     parts = [
         '<div style="margin:0 0 4px;font-weight:700;color:#7c2d12;font-size:13px;">'
@@ -406,6 +441,12 @@ def _build_digest_html(user, sections, suburb_names, today_au):
                 _section_header('Withdrawn Orphans')
                 + ''.join(_render_orphan_html(r) for r in sections['withdrawn_orphans'])
             )
+        reveal_section = ''
+        if sections.get('sold_reveals'):
+            reveal_section = (
+                _section_header('Sold Prices Revealed')
+                + ''.join(_render_sold_reveal_html(r) for r in sections['sold_reveals'])
+            )
         hv_section = ''
         if sections['hot_vendor_alerts']:
             hv_section = (
@@ -416,6 +457,7 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             _section_header('New Listings') + new_html
             + _section_header('Status Changes') + change_html
             + orphan_section
+            + reveal_section
             + hv_section
         )
 

@@ -488,3 +488,87 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
             re_ = p.add_run(agent_email); re_.font.size = Pt(10); re_.font.name = 'Arial'
 
     return doc
+
+
+def render_sold_reveal_letter_docx(neighbour_address, sold_address, sold_price,
+                                   suburb, pct_text=None, user_profile=None):
+    """LOOP-4 — letter to a NEIGHBOUR of a freshly-revealed sold price. Same
+    Acton|Belle styling/footer as the other letters; body anchors on the
+    nearby sale to prompt an appraisal. Identity falls back to env vars."""
+    profile = user_profile or {}
+    agency_name = _resolve(profile, 'agency_name', 'AGENCY_NAME')
+    agent_name = _resolve(profile, 'agent_name', 'AGENT_NAME')
+    agent_phone = _resolve(profile, 'agent_phone', 'AGENT_PHONE')
+    agent_email = _resolve(profile, 'agent_email', 'AGENT_EMAIL')
+    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
+    line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
+    line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
+
+    doc = Document()
+    for section in doc.sections:
+        section.top_margin = Cm(0)
+        section.bottom_margin = Cm(2.0)
+        section.left_margin = Cm(2.5)
+        section.right_margin = Cm(2.5)
+
+    _green_header(doc)
+    _agency_footer(doc, agency_name, line_1, line_2, line_3)
+
+    today = datetime.utcnow().strftime('%d/%m/%Y')
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    r = p.add_run(today); r.font.size = Pt(11); r.font.name = 'Arial'
+
+    doc.add_paragraph()
+    p = doc.add_paragraph()
+    r = p.add_run('Dear Owner,'); r.font.size = Pt(11); r.font.name = 'Arial'
+    doc.add_paragraph()
+
+    def body_para(text=None):
+        pp = doc.add_paragraph()
+        if text is not None:
+            rr = pp.add_run(text); rr.font.size = Pt(11); rr.font.name = 'Arial'
+        return pp
+
+    price_str = sold_price if sold_price else 'a strong result'
+    p = body_para()
+    r1 = p.add_run('Your neighbour at ')
+    r1.font.size = Pt(11); r1.font.name = 'Arial'
+    r2 = p.add_run(sold_address); r2.bold = True; r2.font.size = Pt(11); r2.font.name = 'Arial'
+    tail = f' has just sold for {price_str}.'
+    r3 = p.add_run(tail); r3.font.size = Pt(11); r3.font.name = 'Arial'
+
+    if pct_text:
+        body_para(f"That's {pct_text} relative to the current {suburb} median.")
+
+    body_para('Sales like this on your doorstep are often the moment owners '
+              'start to wonder what their own property is worth today.')
+
+    p = body_para()
+    r1 = p.add_run('Would you like a complimentary, no-obligation appraisal of ')
+    r1.font.size = Pt(11); r1.font.name = 'Arial'
+    r2 = p.add_run(neighbour_address); r2.bold = True; r2.font.size = Pt(11); r2.font.name = 'Arial'
+    r3 = p.add_run('?'); r3.font.size = Pt(11); r3.font.name = 'Arial'
+
+    doc.add_paragraph()
+    body_para('Kind regards,')
+    doc.add_paragraph()
+
+    if agent_name:
+        sig = doc.add_paragraph()
+        r = sig.add_run(agent_name); r.bold = True; r.font.size = Pt(12); r.font.name = 'Arial'
+    if agent_role:
+        p = doc.add_paragraph()
+        r = p.add_run(agent_role); r.font.size = Pt(10); r.font.name = 'Arial'
+        r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+    if agent_phone or agent_email:
+        p = doc.add_paragraph()
+        if agent_phone:
+            rb = p.add_run('M: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
+            rp = p.add_run(f'{agent_phone}    '); rp.font.size = Pt(10); rp.font.name = 'Arial'
+        if agent_email:
+            rb = p.add_run('E: '); rb.bold = True; rb.font.size = Pt(10); rb.font.name = 'Arial'
+            re_ = p.add_run(agent_email); re_.font.size = Pt(10); re_.font.name = 'Arial'
+
+    return doc

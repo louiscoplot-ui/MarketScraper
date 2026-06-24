@@ -429,6 +429,16 @@ def main():
     except Exception as e:
         log.warning(f"sale-fallen pass failed: {e}")
 
+    # LOOP-4: sold-price reveals. Detection is handled by the diff engine;
+    # this only logs how many are fresh (neighbour letters are generated on
+    # demand via the signals route, not in cron). Never fails the cron.
+    try:
+        from signals.sold_reveal import process_sold_reveals
+        sr = process_sold_reveals()
+        log.info("Sold reveals: %d fresh in last 24h", sr.get('fresh', 0))
+    except Exception as e:
+        log.warning(f"sold-reveal pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy
