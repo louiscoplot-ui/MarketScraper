@@ -123,6 +123,38 @@ def init_db():
             price_text TEXT,
             captured_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        -- LOOP-5: appraisal follow-up loop. appraisals stores each market
+        -- appraisal an agent logs; appraisal_followups holds the J+30/60/90
+        -- scheduled relances. Dates stored as TEXT (ISO) — cross-driver.
+        CREATE TABLE IF NOT EXISTS appraisals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            address TEXT NOT NULL,
+            suburb TEXT,
+            vendor_name TEXT,
+            vendor_email TEXT,
+            vendor_phone TEXT,
+            appraisal_date TEXT NOT NULL,
+            estimated_price INTEGER,
+            notes TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_appraisals_user ON appraisals(user_id);
+        CREATE INDEX IF NOT EXISTS idx_appraisals_status ON appraisals(status);
+
+        CREATE TABLE IF NOT EXISTS appraisal_followups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            appraisal_id INTEGER,
+            scheduled_for TEXT NOT NULL,
+            followup_day INTEGER NOT NULL,
+            sent_at TEXT,
+            email_subject TEXT,
+            data_point_used TEXT,
+            status TEXT NOT NULL DEFAULT 'pending'
+        );
+        CREATE INDEX IF NOT EXISTS idx_followups_due ON appraisal_followups(scheduled_for, status);
     """)
 
     for col_sql in [

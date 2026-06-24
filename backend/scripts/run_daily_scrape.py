@@ -439,6 +439,20 @@ def main():
     except Exception as e:
         log.warning(f"sold-reveal pass failed: {e}")
 
+    # LOOP-5: appraisal follow-ups (J+30/60/90). Sends are gated behind
+    # SIGNALS_LIVE — dry-run by default (logs intent, leaves pending). Never
+    # fails the cron.
+    try:
+        from signals.appraisal_followup import send_due_followups
+        af = send_due_followups()
+        log.info(
+            "Appraisal follow-ups: sent=%d would_send=%d no_email=%d (dry_run=%s)",
+            af.get('sent', 0), af.get('would_send', 0), af.get('no_email', 0),
+            af.get('dry_run')
+        )
+    except Exception as e:
+        log.warning(f"appraisal-followup pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy

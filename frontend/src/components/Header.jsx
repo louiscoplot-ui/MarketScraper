@@ -47,6 +47,7 @@ function ThemeToggle() {
 const TABS = [
   { id: 'listings', label: 'Listings' },
   { id: 'pipeline', label: 'Pipeline' },
+  { id: 'appraisals', label: 'Appraisals' },
   { id: 'report', label: 'Market Report' },
   { id: 'hot-vendors', label: 'Hot Vendors' },
   // The 'rentals' tab is appended dynamically based on me.rental_access
