@@ -82,6 +82,11 @@ SCRAPE_CONCURRENCY = 3
 # actually pulls, with no extra scrape time.
 SOLD_KEEP = 200
 
+# Day of week (Mon=0 .. Sun=6, UTC) on which the sold_date backfill runs its
+# proxy-heavy detail-page fetches. Historical-data cleanup → weekly is plenty,
+# and it cuts residential-proxy bandwidth ~85% vs running every night.
+BACKFILL_WEEKDAY = 0
+
 
 def _backfill_sold_dates(suburb_id, suburb_name):
     """Fix the legacy <time>-tag bug fallout: re-fetch up to 30 sold
@@ -299,7 +304,17 @@ def scrape_one(suburb):
 
     # Post-pass: backfill sold_date for listings stuck on the old bulk-date
     # bug or with NULL date. ~10s per listing × up to 30 = ~5 min/suburb.
-    _backfill_sold_dates(suburb_id, name)
+    #
+    # PROXY COST: each backfill listing = one full REIWA detail page through
+    # the residential proxy (~540 page loads/night across all suburbs). The
+    # data it fixes is HISTORICAL (old sold_date), never time-sensitive — new
+    # sales already get their date from the normal scrape. So we run it only
+    # ONCE A WEEK (Monday UTC) instead of nightly: ~85% less proxy bandwidth,
+    # zero data loss (the backlog still clears, just over a few Mondays).
+    if datetime.utcnow().weekday() == BACKFILL_WEEKDAY:
+        _backfill_sold_dates(suburb_id, name)
+    else:
+        log.info(f"[{name}] sold_date backfill skipped (weekly — runs Mondays UTC)")
 
     # Auto-generate pipeline targets from the freshly-scraped sales —
     # same call the Flask-side scrape worker makes (scrape_runner.py:282).
