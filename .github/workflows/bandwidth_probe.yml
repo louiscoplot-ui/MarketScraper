@@ -1,0 +1,35 @@
+name: Proxy bandwidth probe (diagnostic)
+
+# Manual-only. Measures how many bytes the scrape downloads through the
+# residential proxy per REIWA page, and tests whether the listing grid still
+# renders with JS blocked (→ can we cut bandwidth without losing data?).
+# Does NOT touch the database — safe to run anytime, including while Neon is
+# over quota. Read the run logs for the verdict.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Playwright
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run bandwidth probe
+        working-directory: backend
+        env:
+          SCRAPE_PROXY: ${{ secrets.SCRAPE_PROXY }}
+        run: python scripts/bandwidth_probe.py
