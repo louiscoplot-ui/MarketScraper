@@ -132,19 +132,25 @@ def run_scenario(pw, proxy, label, blocked_types, watch_xhr=False):
 
 def main():
     proxy = parse_proxy((os.environ.get("SCRAPE_PROXY") or "").strip())
-    if not proxy:
-        print("SCRAPE_PROXY not set — aborting probe.")
-        sys.exit(1)
     from playwright.sync_api import sync_playwright
 
     results = []
     with sync_playwright() as pw:
-        # 1) current behaviour
-        results.append(run_scenario(pw, proxy, "current (block img/css/font/media)",
+        # 0) NO PROXY — does REIWA still challenge a bare datacenter IP
+        #    (GitHub Actions runner)? If this returns cards, we don't need
+        #    the residential proxy at all → $0 scraping. Runs even when
+        #    SCRAPE_PROXY is unset.
+        results.append(run_scenario(pw, None, "no-proxy (datacenter IP direct)",
                                     set(HEAVY_BASE), watch_xhr=True))
-        # 2) also block JS
-        results.append(run_scenario(pw, proxy, "no-js (also block scripts)",
-                                    set(HEAVY_BASE) | {'script'}))
+        if not proxy:
+            print("\nSCRAPE_PROXY not set — skipping proxy scenarios.")
+        else:
+            # 1) current behaviour (through proxy)
+            results.append(run_scenario(pw, proxy, "current (block img/css/font/media)",
+                                        set(HEAVY_BASE), watch_xhr=True))
+            # 2) also block JS
+            results.append(run_scenario(pw, proxy, "no-js (also block scripts)",
+                                        set(HEAVY_BASE) | {'script'}))
 
     print("\n" + "=" * 60)
     print("VERDICT")
