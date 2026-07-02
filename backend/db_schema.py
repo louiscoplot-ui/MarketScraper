@@ -34,6 +34,33 @@ def _safe_exec(conn, sql, *, label=''):
         return False
 
 
+def _migration_done(conn, key):
+    """True if a one-shot (possibly destructive) migration already ran
+    against this database. Backed by the schema_migrations marker table so
+    destructive backfills run at most once instead of on every boot."""
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM schema_migrations WHERE key = ?", (key,)
+        ).fetchone()
+        return row is not None
+    except Exception:
+        conn.rollback()
+        return False
+
+
+def _mark_migration(conn, key):
+    """Record that a one-shot migration has run. Best-effort — a failure
+    here only means the migration may be retried next boot, never data
+    loss on top of what the migration itself did."""
+    try:
+        conn.execute(
+            "INSERT INTO schema_migrations (key) VALUES (?)", (key,)
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
+
 def init_db():
     from database import get_db, normalize_address, USE_POSTGRES
 
@@ -294,17 +321,30 @@ def init_db():
     # same-day sales get NULLed too — acceptable trade-off, the verify
     # path will recover them at the next scrape from the detail page's
     # "Last Sold on…" block which is reliably parseable.
-    try:
-        conn.execute(
-            "UPDATE listings SET sold_date = NULL "
-            "WHERE status = 'sold' "
-            "AND sold_date IS NOT NULL "
-            "AND first_seen IS NOT NULL "
-            "AND sold_date = SUBSTR(first_seen, 1, 10)"
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
+    #
+    # GUARDED one-shot: this is destructive. Running it every boot would
+    # silently re-erase any sold_date an agent has since corrected by hand
+    # (a corrected date that happens to equal first_seen's day would be
+    # wiped again). The schema_migrations marker makes it run at most once.
+    _safe_exec(
+        conn,
+        "CREATE TABLE IF NOT EXISTS schema_migrations ("
+        "key TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+        label='schema_migrations',
+    )
+    if not _migration_done(conn, 'null_sold_date_eq_first_seen'):
+        try:
+            conn.execute(
+                "UPDATE listings SET sold_date = NULL "
+                "WHERE status = 'sold' "
+                "AND sold_date IS NOT NULL "
+                "AND first_seen IS NOT NULL "
+                "AND sold_date = SUBSTR(first_seen, 1, 10)"
+            )
+            conn.commit()
+            _mark_migration(conn, 'null_sold_date_eq_first_seen')
+        except Exception:
+            conn.rollback()
 
     # Backfill pipeline_tracking.source_sold_date from listings.sold_date.
     # Pre-fix pipeline_generate fell back to first_seen when sold_date
