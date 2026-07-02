@@ -5,7 +5,70 @@
 // patch; admins see everything.
 
 import { useState, useEffect, useRef } from 'react'
-import { apiJson, getAccessKey, setAccessKey, readCache, writeCache } from '../lib/api'
+import { apiJson, getAccessKey, setAccessKey, readCache, writeCache, BACKEND_DIRECT } from '../lib/api'
+
+// Self-contained "set / change password" card for the current user.
+// Writes via the existing auth-required POST /api/users/me/set-password
+// (the gate resolves the caller from their access_key — no way to set a
+// password for an account you can't already authenticate as). Hits Render
+// directly so a cold-start 504 through the Vercel proxy can't break it.
+function PasswordCard({ me }) {
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [ok, setOk] = useState(false)
+  const hasPw = !!(me && me.password_set)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy) return
+    setOk(false)
+    if (pw.length < 8) { setErr('Password must be at least 8 characters'); return }
+    if (pw !== pw2) { setErr('Passwords do not match'); return }
+    setErr(''); setBusy(true)
+    try {
+      const res = await fetch(`${BACKEND_DIRECT}/api/users/me/set-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Access-Key': getAccessKey() },
+        body: JSON.stringify({ password: pw }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setErr(d.error || 'Could not save password'); setBusy(false); return
+      }
+      setOk(true); setPw(''); setPw2(''); setBusy(false)
+    } catch {
+      setErr('Could not reach the server. Try again.'); setBusy(false)
+    }
+  }
+
+  return (
+    <form className="admin-keybox" onSubmit={submit} style={{ marginTop: 12 }}>
+      <label className="admin-keylabel">{hasPw ? 'Change password' : 'Set a password'}</label>
+      <div className="admin-keyhint" style={{ marginTop: 0, marginBottom: 8 }}>
+        Sign in with your email + this password next time — no access key needed.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+        <input
+          type="password" className="admin-keyinput" autoComplete="new-password"
+          placeholder={hasPw ? 'New password' : 'Password (min 8 chars)'}
+          value={pw} onChange={(e) => setPw(e.target.value)}
+        />
+        <input
+          type="password" className="admin-keyinput" autoComplete="new-password"
+          placeholder="Confirm password"
+          value={pw2} onChange={(e) => setPw2(e.target.value)}
+        />
+        <button className="btn btn-primary btn-sm" type="submit" disabled={busy}>
+          {busy ? 'Saving…' : 'Save password'}
+        </button>
+      </div>
+      {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{err}</div>}
+      {ok && <div style={{ color: 'var(--active)', fontSize: 13, marginTop: 8 }}>✓ Password saved</div>}
+    </form>
+  )
+}
 
 // Backend stores timestamps as naive UTC (datetime.utcnow().isoformat()
 // or SQLite datetime('now')). JS new Date() treats a naive ISO string
@@ -591,6 +654,8 @@ export default function AdminUsers() {
           The key is stored in this browser's localStorage. To revoke device access, clear browser data.
         </div>
       </div>
+
+      <PasswordCard me={me} />
 
       {me && (
         <div className="admin-me">
