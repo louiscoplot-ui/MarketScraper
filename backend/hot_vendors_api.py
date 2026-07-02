@@ -994,10 +994,18 @@ def register_hot_vendors_routes(app):
         if not rows:
             return jsonify({'error': 'no valid rows after coercion'}), 400
 
+        # Scope gate — this legacy route had no ACL, so any authenticated
+        # user could write hot-vendor rows for any suburb (and, via the
+        # global normalized_address upsert, overwrite another tenant's
+        # owners/scores). Require the caller to own the declared suburb.
+        suburb = (body.get('suburb') or '').strip()
+        if not suburb or not user_can_access_suburb(suburb):
+            return jsonify({'error': 'Not authorised for that suburb'}), 403
+
         meta = {
             'agency': body.get('agency'),
             'uploaded_by': body.get('uploaded_by'),
-            'suburb': body.get('suburb'),
+            'suburb': suburb,
             'filename': body.get('filename'),
             'row_count': len(rows),
             'median_holding_years': body.get('median_holding_years'),
