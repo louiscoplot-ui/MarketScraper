@@ -77,11 +77,18 @@ def register_auth_routes(app):
             if not ok:
                 return jsonify({'error': 'Incorrect password'}), 401
             return jsonify({'access_key': row['access_key'], 'password_set': True})
-        # Grace path: user has never set a password. Let them in once;
-        # the frontend AuthGate's /api/auth/me check will pick up
-        # password_set=False and force SetPasswordModal before they
-        # touch any real data.
-        return jsonify({'access_key': row['access_key'], 'password_set': False})
+        # No password set yet. NEVER hand out the access_key here: this
+        # route is exempt from the auth gate, so returning the key would
+        # let anyone who knows an email sign in — including the seeded
+        # admins (louiscoplot@gmail.com / suburbdesk@gmail.com), whose
+        # password_hash is NULL, granting full admin takeover. First-time
+        # sign-in must go through the magic link, which proves control of
+        # the inbox. The frontend surfaces need_magic_link to steer the
+        # user to the "Send login link" button.
+        return jsonify({
+            'error': 'First-time sign-in — use the login link we email you.',
+            'need_magic_link': True,
+        }), 403
 
     @app.route('/api/users/me/set-password', methods=['POST'])
     def set_password():

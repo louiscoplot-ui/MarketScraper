@@ -65,6 +65,19 @@ export default function Login() {
         setBusy(false)
         return
       }
+      if (res.status === 403) {
+        // First-time account (no password yet). The backend no longer
+        // hands out the access_key on this path — the user must prove
+        // inbox ownership via the magic link.
+        const d = await res.json().catch(() => ({}))
+        setDirectError(
+          d && d.need_magic_link
+            ? 'First time here? Tap “Send login link” below — we’ll email you a one-click link.'
+            : 'Server error. Please try again.'
+        )
+        setBusy(false)
+        return
+      }
       if (!res.ok) {
         setDirectError('Server error. Please try again.')
         setBusy(false)
@@ -142,7 +155,7 @@ export default function Login() {
                 />
                 <input
                   type="password"
-                  placeholder="Password (leave empty if first time)"
+                  placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   style={styles.input}
