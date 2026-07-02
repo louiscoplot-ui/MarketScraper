@@ -28,6 +28,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Le workflow vit sur main (GitHub exige la branche par défaut
+          # pour `schedule`), mais le code exécuté doit être celui de la
+          # branche prod. Sans ce ref, le cron tournait chaque nuit avec
+          # le code archivé de main — vieux scraper + backfill sold_date
+          # destructif non gardé (voir fix D-3 / aad303b sur PlwVM).
+          ref: claude/fix-scraper-missing-listings-PlwVM
 
       - name: Set up Python
         uses: actions/setup-python@v5
