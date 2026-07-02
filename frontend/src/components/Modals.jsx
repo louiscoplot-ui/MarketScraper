@@ -1,5 +1,105 @@
-// Theme + Scrape progress modals — extracted from App.jsx to keep
-// modules under the MCP push size limit.
+// Theme + Scrape progress + Account modals — extracted from App.jsx to
+// keep modules under the MCP push size limit.
+
+import { useState } from 'react'
+import { BACKEND_DIRECT } from '../lib/api'
+
+// Deliberate account/security modal — set or change the password for the
+// currently authenticated user. Unlike the forced SetPasswordModal, this
+// is dismissible and reachable any time from the header. It writes via the
+// existing auth-required POST /api/users/me/set-password: the gate resolves
+// the caller from their access_key, so there is no way to set a password
+// for an account you can't already authenticate as (no grace-path
+// equivalent to the one we removed in S-1). Hits Render directly so a
+// cold-start 504 through the Vercel proxy can't break the save.
+export function AccountModal({ me, onClose }) {
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState(false)
+  const hasPw = !!(me && me.password_set)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (busy) return
+    if (pw.length < 8) { setErr('Password must be at least 8 characters'); return }
+    if (pw !== pw2) { setErr('Passwords do not match'); return }
+    setErr(''); setBusy(true)
+    try {
+      const res = await fetch(`${BACKEND_DIRECT}/api/users/me/set-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '',
+        },
+        body: JSON.stringify({ password: pw }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setErr(d.error || 'Could not save password')
+        setBusy(false)
+        return
+      }
+      setDone(true); setBusy(false)
+    } catch {
+      setErr('Could not reach the server. Try again.')
+      setBusy(false)
+    }
+  }
+
+  const inp = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+    fontSize: 15, border: '1px solid var(--border, #d4d4d4)',
+    borderRadius: 6, marginBottom: 10, outline: 'none',
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal">
+        <div className="modal-header">
+          <h2>{hasPw ? 'Change password' : 'Set password'}</h2>
+          <button className="btn btn-icon" onClick={onClose}>×</button>
+        </div>
+        {done ? (
+          <>
+            <p style={{ margin: '12px 0', color: '#166534', fontSize: 14, lineHeight: 1.5 }}>
+              Password saved. You can now sign in with your email and this
+              password on any device.
+            </p>
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={onClose}>Done</button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={submit}>
+            <p style={{ margin: '4px 0 16px', color: 'var(--text-muted, #666)', fontSize: 14, lineHeight: 1.5 }}>
+              {me && me.email ? <>Signed in as <strong>{me.email}</strong>. </> : null}
+              Choose a password (min 8 characters) so you can sign in with
+              your email next time — no access key needed.
+            </p>
+            <input
+              type="password" autoFocus required
+              placeholder={hasPw ? 'New password' : 'Password (min 8 chars)'}
+              value={pw} onChange={(e) => setPw(e.target.value)} style={inp}
+            />
+            <input
+              type="password" required placeholder="Confirm password"
+              value={pw2} onChange={(e) => setPw2(e.target.value)} style={inp}
+            />
+            {err && <div style={{ color: '#b91c1c', fontSize: 13, margin: '2px 0 10px' }}>{err}</div>}
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                {busy ? 'Saving…' : 'Save password'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function ThemeModal({ theme, setTheme, defaultTheme, presets, updateColor, onClose }) {
   return (

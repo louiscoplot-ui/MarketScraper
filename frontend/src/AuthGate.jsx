@@ -68,7 +68,7 @@ export default function AuthGate({ children }) {
     // Background validation — only acts on a definitive 401. Also reads
     // password_set so we can force the SetPasswordModal on accounts
     // that haven't completed initial setup yet.
-    fetch('/api/auth/me', { headers: { 'X-Access-Key': key } })
+    fetch(`${BACKEND_DIRECT}/api/auth/me`, { headers: { 'X-Access-Key': key } })
       .then(async (res) => {
         if (cancelled) return
         if (res.status === 401) {

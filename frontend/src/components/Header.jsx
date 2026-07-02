@@ -65,6 +65,7 @@ export default function Header({
   isAnyScraping, scrapeSelected, setShowScrapeModal,
   setReportSuburbs, fetchReport, reportSuburbs, hasReport,
   setShowThemeModal,
+  setShowAccountModal,
   me,
 }) {
   // Insert "Rental" between Hot Vendors and History when the caller has
@@ -181,6 +182,15 @@ export default function Header({
           {isExporting ? 'Exporting…' : 'Export'}
         </button>
         <ThemeToggle />
+        {setShowAccountModal && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowAccountModal(true)}
+            title={me && me.password_set ? 'Change your password' : 'Set a password'}
+          >
+            Account
+          </button>
+        )}
         <button
           className="btn btn-ghost btn-icon-sm"
           onClick={() => setShowThemeModal(true)}

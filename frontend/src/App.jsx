@@ -10,7 +10,7 @@ import RentalView from './pages/RentalView'
 import TermsPage from './pages/TermsPage'
 import PrivacyPage from './pages/PrivacyPage'
 import Footer from './components/Footer'
-import { ThemeModal, ScrapeModal } from './components/Modals'
+import { ThemeModal, ScrapeModal, AccountModal } from './components/Modals'
 import Header from './components/Header'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
@@ -145,6 +145,7 @@ function App() {
   const [selectedAgent, setSelectedAgent] = useState('')
   const [selectedAgency, setSelectedAgency] = useState('')
   const [showThemeModal, setShowThemeModal] = useState(false)
+  const [showAccountModal, setShowAccountModal] = useState(false)
 
   const {
     listings, fetchListings, filteredListings,
@@ -680,7 +681,12 @@ function App() {
         setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
         reportSuburbs={reportSuburbs} hasReport={!!report}
         setShowThemeModal={setShowThemeModal}
+        setShowAccountModal={setShowAccountModal}
       />
+
+      {showAccountModal && (
+        <AccountModal me={me} onClose={() => setShowAccountModal(false)} />
+      )}
 
       {showThemeModal && (
         <ThemeModal

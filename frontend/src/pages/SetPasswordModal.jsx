@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { BACKEND_DIRECT } from '../lib/api'
 
 // Forced setup modal: rendered by AuthGate when /api/auth/me returns
 // password_set=false. Non-dismissible — no close button, no backdrop
@@ -18,9 +19,12 @@ export default function SetPasswordModal() {
     setErr('')
     setBusy(true)
     try {
-      const res = await fetch('/api/users/me/set-password', {
+      const res = await fetch(`${BACKEND_DIRECT}/api/users/me/set-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '',
+        },
         body: JSON.stringify({ password: pw }),
       })
       if (!res.ok) {
