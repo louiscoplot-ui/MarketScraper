@@ -32,13 +32,33 @@ export default function PipelinePrint() {
   if (loading) return <p style={{ padding: 40 }}>Loading letters...</p>
   if (!entries.length) return <p style={{ padding: 40 }}>No letters with status "sent" found.</p>
 
-  // Fallbacks preserve the original hardcoded values when the user
-  // hasn't filled their agent profile yet.
-  const agencyHeader = profile?.agency_name || 'BELLE PROPERTY  |  Cottesloe'
-  const agentName = profile?.agent_name || 'Louis Coplot'
-  const agentRole = `Sales Agent | ${profile?.agency_name || 'Belle Property Cottesloe'}`
-  const agentPhone = profile?.agent_phone || '0400 XXX XXX'
-  const agentEmail = profile?.agent_email || 'suburbdesk@gmail.com'
+  // These letters are posted to real homeowners. Never print placeholder
+  // contact details ("0400 XXX XXX" / a shared gmail) — block printing
+  // until the agent profile has a name, phone and email.
+  const missing = [
+    !profile?.agent_name && 'name',
+    !profile?.agent_phone && 'phone',
+    !profile?.agent_email && 'email',
+  ].filter(Boolean)
+  if (missing.length) {
+    return (
+      <div style={{ padding: 40, maxWidth: 560, fontFamily: 'system-ui, -apple-system, Arial, sans-serif' }}>
+        <h2 style={{ marginTop: 0 }}>Complete your agent profile first</h2>
+        <p style={{ color: '#444', lineHeight: 1.6 }}>
+          These letters go to real homeowners, so SuburbDesk won't print
+          them with placeholder contact details. Add your{' '}
+          <strong>{missing.join(', ')}</strong> in Settings → Agent profile,
+          then reopen this print view.
+        </p>
+      </div>
+    )
+  }
+
+  const agencyHeader = profile.agency_name || 'BELLE PROPERTY  |  Cottesloe'
+  const agentName = profile.agent_name
+  const agentRole = `Sales Agent | ${profile.agency_name || 'Belle Property Cottesloe'}`
+  const agentPhone = profile.agent_phone
+  const agentEmail = profile.agent_email
 
   return (
     <>
