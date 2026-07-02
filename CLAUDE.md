@@ -131,8 +131,10 @@ Pas de "Co-Authored-By", pas de "Generated with Claude".
 
 ### 🔴 Sécurité (cross-tenant leaks)
 
-Aucune faille ouverte au HEAD. Les 11 routes B1–B15 sont closes (voir
-✅ Fixés récemment). Garder le pattern pour toute nouvelle route :
+**Sprint S0 clos au HEAD le 02/07/2026** — B1–B15 (scope/ACL backend) et
+D7/D8 (BACKEND_DIRECT frontend) vérifiés route par route, plus S-1/S-2/S-3
+mergés en prod (voir ✅ Fixés récemment). Aucune faille ouverte au HEAD.
+Garder le pattern pour toute nouvelle route :
 `resolve_request_scope()` ou `_require_admin()` en tête.
 
 ### 🟡 UX dégradée
@@ -155,12 +157,28 @@ Aucune faille ouverte au HEAD. Les 11 routes B1–B15 sont closes (voir
 | ID | Problème | Fichier |
 |----|----------|---------|
 | S1 | "20/20 new" logs — trailing slash REIWA | scraper.py |
-| S2 | Cron heure à vérifier (doit être `0 21 * * *` UTC) | .github/workflows/ |
+
+S2 requalifié puis clos (02/07/2026) : l'heure était bonne (`0 21 * * *`
+UTC confirmé sur main) mais le cron exécutait le **code archivé de main**
+(checkout sans `ref` → vieux scraper + backfill sold_date destructif non
+gardé chaque nuit sur Neon). Fix : `ref: claude/fix-scraper-missing-listings-PlwVM`
+dans `daily-scrape.yml` sur main. Les workflows restent hébergés sur main
+(branche par défaut requise pour `schedule`) mais exécutent le code PlwVM.
 
 ### ✅ Fixés récemment
 
 | Fix | Commit |
 |-----|--------|
+| Sprint S0 clos — B1-B15 + D7/D8 audités au HEAD, prod synchro (02/07/2026) | — |
+| S-1 — admin takeover via login-by-email (grace path) | 4f78299 |
+| S-2 — scope manquant sur /api/rentals/export | 53fc20a |
+| S-3 — scope-gate POST /api/hot-vendors/uploads (legacy) | fa10667 |
+| UX-1 — placeholders contact sur lettres clients | c532cc4 |
+| D-3 — backfill sold_date destructif → one-shot (table schema_migrations) | aad303b |
+| B-8 — faux succès magic-link sur cold start Render | 5b98ef4 |
+| Set/Change password UI (contrepartie S-1) | 0b0246d, 2f8edec |
+| Cron daily-scrape → exécute le code PlwVM au lieu de main archivé | main |
+| Script filet de sécurité backup_sold_dates.py (avant migration D-3) | — |
 | Sécurité — 11 routes scope-gated (B1-B15) | 572a192…8acb545 |
 | Adresses strata/suffixe lettre OSM (2/80, 110A) | d98981c |
 | Pipeline backfill route admin one-shot | 5066f38 |
