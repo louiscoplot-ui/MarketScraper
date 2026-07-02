@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { setAccessKey } from '../lib/api'
+import { setAccessKey, BACKEND_DIRECT } from '../lib/api'
 import Footer from '../components/Footer'
 
 const goLegal = (hash) => (e) => {
@@ -34,14 +34,26 @@ export default function Login() {
     if (e && typeof e.preventDefault === 'function') e.preventDefault()
     if (!email.trim() || busy) return
     setBusy(true)
+    setDirectError('')
+    // Hit Render directly — via the Vercel proxy a cold-start 504 (25s)
+    // was swallowed and we showed "Check your inbox" anyway, so a
+    // first-time prospect waited for an email that never sent. Only show
+    // the confirmation when the request actually succeeded.
     try {
-      await fetch('/api/auth/request-link', {
+      const res = await fetch(`${BACKEND_DIRECT}/api/auth/request-link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       })
-    } catch {}
-    setSubmitted(true)
+      if (!res.ok) {
+        setDirectError('Could not send the link right now. Please try again in a moment.')
+        setBusy(false)
+        return
+      }
+      setSubmitted(true)
+    } catch {
+      setDirectError('Could not reach the server. Try again in a moment.')
+    }
     setBusy(false)
   }
 
@@ -50,7 +62,7 @@ export default function Login() {
     setBusy(true)
     setDirectError('')
     try {
-      const res = await fetch('/api/auth/login-by-email', {
+      const res = await fetch(`${BACKEND_DIRECT}/api/auth/login-by-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
@@ -99,7 +111,7 @@ export default function Login() {
     setBusy(true)
     setKeyError('')
     try {
-      const res = await fetch('/api/auth/me', { headers: { 'X-Access-Key': k } })
+      const res = await fetch(`${BACKEND_DIRECT}/api/auth/me`, { headers: { 'X-Access-Key': k } })
       if (!res.ok) {
         setKeyError('Key not recognised. Double-check it or request a magic link instead.')
         setBusy(false)
