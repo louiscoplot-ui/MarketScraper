@@ -204,18 +204,23 @@ def register_rental_routes(app):
 
         conn = get_db()
         try:
-            # Resolve the list of suburbs to include.
+            # Resolve the list of suburbs to include — SCOPED. `scope` was
+            # resolved above but previously never applied, so any rental
+            # user could export every tenant's owners + phone numbers.
+            # Restrict to the caller's allowed active rental suburbs.
+            allowed = _allowed_rental_suburb_rows(conn, scope)
+            allowed_names = [r['name'] for r in allowed]
             if single_suburb:
-                rows = conn.execute(
-                    "SELECT name FROM rental_suburbs WHERE active = 1 "
-                    "AND LOWER(name) = LOWER(?)",
-                    (single_suburb,)
-                ).fetchall()
+                match = next(
+                    (n for n in allowed_names
+                     if n.strip().lower() == single_suburb.lower()),
+                    None,
+                )
+                if not match:
+                    return jsonify({'error': 'Not authorised for that suburb'}), 403
+                suburb_names = [match]
             else:
-                rows = conn.execute(
-                    "SELECT name FROM rental_suburbs WHERE active = 1 ORDER BY name"
-                ).fetchall()
-            suburb_names = [dict(r)['name'] for r in rows]
+                suburb_names = allowed_names
             if not suburb_names:
                 return jsonify({'error': 'No matching active rental suburbs.'}), 404
 
