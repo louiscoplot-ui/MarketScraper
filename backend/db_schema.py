@@ -178,6 +178,36 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_events_listing ON listing_events(listing_id);
         CREATE INDEX IF NOT EXISTS idx_events_detected ON listing_events(detected_at);
 
+        -- SENTINEL S2: explainable vendor signals. One row per candidate
+        -- address; score = capped sum of triggered feature weights;
+        -- reason_codes is a JSON array of PLAIN-LANGUAGE strings — a score
+        -- must never exist without its reasons (explainability requirement,
+        -- docs/sentinel-handoff.md). normalized_address is the Sentinel
+        -- matching key (signals/event_detector.normalize_address), also
+        -- used by the S3 prediction ledger.
+        CREATE TABLE IF NOT EXISTS vendor_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            address TEXT,
+            normalized_address TEXT,
+            suburb_id INTEGER,
+            score REAL,
+            reason_codes TEXT,
+            source_event_ids TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            status TEXT NOT NULL DEFAULT 'new'
+                CHECK (status IN ('new','actioned','dismissed'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_signals_suburb ON vendor_signals(suburb_id);
+        CREATE INDEX IF NOT EXISTS idx_signals_status ON vendor_signals(status);
+        CREATE INDEX IF NOT EXISTS idx_signals_norm ON vendor_signals(normalized_address);
+
+        CREATE TABLE IF NOT EXISTS signal_weights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            feature_name TEXT UNIQUE,
+            weight REAL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         -- LOOP-5: appraisal follow-up loop. appraisals stores each market
         -- appraisal an agent logs; appraisal_followups holds the J+30/60/90
         -- scheduled relances. Dates stored as TEXT (ISO) — cross-driver.
@@ -233,6 +263,26 @@ def init_db():
         if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
                        label='listings ADD COLUMN fallback')
+
+    # SENTINEL S2 — seed the v1 feature weights once (idempotent: INSERT
+    # only when the table is empty, so operator tuning survives reboots).
+    try:
+        wrow = conn.execute("SELECT COUNT(*) AS c FROM signal_weights").fetchone()
+        if (dict(wrow)['c'] if wrow else 0) == 0:
+            for fname, w in (
+                ('withdrawn_recent', 0.35),
+                ('relisted_other_agency', 0.30),
+                ('long_hold_gain', 0.20),
+                ('street_momentum', 0.15),
+                ('competitor_price_drops', 0.25),
+            ):
+                conn.execute(
+                    "INSERT INTO signal_weights (feature_name, weight) VALUES (?, ?)",
+                    (fname, w)
+                )
+            conn.commit()
+    except Exception:
+        conn.rollback()
 
     # SENTINEL S1 — agency on the LOOP-1 snapshot so the diff pass can emit
     # agency_change events (the snapshot previously kept only status/price).

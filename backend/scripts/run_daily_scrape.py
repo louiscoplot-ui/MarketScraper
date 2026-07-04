@@ -491,6 +491,21 @@ def main():
     except Exception as e:
         log.warning(f"appraisal-followup pass failed: {e}")
 
+    # SENTINEL S2: vendor signal engine — scores candidate vendor addresses
+    # from the listing_events ledger (+ RP-Data long-hold owners) and writes
+    # explainable vendor_signals. Runs after every event-producing pass so
+    # tonight's events feed tonight's signals. Never fails the cron.
+    try:
+        from signals.signal_engine import rebuild_signals
+        sg = rebuild_signals()
+        log.info(
+            "Vendor signals: created=%d refreshed=%d cooldown=%d across %d suburb(s)",
+            sg.get('created', 0), sg.get('refreshed', 0),
+            sg.get('skipped_cooldown', 0), sg.get('suburbs', 0),
+        )
+    except Exception as e:
+        log.warning(f"signal-engine pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy

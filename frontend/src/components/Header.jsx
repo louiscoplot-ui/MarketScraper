@@ -46,6 +46,7 @@ function ThemeToggle() {
 
 const TABS = [
   { id: 'listings', label: 'Listings' },
+  { id: 'signals', label: 'Signals' },
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'appraisals', label: 'Appraisals' },
   { id: 'report', label: 'Market Report' },

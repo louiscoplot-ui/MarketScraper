@@ -3,6 +3,7 @@ register_signals_routes(app). Every route is scope-gated: admin-only
 triggers use _require_admin(); per-property reads use resolve_request_scope().
 """
 import io
+import json as _json
 import logging
 
 from flask import request, jsonify, Response
@@ -162,6 +163,103 @@ def register_signals_routes(app):
             data, mimetype='application/zip',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
+
+    @app.route('/api/signals/rebuild', methods=['POST'])
+    def rebuild_vendor_signals():
+        """SENTINEL S2 manual trigger — recompute vendor_signals from the
+        events ledger. Admin-only (the nightly cron calls the same function).
+        Optional JSON body: {"suburb_ids": [1,2]}."""
+        _u, err = _require_admin()
+        if err:
+            return err
+        body = request.get_json(silent=True) or {}
+        sids = body.get('suburb_ids')
+        from signals.signal_engine import rebuild_signals
+        return jsonify(rebuild_signals(sids))
+
+    @app.route('/api/signals', methods=['GET'])
+    def list_vendor_signals():
+        """SENTINEL S2 — vendor signals scoped to the caller's suburbs,
+        highest score first. Filters: ?suburb=<name>&status=new|actioned|
+        dismissed (default new)&limit=(<=200)."""
+        _user, allowed_ids = resolve_request_scope()
+        status = (request.args.get('status') or 'new').strip().lower()
+        if status not in ('new', 'actioned', 'dismissed', 'all'):
+            return jsonify({'error': 'invalid status filter'}), 400
+        limit = max(1, min(request.args.get('limit', default=100, type=int)
+                           or 100, 200))
+        suburb_name = (request.args.get('suburb') or '').strip()
+
+        where, params = [], []
+        conn = get_db()
+        try:
+            if suburb_name:
+                srow = conn.execute(
+                    "SELECT id FROM suburbs WHERE LOWER(name) = ?",
+                    (suburb_name.lower(),)
+                ).fetchone()
+                if not srow:
+                    return jsonify({'error': 'unknown suburb'}), 404
+                sid = dict(srow)['id']
+                if allowed_ids is not None and sid not in allowed_ids:
+                    return jsonify({'error': 'forbidden'}), 403
+                where.append("v.suburb_id = ?"); params.append(sid)
+            elif allowed_ids is not None:
+                if not allowed_ids:
+                    return jsonify({'signals': []})
+                ph = ','.join(['?'] * len(allowed_ids))
+                where.append(f"v.suburb_id IN ({ph})"); params.extend(allowed_ids)
+            if status != 'all':
+                where.append("v.status = ?"); params.append(status)
+
+            clause = (" WHERE " + " AND ".join(where)) if where else ""
+            rows = conn.execute(
+                "SELECT v.id, v.address, v.suburb_id, s.name AS suburb, "
+                "v.score, v.reason_codes, v.source_event_ids, v.created_at, "
+                "v.status FROM vendor_signals v "
+                "LEFT JOIN suburbs s ON s.id = v.suburb_id"
+                + clause + " ORDER BY v.score DESC, v.created_at DESC LIMIT ?",
+                params + [limit]
+            ).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d['reason_codes'] = _json.loads(d.get('reason_codes') or '[]')
+                except Exception:
+                    d['reason_codes'] = []
+                out.append(d)
+            return jsonify({'signals': out})
+        finally:
+            conn.close()
+
+    @app.route('/api/signals/<int:signal_id>', methods=['PATCH'])
+    def patch_vendor_signal(signal_id):
+        """SENTINEL S2 — mark a signal actioned / dismissed (UI buttons).
+        Scope-gated on the signal's suburb."""
+        body = request.get_json(silent=True) or {}
+        new_status = (body.get('status') or '').strip().lower()
+        if new_status not in ('new', 'actioned', 'dismissed'):
+            return jsonify({'error': 'status must be new|actioned|dismissed'}), 400
+        _user, allowed_ids = resolve_request_scope()
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT suburb_id FROM vendor_signals WHERE id = ?",
+                (signal_id,)
+            ).fetchone()
+            if not row:
+                return jsonify({'error': 'signal not found'}), 404
+            if allowed_ids is not None and dict(row)['suburb_id'] not in allowed_ids:
+                return jsonify({'error': 'forbidden'}), 403
+            conn.execute(
+                "UPDATE vendor_signals SET status = ? WHERE id = ?",
+                (new_status, signal_id)
+            )
+            conn.commit()
+            return jsonify({'id': signal_id, 'status': new_status})
+        finally:
+            conn.close()
 
     @app.route('/api/events', methods=['GET'])
     def list_events():
