@@ -230,6 +230,35 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_predictions_suburb ON predictions(suburb_id);
         CREATE INDEX IF NOT EXISTS idx_predictions_norm ON predictions(normalized_address);
 
+        -- SENTINEL S4: the morning brief (the product) + one-click action
+        -- tracking with conversion attribution. open_token is a random
+        -- per-brief token for the email open-tracking pixel (the pixel
+        -- route is auth-exempt, so it must NOT be a guessable id).
+        CREATE TABLE IF NOT EXISTS briefs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            brief_date TEXT,
+            items TEXT,
+            open_token TEXT,
+            sent_at TEXT,
+            opened_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_briefs_user ON briefs(user_id);
+        CREATE INDEX IF NOT EXISTS idx_briefs_date ON briefs(brief_date);
+        CREATE INDEX IF NOT EXISTS idx_briefs_token ON briefs(open_token);
+
+        CREATE TABLE IF NOT EXISTS brief_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            brief_id INTEGER,
+            signal_id INTEGER,
+            action_type TEXT CHECK (action_type IN ('letter','call_logged','dismissed')),
+            acted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            converted_to_appraisal INTEGER DEFAULT 0,
+            converted_to_listing INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_brief_actions_brief ON brief_actions(brief_id);
+        CREATE INDEX IF NOT EXISTS idx_brief_actions_signal ON brief_actions(signal_id);
+
         -- LOOP-5: appraisal follow-up loop. appraisals stores each market
         -- appraisal an agent logs; appraisal_followups holds the J+30/60/90
         -- scheduled relances. Dates stored as TEXT (ISO) — cross-driver.

@@ -45,6 +45,7 @@ function ThemeToggle() {
 }
 
 const TABS = [
+  { id: 'today', label: 'Today' },
   { id: 'listings', label: 'Listings' },
   { id: 'signals', label: 'Signals' },
   { id: 'pipeline', label: 'Pipeline' },

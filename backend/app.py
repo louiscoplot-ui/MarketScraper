@@ -82,7 +82,11 @@ register_roi_routes(app)
 # endpoints (login flow needs to be reachable) and /api/ping (Render
 # health check + UI splash check). CORS preflight is also exempt — the
 # browser sends OPTIONS without our custom header.
-_AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping', '/api/legal/')
+# /api/brief/open/ = the S4 email open-tracking pixel, loaded by mail
+# clients with no X-Access-Key. Safe to exempt: GET-only, keyed on a
+# 24-byte random per-brief token, returns a 1x1 gif and leaks nothing.
+_AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping', '/api/legal/',
+                         '/api/brief/open/')
 
 
 @app.before_request

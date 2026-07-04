@@ -523,6 +523,21 @@ def main():
     except Exception as e:
         log.warning(f"prediction-ledger pass failed: {e}")
 
+    # SENTINEL S4: morning brief — top 5 signals per opted-in user
+    # (users.digest_enabled, same consent as the digest), narrated and
+    # emailed; the Today view reads the same stored items. Never fails
+    # the cron; brief rows are written even when email isn't configured.
+    try:
+        from signals.brief_builder import send_morning_briefs
+        br = send_morning_briefs()
+        log.info(
+            "Morning briefs: built=%d sent=%d already=%d empty=%d",
+            br.get('built', 0), br.get('sent', 0),
+            br.get('skipped', 0), br.get('no_items', 0),
+        )
+    except Exception as e:
+        log.warning(f"brief pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy
