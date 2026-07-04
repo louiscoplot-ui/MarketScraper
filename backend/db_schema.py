@@ -151,6 +151,33 @@ def init_db():
             captured_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        -- SENTINEL S1: listing_events — the market-memory event ledger.
+        -- Fed by the SAME snapshot-compare pass as listing_transitions
+        -- (signals/diff_engine.run_diff), but with different semantics:
+        -- several events per listing per run, richer type set, and a
+        -- `source` column so backfilled history (scripts/backfill_events.py)
+        -- is distinguishable from nightly detections. Append-only.
+        -- Kept separate from listing_transitions on purpose: that table's
+        -- one-per-listing + processed semantics belong to the live LOOP-2..6
+        -- consumers (see docs/sentinel-decisions.md).
+        CREATE TABLE IF NOT EXISTS listing_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            listing_id INTEGER,
+            suburb_id INTEGER,
+            address TEXT,
+            event_type TEXT CHECK (event_type IN (
+                'price_drop','price_rise','withdrawn','relisted',
+                'agency_change','sold','back_on_market')),
+            old_value TEXT,
+            new_value TEXT,
+            detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+            source TEXT NOT NULL DEFAULT 'daily_diff'
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_suburb ON listing_events(suburb_id);
+        CREATE INDEX IF NOT EXISTS idx_events_type ON listing_events(event_type);
+        CREATE INDEX IF NOT EXISTS idx_events_listing ON listing_events(listing_id);
+        CREATE INDEX IF NOT EXISTS idx_events_detected ON listing_events(detected_at);
+
         -- LOOP-5: appraisal follow-up loop. appraisals stores each market
         -- appraisal an agent logs; appraisal_followups holds the J+30/60/90
         -- scheduled relances. Dates stored as TEXT (ISO) — cross-driver.
@@ -206,6 +233,17 @@ def init_db():
         if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
                        label='listings ADD COLUMN fallback')
+
+    # SENTINEL S1 — agency on the LOOP-1 snapshot so the diff pass can emit
+    # agency_change events (the snapshot previously kept only status/price).
+    # Additive + idempotent; NULL agency in old snapshots simply means "no
+    # agency_change detectable until the next snapshot rewrite" (one night).
+    for col_sql in [
+        "ALTER TABLE listing_snapshots ADD COLUMN IF NOT EXISTS agency TEXT",
+    ]:
+        if not _safe_exec(conn, col_sql, label='listing_snapshots ADD COLUMN'):
+            _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
+                       label='listing_snapshots ADD COLUMN fallback')
 
     # PERF-2 (ROI tracker) — commission + mandate source on appraisals.
     # Idempotent ALTERs because LOOP-5 may have already created the table

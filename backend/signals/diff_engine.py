@@ -171,26 +171,63 @@ def run_diff(suburb):
         suburb_id = srow['id']
 
         current = conn.execute(
-            "SELECT id, address, status, sold_price, sold_date, price_text, "
-            "withdrawn_date, first_seen FROM listings WHERE suburb_id = ?",
+            "SELECT id, suburb_id, address, status, sold_price, sold_date, "
+            "price_text, agency, withdrawn_date, first_seen "
+            "FROM listings WHERE suburb_id = ?",
             (suburb_id,)
         ).fetchall()
 
         snaps = conn.execute(
-            "SELECT listing_id, status, sold_price, price_text "
+            "SELECT listing_id, status, sold_price, price_text, agency "
             "FROM listing_snapshots WHERE suburb = ?",
             (suburb,)
         ).fetchall()
         prev = {r['listing_id']: r for r in snaps}
 
+        # SENTINEL S1 — the same compare pass feeds two outputs:
+        # listing_transitions (one prioritised transition, live LOOP-2..6)
+        # and listing_events (all events, the market-memory ledger).
+        # Import here (not module top) so a broken sentinel module can
+        # never take the LOOP-1 transitions down with it.
+        events = []
+        try:
+            from signals import event_detector as _ed
+            # D2 (docs/sentinel-decisions.md): withdrawn events only when
+            # the last 3 completed scrapes of this suburb look healthy.
+            healthy = conn.execute(
+                "SELECT forsale_count FROM scrape_logs WHERE suburb_id = ? "
+                "AND completed_at IS NOT NULL ORDER BY started_at DESC LIMIT 3",
+                (suburb_id,)
+            ).fetchall()
+            withdrawn_ok = (len(healthy) == 3 and
+                            all((r['forsale_count'] or 0) > 0 for r in healthy))
+            withdrawn_cands = None  # lazy — only fetched if a new listing shows up
+        except Exception:
+            _ed = None
+            withdrawn_ok, withdrawn_cands = False, None
+
         transitions = []
         for row in current:
             old = prev.get(row['id'])
             if old is None:
-                continue  # new listing — nothing to diff against yet
+                # new listing — nothing to diff against, but it may be a
+                # relist of a withdrawn property under a new REIWA ID.
+                if _ed is not None:
+                    if withdrawn_cands is None:
+                        withdrawn_cands = [dict(r) for r in conn.execute(
+                            "SELECT id, address, agency, withdrawn_date "
+                            "FROM listings WHERE suburb_id = ? "
+                            "AND status = 'withdrawn'", (suburb_id,)
+                        ).fetchall()]
+                    events.extend(_ed.detect_relist_by_address(
+                        dict(row), withdrawn_cands))
+                continue
             t = _classify(row, old, suburb)
             if t:
                 transitions.append(t)
+            if _ed is not None:
+                events.extend(_ed.detect_events(
+                    dict(old), dict(row), withdrawn_ok=withdrawn_ok))
 
         for t in transitions:
             conn.execute(
@@ -201,6 +238,15 @@ def run_diff(suburb):
                  t['from_status'], t['to_status'], json.dumps(t['metadata']))
             )
 
+        for e in events:
+            conn.execute(
+                "INSERT INTO listing_events "
+                "(listing_id, suburb_id, address, event_type, old_value, "
+                " new_value, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (e['listing_id'], e['suburb_id'], e['address'], e['event_type'],
+                 e['old_value'], e['new_value'], e['source'])
+            )
+
         # Refresh the snapshot to the current state. Delete-then-insert for
         # this suburb so listings that disappeared drop out and new ones
         # appear — next run diffs against exactly what we saw this run.
@@ -208,13 +254,15 @@ def run_diff(suburb):
         for row in current:
             conn.execute(
                 "INSERT INTO listing_snapshots "
-                "(listing_id, suburb, status, sold_price, price_text) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (row['id'], suburb, row['status'], row['sold_price'], row['price_text'])
+                "(listing_id, suburb, status, sold_price, price_text, agency) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (row['id'], suburb, row['status'], row['sold_price'],
+                 row['price_text'], row['agency'])
             )
 
         conn.commit()
-        logger.info("run_diff[%s]: %d transition(s) detected", suburb, len(transitions))
+        logger.info("run_diff[%s]: %d transition(s), %d event(s) detected",
+                    suburb, len(transitions), len(events))
         return transitions
     except Exception:
         conn.rollback()

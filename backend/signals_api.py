@@ -162,3 +162,64 @@ def register_signals_routes(app):
             data, mimetype='application/zip',
             headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
+
+    @app.route('/api/events', methods=['GET'])
+    def list_events():
+        """SENTINEL S1 — the listing_events ledger, scoped to the caller's
+        suburbs. Filters: ?suburb=<name>&type=<event_type>&days=30 ;
+        pagination via ?limit=(<=100)&offset=."""
+        _user, allowed_ids = resolve_request_scope()
+
+        etype = (request.args.get('type') or '').strip().lower()
+        days = request.args.get('days', default=30, type=int)
+        days = max(1, min(days or 30, 365))
+        limit = request.args.get('limit', default=100, type=int)
+        limit = max(1, min(limit or 100, 100))
+        offset = max(0, request.args.get('offset', default=0, type=int))
+        suburb_name = (request.args.get('suburb') or '').strip()
+
+        where, params = [], []
+        conn = get_db()
+        try:
+            if suburb_name:
+                srow = conn.execute(
+                    "SELECT id FROM suburbs WHERE LOWER(name) = ?",
+                    (suburb_name.lower(),)
+                ).fetchone()
+                if not srow:
+                    return jsonify({'error': 'unknown suburb'}), 404
+                sid = dict(srow)['id']
+                if allowed_ids is not None and sid not in allowed_ids:
+                    return jsonify({'error': 'forbidden'}), 403
+                where.append("e.suburb_id = ?"); params.append(sid)
+            elif allowed_ids is not None:
+                if not allowed_ids:
+                    return jsonify({'events': [], 'total': 0})
+                ph = ','.join(['?'] * len(allowed_ids))
+                where.append(f"e.suburb_id IN ({ph})"); params.extend(allowed_ids)
+
+            if etype:
+                where.append("e.event_type = ?"); params.append(etype)
+            # Cross-driver day window: detected_at is ISO TEXT on both
+            # drivers (space- or T-separated). A date-only cutoff string
+            # compares correctly against either format.
+            from datetime import datetime, timedelta
+            cutoff = (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
+            where.append("e.detected_at >= ?"); params.append(cutoff)
+
+            clause = (" WHERE " + " AND ".join(where)) if where else ""
+            total = dict(conn.execute(
+                "SELECT COUNT(*) AS c FROM listing_events e" + clause, params
+            ).fetchone())['c']
+            rows = conn.execute(
+                "SELECT e.id, e.listing_id, e.suburb_id, s.name AS suburb, "
+                "e.address, e.event_type, e.old_value, e.new_value, "
+                "e.detected_at, e.source "
+                "FROM listing_events e LEFT JOIN suburbs s ON s.id = e.suburb_id"
+                + clause + " ORDER BY e.detected_at DESC LIMIT ? OFFSET ?",
+                params + [limit, offset]
+            ).fetchall()
+            return jsonify({'events': [dict(r) for r in rows], 'total': total,
+                            'limit': limit, 'offset': offset})
+        finally:
+            conn.close()
