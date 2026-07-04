@@ -208,6 +208,28 @@ def init_db():
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        -- SENTINEL S3: the self-labeling prediction ledger. One pending
+        -- prediction max per (suburb_id, normalized_address); the nightly
+        -- verify pass flips outcome to listed/not_listed — the scraper
+        -- labels its own predictions (signals/prediction_ledger.py).
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            address TEXT,
+            normalized_address TEXT,
+            suburb_id INTEGER,
+            score_at_prediction REAL,
+            reason_codes TEXT,
+            predicted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            horizon_days INTEGER DEFAULT 180,
+            outcome TEXT NOT NULL DEFAULT 'pending'
+                CHECK (outcome IN ('pending','listed','not_listed')),
+            outcome_verified_at TEXT,
+            listed_listing_id INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_predictions_outcome ON predictions(outcome);
+        CREATE INDEX IF NOT EXISTS idx_predictions_suburb ON predictions(suburb_id);
+        CREATE INDEX IF NOT EXISTS idx_predictions_norm ON predictions(normalized_address);
+
         -- LOOP-5: appraisal follow-up loop. appraisals stores each market
         -- appraisal an agent logs; appraisal_followups holds the J+30/60/90
         -- scheduled relances. Dates stored as TEXT (ISO) — cross-driver.

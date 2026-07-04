@@ -506,6 +506,23 @@ def main():
     except Exception as e:
         log.warning(f"signal-engine pass failed: {e}")
 
+    # SENTINEL S3: prediction ledger — write predictions for strong signals,
+    # then let the scrape self-label past predictions (listed / not_listed).
+    # Runs right after the signal engine so tonight's strong signals become
+    # tonight's predictions. Never fails the cron.
+    try:
+        from signals.prediction_ledger import (
+            write_predictions_from_signals, verify_predictions)
+        pw = write_predictions_from_signals()
+        pv = verify_predictions()
+        log.info(
+            "Predictions: +%d new (%d pending kept) | verified: %d listed, %d expired",
+            pw.get('created', 0), pw.get('already_pending', 0),
+            pv.get('listed', 0), pv.get('not_listed', 0),
+        )
+    except Exception as e:
+        log.warning(f"prediction-ledger pass failed: {e}")
+
     # Morning digest pass — one email per opt-in user with their
     # assigned suburbs' overnight stats. Skipped entirely when
     # EMAIL_FROM isn't set so the cron is silent on first-deploy

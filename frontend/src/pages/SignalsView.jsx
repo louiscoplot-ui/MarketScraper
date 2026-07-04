@@ -13,6 +13,34 @@ function scoreColor(score) {
   return '#7f8c8d'
 }
 
+function PrecisionCard() {
+  // S3 — the self-labeling ledger's track record. Honest by design: shows
+  // pending separately; hit rate only over RESOLVED predictions.
+  const [stats, setStats] = useState(null)
+  useEffect(() => {
+    apiJson('/api/precision').then(setStats).catch(() => setStats(null))
+  }, [])
+  if (!stats || !stats.totals || !stats.totals.predictions) return null
+  const t = stats.totals
+  return (
+    <div style={{
+      display: 'flex', gap: 24, alignItems: 'baseline', padding: '10px 14px',
+      background: '#f4f6f7', border: '1px solid #dfe4e8', borderRadius: 8,
+      marginBottom: 14, fontSize: 14,
+    }}>
+      <strong>Prediction ledger</strong>
+      <span>{t.predictions} prediction{t.predictions > 1 ? 's' : ''}</span>
+      <span style={{ color: '#1e8449' }}>{t.listed} listed</span>
+      <span style={{ color: '#7f8c8d' }}>{t.not_listed} expired</span>
+      <span style={{ color: '#7f8c8d' }}>{t.pending} pending</span>
+      <span style={{ fontWeight: 700 }}>
+        {t.hit_rate == null ? 'hit rate: —'
+          : `hit rate: ${(t.hit_rate * 100).toFixed(0)}%`}
+      </span>
+    </div>
+  )
+}
+
 export default function SignalsView() {
   const [signals, setSignals] = useState([])
   const [status, setStatus] = useState('new')
@@ -60,6 +88,8 @@ export default function SignalsView() {
         </select>
         <button onClick={fetchSignals} style={{ padding: '4px 10px' }}>Refresh</button>
       </div>
+
+      <PrecisionCard />
 
       {loading ? (
         <div style={{ color: '#7f8c8d', padding: 24 }}>Loading signals…</div>

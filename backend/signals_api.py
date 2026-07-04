@@ -261,6 +261,14 @@ def register_signals_routes(app):
         finally:
             conn.close()
 
+    @app.route('/api/precision', methods=['GET'])
+    def prediction_precision():
+        """SENTINEL S3 — prediction ledger stats (made / confirmed listed /
+        expired / hit rate, by month), scoped to the caller's suburbs."""
+        _user, allowed_ids = resolve_request_scope()
+        from signals.prediction_ledger import precision_stats
+        return jsonify(precision_stats(allowed_ids))
+
     @app.route('/api/events', methods=['GET'])
     def list_events():
         """SENTINEL S1 — the listing_events ledger, scoped to the caller's
