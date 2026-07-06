@@ -11,7 +11,8 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 
 from scraper_utils import (UA, CHROMIUM_PATH, normalise_agency, get_scrape_proxy,
-                           route_filter, better_address)
+                           route_filter, better_address, proxy_forced,
+                           force_proxy, looks_like_challenge)
 from scraper_dates import parse_date_text, parse_date_relaxed
 
 logger = logging.getLogger(__name__)
@@ -329,12 +330,30 @@ def verify_disappeared_listings(urls):
     out = {}
     if not urls:
         return out
+    # Direct-first: this pass decides withdrawn flips, and its failure
+    # path resolves 'gone' — so a blocked direct run must NEVER be
+    # trusted. On any challenge (or fetch error while direct) we throw
+    # the partial result away and redo the whole batch through the proxy.
+    _proxy = get_scrape_proxy()
+    direct_first = bool(_proxy) and not proxy_forced()
+    out, challenged = _verify_disappeared_once(
+        urls, use_proxy=bool(_proxy) and not direct_first)
+    if challenged and direct_first:
+        force_proxy("verify_disappeared: direct run challenged")
+        out, _ = _verify_disappeared_once(urls, use_proxy=True)
+    return out
+
+
+def _verify_disappeared_once(urls, use_proxy):
+    out = {}
+    challenged = False
     with sync_playwright() as p:
         launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
         _proxy = get_scrape_proxy()
-        if _proxy:
+        can_escalate = bool(_proxy) and not use_proxy
+        if use_proxy and _proxy:
             launch_opts['proxy'] = _proxy
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(user_agent=UA, viewport={'width': 1280, 'height': 800},
@@ -344,6 +363,13 @@ def verify_disappeared_listings(urls):
         for url in urls:
             try:
                 detail = fetch_detail(page, url)
+                if can_escalate and looks_like_challenge(page):
+                    # Challenge page — nothing this run says about the
+                    # remaining URLs is trustworthy; caller retries all
+                    # of them through the proxy.
+                    logger.warning(f"verify {url}: Cloudflare challenge on direct connection")
+                    challenged = True
+                    break
                 status = detail.get('status')
                 if status in ('sold', 'under_offer'):
                     resolved = status
@@ -366,9 +392,15 @@ def verify_disappeared_listings(urls):
                 }
             except Exception as e:
                 logger.warning(f"verify {url}: {e}")
+                if can_escalate:
+                    # A fetch error while direct could be the block itself
+                    # — never let it decay into a false 'gone'. Redo the
+                    # batch through the proxy instead.
+                    challenged = True
+                    break
                 out[url] = {'status': 'gone', 'sold_price': None, 'sold_date': None}
         browser.close()
-    return out
+    return out, challenged
 
 
 def debug_detail(url):

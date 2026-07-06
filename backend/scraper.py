@@ -23,7 +23,8 @@ from bs4 import BeautifulSoup
 from scraper_utils import (
     REIWA_BASE, MAX_PAGES, UA, DETAIL_TABS, CHROMIUM_PATH,
     EXTRA_HTTP_HEADERS, pick_user_agent, normalize_reiwa_url, get_scrape_proxy,
-    route_filter,
+    route_filter, proxy_forced, force_proxy, looks_like_challenge,
+    asset_cache_stats,
     _clean_listing_url, _build_url, _build_sold_url, _listing_id, _normalise_agency,
 )
 from scraper_dates import _parse_date_text, _extract_date
@@ -43,7 +44,45 @@ logger = logging.getLogger(__name__)
 
 def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=None,
                   cancel_check=None, known_sold_urls=None):
-    """Scrape all for-sale and sold listings for a suburb."""
+    """Scrape all for-sale and sold listings for a suburb.
+
+    Direct-first: when SCRAPE_PROXY is set we still attempt the scrape
+    WITHOUT it (residential GB are billed; a 02/07 probe showed the bare
+    datacenter IP passing Cloudflare). If the direct attempt is challenged
+    or blocked, the process-wide proxy_forced() flag flips, this suburb is
+    redone through the proxy, and every following suburb starts on the
+    proxy directly — same data either way, the proxy is just no longer
+    paid for upfront."""
+    _proxy = get_scrape_proxy()
+    direct_first = bool(_proxy) and not proxy_forced()
+    results = _scrape_suburb_once(
+        suburb_slug, suburb_id, progress_callback, known_urls,
+        cancel_check, known_sold_urls,
+        use_proxy=bool(_proxy) and not direct_first,
+        can_escalate=direct_first,
+    )
+    needs_retry = results.pop('_needs_proxy_retry', False)
+    if needs_retry and not (cancel_check and cancel_check()):
+        force_proxy(f"{suburb_slug}: direct run challenged/blocked")
+        if progress_callback:
+            progress_callback('Direct run blocked — retrying through proxy...')
+        results = _scrape_suburb_once(
+            suburb_slug, suburb_id, progress_callback, known_urls,
+            cancel_check, known_sold_urls,
+            use_proxy=True, can_escalate=False,
+        )
+        results.pop('_needs_proxy_retry', None)
+    logger.info(f"{suburb_slug}: proxy={'on' if proxy_forced() or not direct_first else 'off'} "
+                f"| asset cache {asset_cache_stats()}")
+    return results
+
+
+def _scrape_suburb_once(suburb_slug, suburb_id, progress_callback, known_urls,
+                        cancel_check, known_sold_urls, use_proxy, can_escalate):
+    """One full scrape attempt. When `can_escalate` (direct mode with a
+    proxy available), a Cloudflare challenge / repeated load failures /
+    fully-empty result sets results['_needs_proxy_retry'] instead of
+    silently returning thin data."""
     suburb_name = suburb_slug.replace("-", " ").title()
     results = {
         'forsale_listings': [],
@@ -65,11 +104,12 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
         }
         if CHROMIUM_PATH:
             launch_opts['executable_path'] = CHROMIUM_PATH
-        # Route through the residential proxy (SCRAPE_PROXY) when set —
-        # required to get past REIWA's Cloudflare from datacenter IPs.
-        _proxy = get_scrape_proxy()
-        if _proxy:
-            launch_opts['proxy'] = _proxy
+        # Residential proxy only when this attempt asks for it — the
+        # direct-first wrapper (scrape_suburb) decides.
+        if use_proxy:
+            _proxy = get_scrape_proxy()
+            if _proxy:
+                launch_opts['proxy'] = _proxy
 
         browser = p.chromium.launch(**launch_opts)
         context = browser.new_context(
@@ -124,11 +164,21 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     results['errors'].append(f"Failed to load for-sale page {page_num}")
                     if consecutive_load_failures >= 2:
                         logger.error(f"2 consecutive for-sale page failures, stopping")
+                        if can_escalate:
+                            results['_needs_proxy_retry'] = True
                         break
                     page_num += 1
                     time.sleep(random.uniform(0.5, 1.0))
                     continue
                 consecutive_load_failures = 0
+
+                # Direct mode: a Cloudflare interstitial "loads" fine but
+                # carries no cards — bail out now and let the wrapper redo
+                # the whole suburb through the proxy.
+                if can_escalate and looks_like_challenge(listing_page):
+                    logger.warning(f"{suburb_name} p{page_num}: Cloudflare challenge on direct connection")
+                    results['_needs_proxy_retry'] = True
+                    break
 
                 html = listing_page.content()
                 soup = BeautifulSoup(html, "html.parser")
@@ -460,10 +510,17 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                     results['errors'].append(f"Failed to load sold page {pg}")
                     if sold_load_failures >= 2:
                         logger.error(f"2 consecutive sold page failures, stopping")
+                        if can_escalate:
+                            results['_needs_proxy_retry'] = True
                         break
                     time.sleep(random.uniform(0.3, 0.8))
                     continue
                 sold_load_failures = 0
+
+                if can_escalate and looks_like_challenge(listing_page):
+                    logger.warning(f"{suburb_name} sold p{pg}: Cloudflare challenge on direct connection")
+                    results['_needs_proxy_retry'] = True
+                    break
 
                 html = listing_page.content()
                 soup = BeautifulSoup(html, "html.parser")
@@ -548,6 +605,16 @@ def scrape_suburb(suburb_slug, suburb_id, progress_callback=None, known_urls=Non
                 time.sleep(random.uniform(0.3, 0.8))
 
             results['stats']['sold_count'] = len(results['sold_listings'])
+
+            # Direct mode, zero for-sale AND zero sold: either a silent
+            # block (no challenge title, empty grid) or a truly empty
+            # suburb — a genuinely empty suburb still has sold history,
+            # so treat all-empty as a block and let the proxy retry
+            # settle it. Costs one proxied re-scrape in the worst case.
+            if (can_escalate and not results['forsale_listings']
+                    and not results['sold_listings']):
+                logger.warning(f"{suburb_name}: direct run returned nothing — flagging for proxy retry")
+                results['_needs_proxy_retry'] = True
 
         except Exception as e:
             logger.error(f"Fatal error scraping {suburb_name}: {e}")

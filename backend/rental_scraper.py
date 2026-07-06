@@ -38,7 +38,8 @@ import database  # noqa: E402
 from database import get_db  # noqa: E402
 from scraper_utils import (  # noqa: E402
     REIWA_BASE, UA, CHROMIUM_PATH, EXTRA_HTTP_HEADERS, pick_user_agent,
-    get_scrape_proxy, route_filter,
+    get_scrape_proxy, route_filter, proxy_forced, force_proxy,
+    looks_like_challenge,
 )
 
 
@@ -247,20 +248,42 @@ def _load_page(page, url):
 
 def scrape_suburb(suburb_name):
     """Walk every rental page for one suburb, return list of dicts.
-    Empty list on failure or empty suburb — never raises."""
+    Empty list on failure or empty suburb — never raises.
+
+    Direct-first like the sales scraper: try without the billed
+    residential proxy; on a Cloudflare challenge flip the process-wide
+    proxy_forced() flag and redo this suburb through the proxy."""
     slug = _slug(suburb_name)
     if not slug:
         log.warning(f"Empty slug for suburb {suburb_name!r} — skipping")
         return []
 
+    _proxy = get_scrape_proxy()
+    direct_first = bool(_proxy) and not proxy_forced()
+    results, challenged = _scrape_suburb_once(
+        slug, suburb_name, use_proxy=bool(_proxy) and not direct_first)
+    if challenged and direct_first:
+        force_proxy(f"rentals {suburb_name}: direct run challenged")
+        results, _ = _scrape_suburb_once(slug, suburb_name, use_proxy=True)
+    return results
+
+
+def _scrape_suburb_once(slug, suburb_name, use_proxy):
+    """One scrape attempt. Returns (results, challenged) — `challenged`
+    is True when the run hit a Cloudflare interstitial (or page 1 refused
+    to load), so the caller can retry through the proxy. An empty suburb
+    (page loads, no cards, no challenge title) is NOT flagged — plenty of
+    suburbs genuinely have zero rentals and must not burn proxy GB."""
     results = []
     seen = set()
+    challenged = False
     launch_opts = {'headless': True, 'args': ['--no-sandbox', '--disable-setuid-sandbox']}
     if CHROMIUM_PATH:
         launch_opts['executable_path'] = CHROMIUM_PATH
-    _proxy = get_scrape_proxy()
-    if _proxy:
-        launch_opts['proxy'] = _proxy
+    if use_proxy:
+        _proxy = get_scrape_proxy()
+        if _proxy:
+            launch_opts['proxy'] = _proxy
 
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_opts)
@@ -279,6 +302,14 @@ def scrape_suburb(suburb_name):
             for pg in range(1, MAX_PAGES + 1):
                 url = _build_url(slug, pg)
                 if not _load_page(page, url):
+                    if pg == 1:
+                        # Page 1 refusing to load in direct mode is the
+                        # block signature — let the caller escalate.
+                        challenged = True
+                    break
+                if looks_like_challenge(page):
+                    log.warning(f"[{suburb_name}] p{pg}: Cloudflare challenge")
+                    challenged = True
                     break
                 soup = BeautifulSoup(page.content(), 'html.parser')
                 cards = soup.find_all(True, class_=lambda c: c and 'p-card' in c)
@@ -309,7 +340,7 @@ def scrape_suburb(suburb_name):
         finally:
             browser.close()
 
-    return results
+    return results, challenged
 
 
 def _today_iso():

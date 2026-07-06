@@ -3,9 +3,12 @@ name: Daily REIWA rental scrape
 # 00:30 Perth (AWST = UTC+8, no DST) = 16:30 UTC previous day.
 # Runs 30min after the sales scrape on an independent schedule so a
 # stuck rental run cannot block sales (or vice versa).
+# 0-5 = Sun–Fri UTC: skips Sunday 00:30 Perth, same rationale as the
+# sales scrape (nothing new lists on Saturday; Monday's run catches
+# any straggler).
 on:
   schedule:
-    - cron: '30 16 * * *'
+    - cron: '30 16 * * 0-5'
   workflow_dispatch:
 
 concurrency:

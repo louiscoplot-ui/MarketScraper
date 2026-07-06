@@ -1,10 +1,14 @@
 """Shared scraper constants + URL helpers — extracted from scraper.py
 to keep modules under the MCP push size limit."""
 
+import logging
 import os
 import random
 import re
+import threading
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 
 REIWA_BASE = "https://reiwa.com.au"
@@ -179,21 +183,121 @@ def _should_abort_request(request):
     return not any(tok in host for tok in _PROXY_ALLOWED_HOSTS)
 
 
+# --- In-run cache for REIWA's static JS bundles ---------------------------
+# page.route() interception disables Chromium's own HTTP cache, so the same
+# ~1.7MB of script bundles was re-downloaded on EVERY page — through the
+# billed residential proxy that's ~70% of the nightly GB bill. Cache the
+# bundles in memory for the life of the process (one nightly run covers all
+# suburbs): first request fetches and stores, every later page is served
+# locally with zero network traffic.
+# Keyed by full URL — REIWA fingerprints bundle URLs, so a mid-run deploy
+# changes the URL and misses the cache instead of serving a stale script.
+# Only reiwa-hosted GET scripts are cached: Cloudflare challenge scripts can
+# be per-request/per-visitor and MUST stay live, and XHR/fetch responses
+# carry listing data that differs per page.
+_ASSET_CACHE = {}
+_ASSET_CACHE_LOCK = threading.Lock()
+_ASSET_CACHE_MAX_ENTRIES = 64
+_ASSET_CACHE_STATS = {'hits': 0, 'bytes_saved': 0}
+
+
+def _is_cacheable(request):
+    if request.resource_type != 'script' or request.method != 'GET':
+        return False
+    try:
+        host = (urlparse(request.url).hostname or '').lower()
+    except Exception:
+        return False
+    return 'reiwa' in host
+
+
+def asset_cache_stats():
+    """Snapshot of cache effectiveness for end-of-suburb logging."""
+    with _ASSET_CACHE_LOCK:
+        return {'entries': len(_ASSET_CACHE),
+                'hits': _ASSET_CACHE_STATS['hits'],
+                'mb_saved': round(_ASSET_CACHE_STATS['bytes_saved'] / 1e6, 1)}
+
+
 def route_filter(route):
-    """Playwright route handler — abort heavy/third-party requests, let
-    REIWA's own traffic through. Use everywhere we open a scraping page:
+    """Playwright route handler — abort heavy/third-party requests, serve
+    REIWA's static JS from the in-run cache, let everything else through.
+    Use everywhere we open a scraping page:
         page.route("**/*", route_filter)
+    Any error falls back to continue_() so a cache bug can never block a
+    page load — worst case we just pay the bandwidth like before.
     """
     try:
-        if _should_abort_request(route.request):
+        req = route.request
+        if _should_abort_request(req):
             route.abort()
-        else:
-            route.continue_()
+            return
+        if _is_cacheable(req):
+            with _ASSET_CACHE_LOCK:
+                hit = _ASSET_CACHE.get(req.url)
+            if hit is not None:
+                body, ctype = hit
+                with _ASSET_CACHE_LOCK:
+                    _ASSET_CACHE_STATS['hits'] += 1
+                    _ASSET_CACHE_STATS['bytes_saved'] += len(body)
+                route.fulfill(status=200, body=body, content_type=ctype)
+                return
+            resp = route.fetch()
+            body = resp.body()
+            if resp.status == 200 and body:
+                with _ASSET_CACHE_LOCK:
+                    if len(_ASSET_CACHE) < _ASSET_CACHE_MAX_ENTRIES:
+                        _ASSET_CACHE[req.url] = (
+                            body,
+                            resp.headers.get('content-type',
+                                             'application/javascript'),
+                        )
+            route.fulfill(response=resp)
+            return
+        route.continue_()
     except Exception:
         try:
             route.continue_()
         except Exception:
             pass
+
+
+# --- Direct-first proxy escalation ----------------------------------------
+# The residential proxy is billed per GB, but a probe on 02/07 showed the
+# bare datacenter IP getting the real listing grid (Cloudflare not
+# challenging). So each nightly run now STARTS without the proxy; the first
+# suburb that hits a challenge/block flips this process-wide flag and every
+# scrape from then on (including the retry of that suburb) goes through the
+# proxy — exactly the behaviour we had before, just not paid for upfront.
+_PROXY_MODE = {'forced': False}
+
+
+def proxy_forced():
+    return _PROXY_MODE['forced']
+
+
+def force_proxy(reason=''):
+    if not _PROXY_MODE['forced']:
+        _PROXY_MODE['forced'] = True
+        # Drop cached bundles fetched on the direct connection — if the
+        # block was mid-deploy weirdness rather than Cloudflare, a stale
+        # bundle must not poison the proxy retry.
+        with _ASSET_CACHE_LOCK:
+            _ASSET_CACHE.clear()
+        logger.warning(f"Escalating to residential proxy: {reason}")
+
+
+_CHALLENGE_TITLES = ('just a moment', 'attention required', 'access denied')
+
+
+def looks_like_challenge(page):
+    """True when the current page is a Cloudflare interstitial rather than
+    a REIWA page — the reliable tell is the tab title."""
+    try:
+        title = (page.title() or '').lower()
+    except Exception:
+        return False
+    return any(t in title for t in _CHALLENGE_TITLES)
 
 
 # --- Address quality helpers --------------------------------------------

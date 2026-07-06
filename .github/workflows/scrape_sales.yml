@@ -3,9 +3,14 @@ name: Daily REIWA sales scrape
 # 00:00 Perth (AWST = UTC+8, no DST) = 16:00 UTC previous day.
 # Split from the rental scrape so sales data lands ASAP and a rental
 # failure can never delay it.
+# 0-5 = Sun–Fri UTC: skips Saturday 16:00 UTC = Sunday 00:00 Perth.
+# Nobody lists on a Saturday, so that run only re-downloaded known
+# listings through the billed proxy. The rare Saturday listing is
+# picked up by Monday 00:00 Perth's run — first_seen shifts one day,
+# nothing is lost.
 on:
   schedule:
-    - cron: '0 16 * * *'
+    - cron: '0 16 * * 0-5'
   workflow_dispatch:
 
 concurrency:
