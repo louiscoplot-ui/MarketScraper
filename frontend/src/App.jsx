@@ -55,6 +55,11 @@ function App() {
   // LOOP-3: live "sale fallen" (under_offer → active) count for the badge.
   // Scoped server-side to the caller's suburbs. Best-effort — never blocks.
   const [saleFallenCount, setSaleFallenCount] = useState(0)
+  // Badge details panel — clicking the badge used to just setView('listings'),
+  // which is a visible no-op when you're already there and showed neither
+  // which sale fell through nor when. null = not fetched yet.
+  const [saleFallenOpen, setSaleFallenOpen] = useState(false)
+  const [saleFallenItems, setSaleFallenItems] = useState(null)
   const [view, setView] = useState(readViewFromHash)
   // Current user — fetched once on mount so Header can decide whether
   // to show the Rental tab (gated by rental_access / admin role) and
@@ -787,18 +792,64 @@ function App() {
           {saleFallenCount > 0 && (
             <button
               type="button"
-              onClick={() => setView('listings')}
-              title="Under-offer listings that returned to active in the last 14 days — motivated vendors. Click to view listings."
+              onClick={() => {
+                const opening = !saleFallenOpen
+                setSaleFallenOpen(opening)
+                if (opening && saleFallenItems === null) {
+                  // BOOT_API (= BACKEND_DIRECT) like the count fetch —
+                  // bypasses the Vercel 25s edge timeout on cold starts.
+                  fetch(`${BOOT_API}/signals/sale-fallen`)
+                    .then(r => (r.ok ? r.json() : []))
+                    .then(d => setSaleFallenItems(Array.isArray(d) ? d : []))
+                    .catch(() => setSaleFallenItems([]))
+                }
+              }}
+              title="Under-offer listings that returned to active in the last 14 days — motivated vendors. Click to see which sales fell through and when."
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                margin: '0 0 12px', padding: '8px 12px', cursor: 'pointer',
+                margin: saleFallenOpen ? '0 0 4px' : '0 0 12px', padding: '8px 12px', cursor: 'pointer',
                 background: '#fff7ed', border: '1px solid #fdba74',
                 borderRadius: 6, color: '#7c2d12', fontWeight: 600, fontSize: 13,
                 textAlign: 'left',
               }}
             >
               🔔 {saleFallenCount} sale{saleFallenCount > 1 ? 's' : ''} fallen through
+              <span style={{ marginLeft: 'auto', fontWeight: 400 }}>{saleFallenOpen ? '▴' : '▾'}</span>
             </button>
+          )}
+          {saleFallenCount > 0 && saleFallenOpen && (
+            <div style={{
+              margin: '0 0 12px', padding: '4px 12px',
+              background: '#fffbf5', border: '1px solid #fdba74',
+              borderRadius: 6, fontSize: 12.5, maxHeight: 260, overflowY: 'auto',
+            }}>
+              {saleFallenItems === null ? (
+                <div style={{ color: '#9a3412', padding: '6px 0' }}>Loading…</div>
+              ) : saleFallenItems.length === 0 ? (
+                <div style={{ color: '#9a3412', padding: '6px 0' }}>
+                  No live fallen sales in your suburbs.
+                </div>
+              ) : saleFallenItems.map((it, i) => (
+                <div key={it.id} style={{
+                  padding: '6px 0',
+                  borderBottom: i < saleFallenItems.length - 1 ? '1px solid #fed7aa' : 'none',
+                }}>
+                  <div style={{ fontWeight: 600, color: '#7c2d12' }}>
+                    {it.reiwa_url ? (
+                      <a href={it.reiwa_url} target="_blank" rel="noreferrer"
+                         style={{ color: '#7c2d12' }}>
+                        {it.address}
+                      </a>
+                    ) : it.address}
+                  </div>
+                  <div style={{ color: '#9a3412' }}>
+                    {it.suburb}
+                    {it.original_price ? ` · was ${it.original_price}` : ''}
+                    {' · back on market '}{String(it.detected_at || '').slice(0, 10)}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
           {/* Add form only for admins + users granted can_add_suburbs.
               Everyone else sees just the suburbs an admin assigned them

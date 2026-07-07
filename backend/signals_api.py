@@ -74,6 +74,14 @@ def register_signals_routes(app):
         result['expired'] = expire_old_sale_fallen()
         return jsonify(result)
 
+    @app.route('/api/signals/sale-fallen', methods=['GET'])
+    def sale_fallen_list():
+        """LOOP-3 — live sale-fallen details for the sidebar badge panel,
+        scoped to the caller's suburbs (admins see all)."""
+        _user, allowed_ids = resolve_request_scope()
+        from signals.sale_fallen import list_sale_fallen
+        return jsonify(list_sale_fallen(allowed_ids))
+
     @app.route('/api/signals/sale-fallen/count', methods=['GET'])
     def sale_fallen_count():
         """LOOP-3 dashboard badge — live (≤14d) sale-fallen count, scoped to

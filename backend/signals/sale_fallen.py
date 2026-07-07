@@ -173,6 +173,51 @@ def expire_old_sale_fallen():
     return expired
 
 
+def list_sale_fallen(allowed_ids=None):
+    """Live (≤14d, non-expired) sale_fallen signals WITH details — powers
+    the badge's dropdown panel so the agent can see which sale fell
+    through and when. Same window/expiry/scope filter as
+    active_sale_fallen_count; the two must stay in step or the badge
+    count won't match the panel."""
+    conn = get_db()
+    cutoff = (datetime.utcnow() - timedelta(days=ALERT_WINDOW_DAYS)).isoformat()
+    try:
+        rows = conn.execute(
+            "SELECT t.id, t.address, t.suburb, t.detected_at, t.metadata, "
+            "       l.suburb_id, l.reiwa_url, l.price_text "
+            "FROM listing_transitions t "
+            "LEFT JOIN listings l ON l.id = t.listing_id "
+            "WHERE t.transition_type = 'sale_fallen' AND t.detected_at >= ? "
+            "ORDER BY t.detected_at DESC",
+            (cutoff,)
+        ).fetchall()
+    except Exception:
+        logger.exception("list_sale_fallen failed")
+        conn.close()
+        return []
+    conn.close()
+    out = []
+    for r in rows:
+        r = dict(r)
+        if allowed_ids is not None and r.get('suburb_id') not in allowed_ids:
+            continue
+        try:
+            meta = json.loads(r['metadata']) if r.get('metadata') else {}
+        except Exception:
+            meta = {}
+        if meta.get('expired'):
+            continue
+        out.append({
+            'id': r['id'],
+            'address': r['address'],
+            'suburb': r['suburb'],
+            'detected_at': r['detected_at'],
+            'original_price': meta.get('original_price') or r.get('price_text') or '',
+            'reiwa_url': r.get('reiwa_url') or '',
+        })
+    return out
+
+
 def active_sale_fallen_count(allowed_ids=None):
     """Count of live (≤14d, non-expired) sale_fallen signals, optionally
     scoped to a set of allowed suburb_ids (None = all). Powers the dashboard
