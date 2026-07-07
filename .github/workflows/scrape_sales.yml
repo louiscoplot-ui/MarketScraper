@@ -57,5 +57,9 @@ jobs:
           # it set the cron logs "EMAIL_FROM not set" and exits silently.
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # SENTINEL S4 — morning brief narrative. Optional: without the
+          # secret the brief still goes out with the raw reason codes as
+          # narrative (never fails the cron).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python scripts/run_daily_scrape.py
