@@ -25,7 +25,8 @@ Agents spécialisés dans `.claude/` — lire avant chaque intervention.
 | Scraper | Playwright + BeautifulSoup4 | Source : REIWA.com.au |
 | Email | Resend HTTP API | `RESEND_API_KEY` env |
 | Letters | python-docx | |
-| Cron | GitHub Actions | `0 21 * * *` UTC = 5h Perth |
+| Cron | GitHub Actions | sales `0 16 * * 0-5`, rentals `30 16 * * 0-5` UTC = minuit Perth lun–sam (dimanche Perth supprimé — conso proxy) |
+| Proxy | IPRoyal résidentiel (facturé/GB) | direct-d'abord + cache JS depuis 07/07 — escalade auto si challenge Cloudflare |
 
 **Repo** : github.com/louiscoplot-ui/MarketScraper
 **Branche prod** : `claude/fix-scraper-missing-listings-PlwVM`
@@ -139,36 +140,51 @@ Garder le pattern pour toute nouvelle route :
 
 ### 🟡 UX dégradée
 
-| ID | Composant | Problème | Fichier |
-|----|-----------|----------|---------|
-| D10 | Admin | saveAssignments ne refresh pas liste users | AdminPanel.jsx |
-| D17 | Listings | saveNote alert tardif sans contexte | ListingsTable.jsx |
+Aucune ouverte au HEAD (07/07/2026). D10 et D17 étaient déjà fixés dans
+les composants réécrits (AdminUsers.jsx `refresh()` après save ;
+ListingsView.jsx alerte nommée par adresse) — entrées tracker périmées.
 
 ### 🟠 Performance
 
-| ID | Problème | Fichier |
-|----|----------|---------|
-| P1 | `_real_neighbours` LIKE sans index → 6s | database.py |
-| P2 | Double fetch `/api/suburbs` au mount | App.jsx |
-| P4 | Pipeline lent cold start Render — pipeline_tracking vide avant 5am cron | run_daily_scrape.py |
+Aucune ouverte au HEAD (07/07/2026).
+- P1 : mitigé — `_real_neighbours` est OSM-first avec cache
+  (pipeline_api.py) ; le LIKE n'est plus qu'un fallback rare, borné
+  LIMIT 1000, non indexable (wildcard initial).
+- P2 : fixé — un seul fetch `/api/suburbs` au mount.
+- P4 : fixé — pipeline auto-généré dans le cron nocturne (cab84d5).
 
 ### 🔵 Scraper / Data
 
-| ID | Problème | Fichier |
-|----|----------|---------|
-| S1 | "20/20 new" logs — trailing slash REIWA | scraper.py |
+Aucune ouverte au HEAD (07/07/2026). S1 ("20/20 new") fixé par
+`normalize_reiwa_url` (source unique de vérité des URLs).
 
-S2 requalifié puis clos (02/07/2026) : l'heure était bonne (`0 21 * * *`
-UTC confirmé sur main) mais le cron exécutait le **code archivé de main**
-(checkout sans `ref` → vieux scraper + backfill sold_date destructif non
-gardé chaque nuit sur Neon). Fix : `ref: claude/fix-scraper-missing-listings-PlwVM`
-dans `daily-scrape.yml` sur main. Les workflows restent hébergés sur main
-(branche par défaut requise pour `schedule`) mais exécutent le code PlwVM.
+**Correction historique S2 (07/07/2026)** : le narratif du 02/07 était
+faux. La branche par défaut du repo EST PlwVM (pas main) ; le vrai
+workflow nightly est `.github/workflows/scrape_sales.yml` (16:00 UTC)
++ `scrape_rental.yml` (16:30 UTC), hébergés et exécutés sur PlwVM.
+Les vraies causes des trous de données : Cloudflare (17-19/06), quota
+Neon (24/06-01/07), solde IPRoyal (01-03/07).
+
+### 💰 Conso proxy (fix 07/07/2026, commit 9f15b7b)
+
+~430MB/nuit → ~0 (direct passe) ou ~130MB (nuit entière via proxy).
+Trois mécanismes, tous dans scraper_utils.py :
+1. Cache JS in-process (l'interception route désactivait le cache
+   Chromium → 1.7MB re-téléchargés par page = 70% de la facture).
+2. Direct-d'abord : proxy seulement après challenge Cloudflare détecté
+   (`proxy_forced()` process-wide) ; verify_disappeared protégé contre
+   les faux 'gone' en direct (retry batch complet via proxy).
+3. Run du dimanche Perth supprimé (cron `* * 0-5`).
+Vérif : logs GHA `proxy=on/off | asset cache {hits, mb_saved}`.
 
 ### ✅ Fixés récemment
 
 | Fix | Commit |
 |-----|--------|
+| SENTINEL S1-S4 mergé en prod — events, signaux vendeurs, prediction ledger, morning brief + Today view (07/07/2026) | d85739c…7d82b11 |
+| Conso proxy −70% min : cache JS + direct-d'abord + skip dimanche | 9f15b7b |
+| Market Trends figés — snapshots désormais pris par le cron nocturne | b9569b0 |
+| Badge sale-fallen cliquable — panneau adresse/date + GET /api/signals/sale-fallen | 8a73ad1 |
 | Sprint S0 clos — B1-B15 + D7/D8 audités au HEAD, prod synchro (02/07/2026) | — |
 | S-1 — admin takeover via login-by-email (grace path) | 4f78299 |
 | S-2 — scope manquant sur /api/rentals/export | 53fc20a |
