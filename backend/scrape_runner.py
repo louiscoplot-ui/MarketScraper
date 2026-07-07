@@ -98,6 +98,65 @@ def _parse_price(price_text):
     return int(round(val))
 
 
+def record_market_snapshot(suburb_id, name, new_count):
+    """Compute + store today's market_snapshots row for one suburb from
+    the listings table. Called by BOTH the manual UI scrape and the
+    nightly cron — the nightly never recorded one, so the Report's
+    Market Trends tiles froze at the last manual scrape (stuck on 19/06
+    while the listings kept moving). One row per suburb per day,
+    idempotent (take_market_snapshot does DELETE+INSERT). Errors are
+    logged, never raised: a snapshot failure must not fail a scrape."""
+    try:
+        snap_conn = get_db()
+        snap_rows = snap_conn.execute(
+            "SELECT status, price_text, listing_date, first_seen "
+            "FROM listings WHERE suburb_id = ?",
+            (suburb_id,)
+        ).fetchall()
+        snap_conn.close()
+
+        snap_active = [r for r in snap_rows if r['status'] == 'active']
+        snap_uo = [r for r in snap_rows if r['status'] == 'under_offer']
+        snap_sold = [r for r in snap_rows if r['status'] == 'sold']
+        snap_wd = [r for r in snap_rows if r['status'] == 'withdrawn']
+
+        snap_prices = []
+        for r in snap_active:
+            pt = r['price_text']
+            p = _parse_price(pt)
+            if p and p >= 100000:
+                snap_prices.append(p)
+        snap_prices.sort()
+        median_p = snap_prices[len(snap_prices)//2] if snap_prices else None
+
+        snap_doms = []
+        for r in snap_active:
+            ds = r['listing_date'] or ''
+            dm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', ds)
+            try:
+                if dm:
+                    start = datetime(int(dm.group(3)), int(dm.group(2)), int(dm.group(1)))
+                else:
+                    start = datetime.fromisoformat(ds.replace('Z', ''))
+                snap_doms.append(max(0, (datetime.utcnow() - start).days))
+            except (ValueError, TypeError):
+                pass
+        avg_d = round(sum(snap_doms) / len(snap_doms)) if snap_doms else None
+
+        take_market_snapshot(suburb_id, {
+            'active': len(snap_active),
+            'under_offer': len(snap_uo),
+            'sold': len(snap_sold),
+            'withdrawn': len(snap_wd),
+            'new': new_count,
+            'median_price': median_p,
+            'avg_dom': avg_d,
+        })
+        logger.info(f"[{name}] Market snapshot saved")
+    except Exception as snap_err:
+        logger.warning(f"[{name}] Failed to save snapshot: {snap_err}")
+
+
 scrape_jobs = {}
 scrape_cancel = set()
 
@@ -322,55 +381,7 @@ def run_scrape(suburb_id, slug, name):
             errors=json.dumps(result['errors']) if result['errors'] else None
         )
 
-        try:
-            snap_conn = get_db()
-            snap_rows = snap_conn.execute(
-                "SELECT status, price_text, listing_date, first_seen "
-                "FROM listings WHERE suburb_id = ?",
-                (suburb_id,)
-            ).fetchall()
-            snap_conn.close()
-
-            snap_active = [r for r in snap_rows if r['status'] == 'active']
-            snap_uo = [r for r in snap_rows if r['status'] == 'under_offer']
-            snap_sold = [r for r in snap_rows if r['status'] == 'sold']
-            snap_wd = [r for r in snap_rows if r['status'] == 'withdrawn']
-
-            snap_prices = []
-            for r in snap_active:
-                pt = r['price_text']
-                p = _parse_price(pt)
-                if p and p >= 100000:
-                    snap_prices.append(p)
-            snap_prices.sort()
-            median_p = snap_prices[len(snap_prices)//2] if snap_prices else None
-
-            snap_doms = []
-            for r in snap_active:
-                ds = r['listing_date'] or ''
-                dm = _re.match(r'^(\d{1,2})/(\d{1,2})/(\d{4})$', ds)
-                try:
-                    if dm:
-                        start = datetime(int(dm.group(3)), int(dm.group(2)), int(dm.group(1)))
-                    else:
-                        start = datetime.fromisoformat(ds.replace('Z', ''))
-                    snap_doms.append(max(0, (datetime.utcnow() - start).days))
-                except (ValueError, TypeError):
-                    pass
-            avg_d = round(sum(snap_doms) / len(snap_doms)) if snap_doms else None
-
-            take_market_snapshot(suburb_id, {
-                'active': len(snap_active),
-                'under_offer': len(snap_uo),
-                'sold': len(snap_sold),
-                'withdrawn': len(snap_wd),
-                'new': new_count,
-                'median_price': median_p,
-                'avg_dom': avg_d,
-            })
-            logger.info(f"[{name}] Market snapshot saved")
-        except Exception as snap_err:
-            logger.warning(f"[{name}] Failed to save snapshot: {snap_err}")
+        record_market_snapshot(suburb_id, name, new_count)
 
         scrape_jobs[suburb_id] = {
             'status': 'completed',

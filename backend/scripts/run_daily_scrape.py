@@ -292,6 +292,16 @@ def scrape_one(suburb):
         errors=None,
     )
 
+    # Market Trends datapoint — only the manual UI scrape recorded one,
+    # so the Report's tiles froze at the last manual scrape while the
+    # nightly kept updating listings. Same helper, one row per suburb
+    # per day, idempotent; never fails the scrape.
+    try:
+        from scrape_runner import record_market_snapshot
+        record_market_snapshot(suburb_id, name, new_count)
+    except Exception as e:
+        log.warning(f"[{name}] market snapshot failed: {e}")
+
     # LOOP-1: detect listing transitions for the signal loops. Compares the
     # freshly-scraped state against the previous run's snapshot and records
     # withdrawn / sale_fallen / sold_price_revealed / price_drop / relisted
