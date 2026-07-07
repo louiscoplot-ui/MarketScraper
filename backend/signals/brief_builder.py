@@ -45,13 +45,14 @@ _SYSTEM = (
 )
 
 
-def _narrative(address, suburb, reasons):
-    """2-sentence narrative for one signal. Falls back to the reasons
-    verbatim when the API is unavailable — never raises, never invents."""
-    fallback = ' '.join(reasons)[:280]
+def generate_text(system, user_content, max_tokens=200, timeout=20):
+    """One guarded Claude text generation. Returns the text, or None on
+    missing key / HTTP error / refusal / empty output — callers MUST fall
+    back to their static template. Never raises, never invents structure:
+    the caller owns validation of what comes back."""
     api_key = (os.environ.get('ANTHROPIC_API_KEY') or '').strip()
     if not api_key:
-        return fallback
+        return None
     try:
         resp = requests.post(
             ANTHROPIC_URL,
@@ -62,33 +63,40 @@ def _narrative(address, suburb, reasons):
             },
             json={
                 'model': BRIEF_MODEL,
-                'max_tokens': 200,
-                'system': _SYSTEM,
-                'messages': [{
-                    'role': 'user',
-                    'content': (
-                        f"Address: {address}, {suburb}.\n"
-                        "Observed signals:\n- " + "\n- ".join(reasons)
-                    ),
-                }],
+                'max_tokens': max_tokens,
+                'system': system,
+                'messages': [{'role': 'user', 'content': user_content}],
             },
-            timeout=20,
+            timeout=timeout,
         )
         if resp.status_code != 200:
-            logger.warning("brief narrative API %s: %s",
+            logger.warning("claude text API %s: %s",
                            resp.status_code, resp.text[:200])
-            return fallback
+            return None
         data = resp.json()
         if data.get('stop_reason') == 'refusal':
-            return fallback
+            return None
         text = ' '.join(
             b.get('text', '') for b in data.get('content', [])
             if b.get('type') == 'text'
         ).strip()
-        return text or fallback
+        return text or None
     except Exception:
-        logger.exception("brief narrative call failed")
-        return fallback
+        logger.exception("claude text call failed")
+        return None
+
+
+def _narrative(address, suburb, reasons):
+    """2-sentence narrative for one signal. Falls back to the reasons
+    verbatim when the API is unavailable — never raises, never invents."""
+    fallback = ' '.join(reasons)[:280]
+    text = generate_text(
+        _SYSTEM,
+        (f"Address: {address}, {suburb}.\n"
+         "Observed signals:\n- " + "\n- ".join(reasons)),
+        max_tokens=200,
+    )
+    return text or fallback
 
 
 def _user_suburb_ids(conn, user):

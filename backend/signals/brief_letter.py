@@ -32,6 +32,45 @@ def _letter_flavour(reasons):
     return 'generic'
 
 
+# AI-tailored letter body (SENTINEL + ANTHROPIC_API_KEY). The static
+# _BODIES below remain the guaranteed fallback: a letter must ALWAYS
+# render, API up or down. Same guardrails as the brief narrative —
+# facts only, English (AU), no pricing advice, no placeholders.
+_LETTER_SYSTEM = (
+    "You draft the body of a printed prospecting letter from a real-estate "
+    "agent in Perth, Western Australia, to a homeowner. Use ONLY the facts "
+    "provided — never invent names, prices, dates or events. 2 to 3 short "
+    "paragraphs, 90-140 words in total. Courteous, sober, professional; "
+    "no exclamation marks, no pricing advice or value estimates, no "
+    "placeholders of any kind. Do NOT include a salutation or sign-off — "
+    "those are added separately. Always write in English with Australian "
+    "spelling and real-estate terminology. Output the letter body only."
+)
+
+
+def _ai_paragraphs(address, suburb, reasons):
+    """Claude-drafted letter body as a list of paragraphs, or None when
+    the API is unavailable or the output fails sanity checks."""
+    try:
+        from signals.brief_builder import generate_text
+    except Exception:
+        return None
+    facts = (
+        f"Property: {address}, {suburb}, Perth WA.\n"
+        "Observed market signals about this property:\n- "
+        + "\n- ".join(reasons)
+    )
+    text = generate_text(_LETTER_SYSTEM, facts, max_tokens=400)
+    if not text or len(text) < 60:
+        return None
+    low = text.lower()
+    # Never ship a letter with template residue or meta commentary.
+    if any(tok in low for tok in ('[', ']', 'as an ai', 'i cannot')):
+        return None
+    paras = [p.strip() for p in text.split('\n') if p.strip()]
+    return paras or None
+
+
 _BODIES = {
     'withdrawn': (
         "I noticed that your property at {address} was recently taken off "
@@ -108,10 +147,17 @@ def build_brief_letter(signal_id, user):
     style.font.name = 'Georgia'
     style.font.size = Pt(11)
 
+    # AI-tailored body when the key is configured; static flavour
+    # template otherwise (or on any API hiccup). The letter always renders.
+    paragraphs = _ai_paragraphs(address, suburb, reasons) if reasons else None
+    if not paragraphs:
+        paragraphs = [p.format(address=address, suburb=suburb)
+                      for p in _BODIES[flavour]]
+
     doc.add_paragraph('Dear Home Owner,')
     doc.add_paragraph('')
-    for para in _BODIES[flavour]:
-        doc.add_paragraph(para.format(address=address, suburb=suburb))
+    for para in paragraphs:
+        doc.add_paragraph(para)
         doc.add_paragraph('')
     doc.add_paragraph('Kind regards,')
     doc.add_paragraph('')
