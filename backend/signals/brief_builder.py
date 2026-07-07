@@ -39,7 +39,9 @@ _SYSTEM = (
     "may use: an address and a list of observed market signals. Write at "
     "most 2 sentences, sober professional tone, no exclamation marks, no "
     "advice on pricing, and NEVER state anything not present in the given "
-    "facts. Do not mention that you are an AI. Output the narrative only."
+    "facts. Do not mention that you are an AI. Always write in English, "
+    "using Australian real-estate terminology and spelling. Output the "
+    "narrative only."
 )
 
 
