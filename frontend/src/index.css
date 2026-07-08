@@ -1587,10 +1587,10 @@ body.col-resizing * {
 }
 
 .btn-note.empty-note:hover {
-  border-color: var(--primary);
+  border-color: var(--accent);
   border-style: solid;
-  color: var(--primary);
-  background: rgba(59, 130, 246, 0.08);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .btn-note.has-note {

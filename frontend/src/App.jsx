@@ -620,11 +620,15 @@ function App() {
 
   const isAnyScraping = Object.values(scrapeStatus).some(j => j.status === 'running')
 
+  // Status filter-button colours. Hex (not var()) because the filter bar
+  // appends '33' for a ~20% alpha fill; kept in exact sync with the
+  // status grammar tokens so the buttons match the Chips one-for-one:
+  // good / watch / info / alert.
   const statusColors = {
-    active: '#22c55e',
-    under_offer: '#f59e0b',
-    sold: '#3b82f6',
-    withdrawn: '#ef4444',
+    active: '#16A34A',       // --status-good
+    under_offer: '#D97706',  // --status-watch
+    sold: '#2563EB',         // --status-info
+    withdrawn: '#DC2626',    // --status-alert
   }
 
   const scrapeJobs = Object.entries(scrapeStatus).map(([id, job]) => {

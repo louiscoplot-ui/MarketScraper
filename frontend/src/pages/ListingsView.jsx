@@ -3,9 +3,11 @@
 // presentational component that takes everything via props.
 
 import { useState, useRef, useEffect } from 'react'
+import { StickyNote, Plus, X } from 'lucide-react'
 import EditableDateCell from '../components/EditableDateCell'
 import EditableTextCell from '../components/EditableTextCell'
 import StickyHScroll from '../components/StickyHScroll'
+import { Chip, Select } from '../components/ui'
 
 
 // HTML5 date input emits YYYY-MM-DD. listing_date in the DB is
@@ -13,6 +15,16 @@ import StickyHScroll from '../components/StickyHScroll'
 function isoToDmy(iso) {
   if (!iso) return null
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+}
+
+// Human labels for the status Chip. The Chip itself picks the colour
+// via resolveStatus (active→good, under_offer→watch, sold→info,
+// withdrawn→alert) so a screen can never invent one.
+const STATUS_LABEL = {
+  active: 'Active',
+  under_offer: 'Under Offer',
+  sold: 'Sold',
+  withdrawn: 'Withdrawn',
 }
 
 
@@ -149,7 +161,7 @@ export default function ListingsView({
       cell: (l) => l.reiwa_url
         ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
         : l.address },
-    { field: '__note', label: '📝 Note', sortable: false, className: 'note-cell',
+    { field: '__note', label: 'Note', sortable: false, className: 'note-cell',
       cell: (l) => {
         const text = (l.note || '').trim()
         const has = !!text
@@ -159,7 +171,9 @@ export default function ListingsView({
             title={has ? text : 'Click to add a note about this listing'}
             onClick={() => openNote(l)}
           >
-            {has ? <>📝&nbsp;{text}</> : <>＋&nbsp;Note</>}
+            {has
+              ? <><StickyNote size={13} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: 'text-bottom' }} />&nbsp;{text}</>
+              : <><Plus size={13} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: 'text-bottom' }} />&nbsp;Note</>}
           </button>
         )
       } },
@@ -230,12 +244,9 @@ export default function ListingsView({
       ) },
     { field: 'status', label: 'Status', sortable: true,
       cell: (l) => (
-        <span
-          className={`status-badge status-${l.status || 'unknown'}`}
-          style={{ backgroundColor: statusColors[l.status] || '#666' }}
-        >
-          {l.status?.replace('_', ' ')}
-        </span>
+        <Chip status={l.status}>
+          {STATUS_LABEL[l.status] || (l.status || '').replace('_', ' ')}
+        </Chip>
       ) },
     { field: 'listing_type', label: 'Type', sortable: true,
       cell: (l) => l.listing_type
@@ -247,7 +258,9 @@ export default function ListingsView({
         : '-' },
     { field: '__del', label: '', sortable: false, className: 'link-cell',
       cell: (l) => (
-        <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>×</button>
+        <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>
+          <X size={14} strokeWidth={2.25} aria-hidden="true" />
+        </button>
       ) },
   ].filter(Boolean)
 
@@ -274,22 +287,28 @@ export default function ListingsView({
         ))}
         <div className="filter-separator" />
 
-        <select className="filter-select" value={selectedAgency} onChange={e => setSelectedAgency(e.target.value)}>
-          <option value="">All Agencies</option>
-          {uniqueAgencies.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <Select
+          size="sm"
+          value={selectedAgency}
+          onChange={e => setSelectedAgency(e.target.value)}
+          options={[{ value: '', label: 'All Agencies' },
+                    ...uniqueAgencies.map(a => ({ value: a, label: a }))]}
+        />
 
-        <select className="filter-select" value={selectedAgent} onChange={e => setSelectedAgent(e.target.value)}>
-          <option value="">All Agents</option>
-          {uniqueAgents.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <Select
+          size="sm"
+          value={selectedAgent}
+          onChange={e => setSelectedAgent(e.target.value)}
+          options={[{ value: '', label: 'All Agents' },
+                    ...uniqueAgents.map(a => ({ value: a, label: a }))]}
+        />
 
         <button
           className={`filter-btn ${compact ? 'active' : ''}`}
           onClick={() => setCompact(c => !c)}
           title="Toggle compact density"
         >
-          {compact ? '⊟ Compact' : '⊞ Compact'}
+          Compact
         </button>
 
         <span className="listing-count">
