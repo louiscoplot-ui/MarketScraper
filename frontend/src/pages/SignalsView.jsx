@@ -3,14 +3,33 @@
 // Dismiss / Mark actioned. Reads /api/signals (scoped server-side),
 // status changes via PATCH /api/signals/<id>.
 import { useState, useEffect, useCallback } from 'react'
+import { Check, X } from 'lucide-react'
 import { apiJson } from '../lib/api'
+import { Button, Chip, Select, Spinner } from '../components/ui'
 
 const STATUS_LABELS = { new: 'New', actioned: 'Actioned', dismissed: 'Dismissed' }
 
-function scoreColor(score) {
-  if (score >= 0.6) return '#c0392b'
-  if (score >= 0.35) return '#d68910'
-  return '#7f8c8d'
+// Score → status grammar. A high score is a hot lead: alert (red) ≥ 60,
+// watch (amber) ≥ 35, off (grey) below. Rendered as a Chip.
+function scoreStatus(score) {
+  if (score >= 0.6) return 'alert'
+  if (score >= 0.35) return 'watch'
+  return 'off'
+}
+
+// Classify ONE real reason_code (produced verbatim by the signal engine,
+// signal_engine.py) into the status grammar by the words the engine wrote
+// — no invented meaning. Mirrors TodayView so the two screens read alike.
+//   "…price drops…"               → alert  (red)
+//   "Withdrawn … without selling" → watch  (amber)
+//   "… sales in the street …"     → good   (green)
+// Everything else (long-hold gain, relisted) stays neutral grey.
+function reasonStatus(text) {
+  const t = String(text || '').toLowerCase()
+  if (t.includes('price drop')) return 'alert'
+  if (t.includes('withdrawn')) return 'watch'
+  if (t.includes('sales in the street') || t.includes('sold')) return 'good'
+  return 'off'
 }
 
 function PrecisionCard() {
@@ -25,14 +44,14 @@ function PrecisionCard() {
   return (
     <div style={{
       display: 'flex', gap: 24, alignItems: 'baseline', padding: '10px 14px',
-      background: '#f4f6f7', border: '1px solid #dfe4e8', borderRadius: 8,
-      marginBottom: 14, fontSize: 14,
+      background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+      marginBottom: 14, fontSize: 14, color: 'var(--text)', flexWrap: 'wrap',
     }}>
       <strong>Prediction ledger</strong>
       <span>{t.predictions} prediction{t.predictions > 1 ? 's' : ''}</span>
-      <span style={{ color: '#1e8449' }}>{t.listed} listed</span>
-      <span style={{ color: '#7f8c8d' }}>{t.not_listed} expired</span>
-      <span style={{ color: '#7f8c8d' }}>{t.pending} pending</span>
+      <span style={{ color: 'var(--status-good-text)' }}>{t.listed} listed</span>
+      <span style={{ color: 'var(--text-muted)' }}>{t.not_listed} expired</span>
+      <span style={{ color: 'var(--text-muted)' }}>{t.pending} pending</span>
       <span style={{ fontWeight: 700 }}>
         {t.hit_rate == null ? 'hit rate: —'
           : `hit rate: ${(t.hit_rate * 100).toFixed(0)}%`}
@@ -45,9 +64,9 @@ function PrecisionCard() {
 // address triggered a SECOND signal (withdrawn, price drops, street
 // momentum…) — those are the leads worth doorknocking first.
 const SCORE_FILTERS = [
-  { v: 0, label: 'All scores' },
-  { v: 0.35, label: 'Multi-signal (35+)' },
-  { v: 0.5, label: 'Hot only (50+)' },
+  { value: '0', label: 'All scores' },
+  { value: '0.35', label: 'Multi-signal (35+)' },
+  { value: '0.5', label: 'Hot only (50+)' },
 ]
 
 export default function SignalsView() {
@@ -102,28 +121,22 @@ export default function SignalsView() {
   return (
     <div style={{ padding: '16px 24px', maxWidth: 980, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0 }}>Vendor Signals</h2>
-        <select value={suburb} onChange={e => setSuburb(e.target.value)}
-                style={{ padding: '4px 8px' }} title="Filter by suburb">
+        <h2 style={{ margin: 0, color: 'var(--text)' }}>Vendor Signals</h2>
+        <Select value={suburb} onChange={e => setSuburb(e.target.value)}
+                size="sm" title="Filter by suburb">
           <option value="">All my suburbs</option>
           {suburbs.map(s => (
             <option key={s.id || s.name} value={s.name}>{s.name}</option>
           ))}
-        </select>
-        <select value={minScore} onChange={e => setMinScore(Number(e.target.value))}
-                style={{ padding: '4px 8px' }} title="Minimum score">
-          {SCORE_FILTERS.map(f => (
-            <option key={f.v} value={f.v}>{f.label}</option>
-          ))}
-        </select>
-        <select value={status} onChange={e => setStatus(e.target.value)}
-                style={{ padding: '4px 8px' }}>
-          {Object.entries(STATUS_LABELS).map(([v, l]) =>
-            <option key={v} value={v}>{l}</option>)}
-        </select>
-        <button onClick={fetchSignals} style={{ padding: '4px 10px' }}>Refresh</button>
+        </Select>
+        <Select value={String(minScore)} onChange={e => setMinScore(Number(e.target.value))}
+                size="sm" title="Minimum score" options={SCORE_FILTERS} />
+        <Select value={status} onChange={e => setStatus(e.target.value)}
+                size="sm"
+                options={Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+        <Button variant="ghost" size="sm" onClick={fetchSignals}>Refresh</Button>
         {!loading && (
-          <span style={{ color: '#7f8c8d', fontSize: 13, marginLeft: 'auto' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: 13, marginLeft: 'auto' }}>
             {signals.length} shown
           </span>
         )}
@@ -132,54 +145,67 @@ export default function SignalsView() {
       <PrecisionCard />
 
       {loading ? (
-        <div style={{ color: '#7f8c8d', padding: 24 }}>Loading signals…</div>
+        <div style={{ color: 'var(--text-muted)', padding: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Spinner size={16} muted inline /> Loading signals…
+        </div>
       ) : error ? (
-        <div style={{ color: '#c0392b', padding: 24 }}>{error}</div>
+        <div style={{ color: 'var(--status-alert-text)', padding: 24 }}>{error}</div>
       ) : signals.length === 0 ? (
-        <div style={{ color: '#7f8c8d', padding: 24 }}>
+        <div style={{ color: 'var(--text-muted)', padding: 24 }}>
           No {STATUS_LABELS[status].toLowerCase()} signals. Signals are
           rebuilt after every nightly scrape from the market-events ledger.
         </div>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #dfe4e8' }}>
-              <th style={{ padding: '6px 8px', width: 70 }}>Score</th>
-              <th style={{ padding: '6px 8px' }}>Address</th>
-              <th style={{ padding: '6px 8px', width: 130 }}>Suburb</th>
-              <th style={{ padding: '6px 8px' }}>Why</th>
+            <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)' }}>
+              <th style={{ padding: '6px 8px', width: 70, color: 'var(--text-muted)' }}>Score</th>
+              <th style={{ padding: '6px 8px', color: 'var(--text-muted)' }}>Address</th>
+              <th style={{ padding: '6px 8px', width: 130, color: 'var(--text-muted)' }}>Suburb</th>
+              <th style={{ padding: '6px 8px', color: 'var(--text-muted)' }}>Why</th>
               {status === 'new' &&
-                <th style={{ padding: '6px 8px', width: 170 }}></th>}
+                <th style={{ padding: '6px 8px', width: 190 }}></th>}
             </tr>
           </thead>
           <tbody>
             {signals.map(s => (
-              <tr key={s.id} style={{ borderBottom: '1px solid #eef1f3', verticalAlign: 'top' }}>
-                <td style={{ padding: '8px', fontWeight: 700, color: scoreColor(s.score) }}>
-                  {(s.score * 100).toFixed(0)}
-                </td>
-                <td style={{ padding: '8px', fontWeight: 600 }}>{s.address}</td>
-                <td style={{ padding: '8px' }}>{s.suburb || ''}</td>
+              <tr key={s.id} style={{ borderBottom: '1px solid var(--border)', verticalAlign: 'top' }}>
                 <td style={{ padding: '8px' }}>
-                  <ul style={{ margin: 0, paddingLeft: 18 }}>
-                    {(s.reason_codes || []).map((r, i) =>
-                      <li key={i} style={{ marginBottom: 2 }}>{r}</li>)}
+                  <Chip status={scoreStatus(s.score)} dot={false}>
+                    {(s.score * 100).toFixed(0)}
+                  </Chip>
+                </td>
+                <td style={{ padding: '8px', fontWeight: 600, color: 'var(--text)' }}>{s.address}</td>
+                <td style={{ padding: '8px', color: 'var(--text)' }}>{s.suburb || ''}</td>
+                <td style={{ padding: '8px' }}>
+                  {/* Real reason_codes from the signal engine, each dot
+                      coloured by the type the engine itself named. */}
+                  <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {(s.reason_codes || []).map((r, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, color: 'var(--text)' }}>
+                        <span aria-hidden="true" style={{
+                          width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
+                          background: `var(--status-${reasonStatus(r)})`,
+                        }} />
+                        <span>{r}</span>
+                      </li>
+                    ))}
                   </ul>
                 </td>
                 {status === 'new' && (
                   <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
-                    <button
-                      onClick={() => setSignalStatus(s.id, 'actioned')}
-                      disabled={busyId === s.id}
-                      style={{ marginRight: 6, padding: '3px 8px', cursor: 'pointer' }}>
-                      ✓ Actioned
-                    </button>
-                    <button
-                      onClick={() => setSignalStatus(s.id, 'dismissed')}
-                      disabled={busyId === s.id}
-                      style={{ padding: '3px 8px', cursor: 'pointer' }}>
-                      ✕ Dismiss
-                    </button>
+                    <span style={{ display: 'inline-flex', gap: 6 }}>
+                      <Button variant="secondary" size="sm" icon={Check}
+                              onClick={() => setSignalStatus(s.id, 'actioned')}
+                              loading={busyId === s.id}>
+                        Actioned
+                      </Button>
+                      <Button variant="ghost" size="sm" icon={X}
+                              onClick={() => setSignalStatus(s.id, 'dismissed')}
+                              disabled={busyId === s.id}>
+                        Dismiss
+                      </Button>
+                    </span>
                   </td>
                 )}
               </tr>
