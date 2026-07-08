@@ -4,7 +4,7 @@
 // .xlsx report is regenerated on demand from the persisted data.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, MapPin, ChevronDown } from 'lucide-react'
+import { Download, MapPin, ChevronDown, StickyNote, Plus } from 'lucide-react'
 import StickyHScroll from './components/StickyHScroll'
 import { formatIsoDate } from './hooks/useListings'
 import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
@@ -885,9 +885,9 @@ export default function HotVendorScoring() {
             <button
               className={`hv-pill ${compact ? 'active' : ''}`}
               onClick={() => setCompact(c => !c)}
-              title="Toggle compact column widths"
+              title="Toggle row density — compact fits more leads on screen"
             >
-              Compact
+              {compact ? 'Compact' : 'Comfortable'}
             </button>
 
             <div className="hv-spacer" />
@@ -939,17 +939,36 @@ export default function HotVendorScoring() {
                   <th>Agency</th>
                   <th>Agent</th>
                   <th>Status</th>
-                  <th>📝 Note</th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map(p => {
                   const userStatus = statuses[p.address] || ''
                   const addr = titleCase(p.address)
+                  const noteText = (notes[p.address] || '').trim()
+                  const hasNote = !!noteText
                   return (
                     <tr key={p.rank}>
                       <td className="num">{p.rank}</td>
-                      <td className="hv-cell-address" title={addr}>{addr}</td>
+                      <td className="hv-cell-address">
+                        <div className="hv-addr-main" title={addr}>{addr}</div>
+                        {/* Note lives here now (was a separate right-hand
+                            column that forced horizontal scroll). Same
+                            openNote() editor + save path — only moved. */}
+                        {hasNote ? (
+                          <div className="hv-note-inline has-note" title={noteText}
+                               onClick={() => openNote(p)}>
+                            <StickyNote size={11} strokeWidth={2} aria-hidden="true" />
+                            <span>{noteText}</span>
+                          </div>
+                        ) : (
+                          <button type="button" className="hv-note-inline empty-note"
+                                  onClick={() => openNote(p)}>
+                            <Plus size={11} strokeWidth={2} aria-hidden="true" />
+                            Add a note
+                          </button>
+                        )}
+                      </td>
                       <td>{p.type}</td>
                       <td className="num">{p.bedrooms ?? '-'}</td>
                       <td className="num">{fmtMoney(p.last_sale_price)}</td>
@@ -973,29 +992,11 @@ export default function HotVendorScoring() {
                           options={STATUS_OPTIONS}
                         />
                       </td>
-                      <td className="note-cell">
-                        {(() => {
-                          const text = (notes[p.address] || '').trim()
-                          const has = !!text
-                          const preview = has
-                            ? (text.length > 30 ? text.slice(0, 30) + '…' : text)
-                            : null
-                          return (
-                            <button
-                              className={`btn-note ${has ? 'has-note' : 'empty-note'}`}
-                              title={has ? text : 'Click to add a note'}
-                              onClick={() => openNote(p)}
-                            >
-                              {has ? <>📝&nbsp;{preview}</> : <>＋&nbsp;Add</>}
-                            </button>
-                          )
-                        })()}
-                      </td>
                     </tr>
                   )
                 })}
                 {!sorted.length && (
-                  <tr><td colSpan="17" className="empty">No properties match the current filters</td></tr>
+                  <tr><td colSpan="16" className="empty">No properties match the current filters</td></tr>
                 )}
               </tbody>
             </table>

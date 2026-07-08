@@ -1546,7 +1546,27 @@ body.col-resizing * {
 .hot-vendor th { padding: 7px 8px; font-size: 11px; }
 .hot-vendor td { padding: 5px 8px; }
 
-.hv-cell-address { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Address cell now stacks the address + its note on two lines, each
+   truncated independently (the note used to be a separate right-hand
+   column that forced horizontal scroll). */
+.hv-cell-address { max-width: 220px; white-space: normal; }
+.hv-cell-address .hv-addr-main {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hv-note-inline {
+  display: flex; align-items: center; gap: 4px;
+  max-width: 220px; margin-top: 2px;
+  font-size: 11px; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer; background: none; border: none; padding: 0;
+  text-align: left;
+}
+.hv-note-inline svg { flex-shrink: 0; }
+.hv-note-inline span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-note-inline.has-note { color: var(--text-muted); }
+.hv-note-inline.empty-note { color: var(--text-faint); }
+.hv-note-inline:hover { color: var(--accent); }
+
 .hv-cell-owner { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hv-cell-agency { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hv-cell-agent { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
