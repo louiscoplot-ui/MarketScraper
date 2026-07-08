@@ -3,8 +3,21 @@
 // component is purely presentational.
 
 import { useRef, useEffect } from 'react'
+import { MultiSelect, Chip } from '../components/ui'
 
 const PERTH_TZ = 'Australia/Perth'
+
+// Compact money for the price-change delta: $150k / $1.2M. Sign is added
+// by the caller so this only formats the magnitude.
+function abbrevMoney(n) {
+  const a = Math.abs(Number(n) || 0)
+  if (a >= 1_000_000) {
+    const m = a / 1_000_000
+    return `$${(a >= 10_000_000 ? Math.round(m) : m.toFixed(1)).toString().replace(/\.0$/, '')}M`
+  }
+  if (a >= 1_000) return `$${Math.round(a / 1000)}k`
+  return `$${Math.round(a)}`
+}
 
 // Strict dd/mm/yyyy. Mirrors Pipeline.jsx:43 — kept in sync manually
 // since Pipeline doesn't export it. Operators in WA expect dd/mm/yyyy
@@ -46,8 +59,6 @@ function formatWhen(raw) {
   const now = new Date()
   const diffMs = now - d
   const diffH = diffMs / (1000 * 60 * 60)
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const hh = String(d.getHours()).padStart(2, '0')
   const mm = String(d.getMinutes()).padStart(2, '0')
   const time = `${hh}:${mm}`
@@ -56,7 +67,10 @@ function formatWhen(raw) {
     return mins <= 1 ? 'Just now' : `${mins} min ago`
   }
   if (diffH < 24) return `${Math.floor(diffH)}h ago`
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${time}`
+  // ≥ 24h → absolute date in Australian DD/MM/YYYY (was "3 May 2026").
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  return `${dd}/${mo}/${d.getFullYear()} ${time}`
 }
 
 // Tooltip for the WHEN cell — full date + time so the operator can
@@ -109,49 +123,22 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
         ? ` — ${[...reportSuburbs].map(id => suburbs.find(s => s.id === id)?.name).filter(Boolean).join(', ')}`
         : ''}</h2>
       <div className="report-suburb-selector">
-        {/* Native onChange instead of label-onClick + readOnly so the
-            browser ticks the box instantly on click — the React state
-            update + report refetch run after, asynchronously, and don't
-            block the visual feedback. */}
-        <label className="report-check-item">
-          <input
-            type="checkbox"
-            checked={reportSuburbs.size === suburbs.length && suburbs.length > 0}
-            onChange={(e) => {
-              if (e.target.checked) {
-                const all = new Set(suburbs.map(s => s.id))
-                setReportSuburbs(all)
-                scheduleFetch(all)
-              } else {
-                setReportSuburbs(new Set())
-              }
-            }}
-          />
-          <span>All</span>
-        </label>
-        {suburbs.map(s => (
-          <label key={s.id} className="report-check-item">
-            <input
-              type="checkbox"
-              checked={reportSuburbs.has(s.id)}
-              onChange={(e) => {
-                const next = new Set(reportSuburbs)
-                if (e.target.checked) next.add(s.id)
-                else next.delete(s.id)
-                setReportSuburbs(next)
-                // Defer the fetch (and its setReportLoading) one paint
-                // frame so the browser commits the checkbox tick first.
-                // Without this, React's heavy re-render that swaps the
-                // data area to LoadingState steals the paint slot and
-                // the operator never sees the tick before the spinner.
-                if (next.size > 0) {
-                  scheduleFetch(next)
-                }
-              }}
-            />
-            <span>{s.name}</span>
-          </label>
-        ))}
+        {/* One chips multi-select replaces the 18 native checkboxes. The
+            component's built-in All / Clear drive the same fetch path;
+            selecting nothing leaves the last report on screen (no fetch),
+            exactly as before. */}
+        <MultiSelect
+          options={suburbs.map(s => ({ value: s.id, label: s.name }))}
+          selected={[...reportSuburbs]}
+          placeholder="All suburbs"
+          allLabel="All"
+          onChange={(arr) => {
+            const next = new Set(arr)
+            setReportSuburbs(next)
+            if (next.size > 0) scheduleFetch(next)
+          }}
+          style={{ maxWidth: 640 }}
+        />
       </div>
       {/* Inline "updating…" hint when refreshing a previously-loaded
           report — keeps the old data visible so toggling suburbs
@@ -306,10 +293,27 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                     <td className="price-cell old-price">{pd.old_price || '-'}</td>
                     <td className="price-cell">{pd.new_price || '-'}</td>
                     <td className="num">
-                      {pd.drop_amount
-                        ? <span className="price-drop-badge">-${pd.drop_amount.toLocaleString()} ({pd.drop_pct}%)</span>
-                        : <span className="price-change-badge">Changed</span>
-                      }
+                      {pd.delta_amount != null ? (
+                        // Signed delta. A cut is the motivated-seller
+                        // signal → alert (red, per the status grammar);
+                        // a rise is neutral information → info (blue).
+                        pd.delta_amount < 0 ? (
+                          <Chip status="alert" size="sm" dot={false}>
+                            −{abbrevMoney(pd.delta_amount)} · {pd.delta_pct}%
+                          </Chip>
+                        ) : (
+                          <Chip status="info" size="sm" dot={false}>
+                            +{abbrevMoney(pd.delta_amount)} · +{pd.delta_pct}%
+                          </Chip>
+                        )
+                      ) : (
+                        // Prices we can't parse into numbers (e.g. "Offers
+                        // over $X" → "Under negotiation"): show the real
+                        // before→after text, never an invented delta.
+                        <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          {pd.old_price || '—'} → {pd.new_price || '—'}
+                        </span>
+                      )}
                     </td>
                     <td className="when-cell" title={fmtFullTooltip(pd.changed_at)}>
                       {formatWhen(pd.changed_at)}
@@ -438,7 +442,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                   <tr key={i} className="stale-row">
                     <td>{l.address}</td><td>{l.suburb}</td><td>{l.price || '-'}</td>
                     <td>{l.agent || '-'}</td><td>{l.agency || '-'}</td>
-                    <td className="num stale">{l.dom}</td>
+                    <td title="60+ days on the market">
+                      <Chip status="alert" size="sm">Stale · {l.dom}d</Chip>
+                    </td>
                     <td className="link-cell">{l.reiwa_url ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a> : '-'}</td>
                   </tr>
                 ))}

@@ -221,6 +221,18 @@ def market_report():
         if old_p and new_p and new_p < old_p:
             drop_amount = old_p - new_p
             drop_pct = round((drop_amount / old_p) * 100, 1)
+        # Signed delta for ANY parseable change (drop OR rise). A cut and
+        # a rise read very differently to an agent (a cut signals a vendor
+        # who's moving), so the UI shows the direction, never a generic
+        # "Changed". Negative = price cut, positive = price rise; null only
+        # when a price can't be parsed ("Offers over $X" → "Under
+        # negotiation"), where the UI falls back to raw old→new text.
+        # drop_* stay untouched for any existing consumer.
+        delta_amount = None
+        delta_pct = None
+        if old_p and new_p:
+            delta_amount = new_p - old_p
+            delta_pct = round((delta_amount / old_p) * 100, 1)
         # Robust fallback chain so the 'When' column is NEVER blank.
         # Order: explicit changed_at → SQL-side COALESCE
         # (effective_changed_at) → listing's last_seen → first_seen →
@@ -241,6 +253,8 @@ def market_report():
             'new_price': pc.get('new_price'),
             'drop_amount': drop_amount,
             'drop_pct': drop_pct,
+            'delta_amount': delta_amount,
+            'delta_pct': delta_pct,
             'changed_at': when,
             'agent': pc.get('agent'),
             'agency': pc.get('agency'),

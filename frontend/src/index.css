@@ -1005,8 +1005,10 @@ tr.status-withdrawn:hover { background: color-mix(in srgb, var(--status-withdraw
   background: rgba(239, 68, 68, 0.05) !important;
 }
 
+/* Withdrawn = motivated-vendor lead — keeps a real alert tint, never
+   greyed. Tokenised to the status grammar (was a hardcoded red). */
 .withdrawn-row {
-  background: rgba(239, 68, 68, 0.08) !important;
+  background: var(--status-alert-bg) !important;
 }
 
 /* Market Share Bars */
