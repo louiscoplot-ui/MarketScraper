@@ -575,17 +575,22 @@ export default function RentalView({ selectedNames } = {}) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      // Non-destructive merge response: backend now distinguishes
-      // brand-new rows from existing-but-enriched ones, so the toast
-      // can be precise about what actually changed.
-      const ins = data.inserted ?? data.imported ?? 0
-      const enr = data.enriched ?? 0
-      const sk = data.skipped ?? 0
-      const subN = (data.suburbs || []).length
-      setImportMsg(
-        `✓ ${ins} listings added, ${enr} enriched across ${subN} suburb${subN !== 1 ? 's' : ''}`
-        + (sk ? ` — ${sk} skipped` : '')
-      )
+      // Prefer the backend's human summary — it distinguishes enriched
+      // from out-of-scope suburbs skipped (a 26-sheet export imported into
+      // 15 tracked suburbs should read as NORMAL, not an error). Fall back
+      // to a computed line for older backends without `summary`.
+      if (data.summary) {
+        setImportMsg(data.summary)
+      } else {
+        const ins = data.inserted ?? data.imported ?? 0
+        const enr = data.enriched ?? 0
+        const sk = data.skipped ?? 0
+        const subN = (data.suburbs || []).length
+        setImportMsg(
+          `${ins} listings added, ${enr} enriched across ${subN} suburb${subN !== 1 ? 's' : ''}`
+          + (sk ? ` — ${sk} skipped` : '')
+        )
+      }
       // Refresh every currently-displayed suburb so freshly-imported
       // rows appear without a manual reload, regardless of whether
       // the operator is in single- or multi-suburb mode.
