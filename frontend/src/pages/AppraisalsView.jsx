@@ -5,6 +5,8 @@
 // view's plain-table styling.
 import { useState, useEffect, useCallback } from 'react'
 import { BACKEND_DIRECT } from '../lib/api'
+import { formatIsoDate } from '../hooks/useListings'
+import { Button, Chip, Spinner } from '../components/ui'
 
 const API = `${BACKEND_DIRECT}/api`
 
@@ -115,19 +117,13 @@ export default function AppraisalsView() {
 
   return (
     <div style={{ padding: '8px 4px' }}>
-      <h2>Appraisals</h2>
-      <div style={{ display: 'flex', gap: 12, margin: '0 0 16px', flexWrap: 'wrap' }}>
-        <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 10px',
-          borderRadius: 6, fontWeight: 600, fontSize: 13 }}>
-          {wonCount} won
-        </span>
-        <span style={{ background: '#eff6ff', color: '#1e40af', padding: '4px 10px',
-          borderRadius: 6, fontWeight: 600, fontSize: 13 }}>
-          {activeCount} active
-        </span>
+      <h2 style={{ color: 'var(--text)' }}>Appraisals</h2>
+      <div style={{ display: 'flex', gap: 10, margin: '0 0 16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <Chip status="good">{wonCount} won</Chip>
+        <Chip status="info">{activeCount} active</Chip>
         {roi && (
-          <span style={{ background: '#386350', color: '#fff', padding: '4px 10px',
-            borderRadius: 6, fontWeight: 700, fontSize: 13 }}
+          <span style={{ background: 'var(--accent)', color: 'var(--accent-fg)', padding: '3px 10px',
+            borderRadius: 'var(--radius-pill)', fontWeight: 700, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}
             title={`${roi.total_mandates_won} mandates · this quarter $${(roi.this_quarter?.commission || 0).toLocaleString()}`}>
             ${Number(roi.total_commission_aud || 0).toLocaleString()} commissions
           </span>
@@ -136,64 +132,59 @@ export default function AppraisalsView() {
 
       <form onSubmit={submit} style={{ display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8,
-        margin: '0 0 20px', padding: 12, background: '#fafafa',
-        border: '1px solid #eee', borderRadius: 8 }}>
-        <input placeholder="Address *" value={form.address} onChange={f('address')} />
-        <input placeholder="Suburb" value={form.suburb} onChange={f('suburb')} />
-        <input placeholder="Vendor name" value={form.vendor_name} onChange={f('vendor_name')} />
-        <input placeholder="Vendor email" value={form.vendor_email} onChange={f('vendor_email')} />
-        <input placeholder="Vendor phone" value={form.vendor_phone} onChange={f('vendor_phone')} />
-        <input type="date" value={form.appraisal_date} onChange={f('appraisal_date')} />
-        <input placeholder="Estimated price" value={form.estimated_price} onChange={f('estimated_price')} />
-        <input placeholder="Notes" value={form.notes} onChange={f('notes')} />
-        <button type="submit" disabled={saving}
-          style={{ gridColumn: '1 / -1', padding: '8px 16px', background: '#386350',
-            color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600,
-            cursor: 'pointer' }}>
-          {saving ? 'Saving…' : 'Log appraisal (+ schedule J+30/60/90)'}
-        </button>
-        {error && <div style={{ gridColumn: '1 / -1', color: '#b91c1c', fontSize: 13 }}>{error}</div>}
+        margin: '0 0 20px', padding: 12, background: 'var(--bg)',
+        border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+        <input placeholder="Address *" value={form.address} onChange={f('address')} style={inputStyle} />
+        <input placeholder="Suburb" value={form.suburb} onChange={f('suburb')} style={inputStyle} />
+        <input placeholder="Vendor name" value={form.vendor_name} onChange={f('vendor_name')} style={inputStyle} />
+        <input placeholder="Vendor email" value={form.vendor_email} onChange={f('vendor_email')} style={inputStyle} />
+        <input placeholder="Vendor phone" value={form.vendor_phone} onChange={f('vendor_phone')} style={inputStyle} />
+        <input type="date" value={form.appraisal_date} onChange={f('appraisal_date')} style={inputStyle} />
+        <input placeholder="Estimated price" value={form.estimated_price} onChange={f('estimated_price')} style={inputStyle} />
+        <input placeholder="Notes" value={form.notes} onChange={f('notes')} style={inputStyle} />
+        <div style={{ gridColumn: '1 / -1' }}>
+          <Button type="submit" variant="primary" loading={saving}>
+            {saving ? 'Saving…' : 'Log appraisal (+ schedule J+30/60/90)'}
+          </Button>
+        </div>
+        {error && <div style={{ gridColumn: '1 / -1', color: 'var(--status-alert-text)', fontSize: 13 }}>{error}</div>}
       </form>
 
       {loading ? (
-        <p style={{ color: '#666' }}>Loading…</p>
+        <div style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Spinner size={16} muted inline /> Loading…
+        </div>
       ) : items.length === 0 ? (
-        <p style={{ color: '#666' }}>No appraisals logged yet.</p>
+        <p style={{ color: 'var(--text-muted)' }}>No appraisals logged yet.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ textAlign: 'left', borderBottom: '2px solid #eee' }}>
-              <th style={{ padding: 6 }}>Address</th>
-              <th style={{ padding: 6 }}>Suburb</th>
-              <th style={{ padding: 6 }}>Date</th>
-              <th style={{ padding: 6 }}>Est. price</th>
-              <th style={{ padding: 6 }}>Next follow-up</th>
-              <th style={{ padding: 6 }}>Status</th>
-              <th style={{ padding: 6 }}></th>
+            <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)' }}>
+              {['Address', 'Suburb', 'Date', 'Est. price', 'Next follow-up', 'Status', ''].map((h, i) => (
+                <th key={i} style={{ padding: 6, color: 'var(--text-muted)' }}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {items.map(a => (
-              <tr key={a.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                <td style={{ padding: 6 }}>{a.address}</td>
-                <td style={{ padding: 6 }}>{a.suburb || '—'}</td>
-                <td style={{ padding: 6 }}>{a.appraisal_date}</td>
-                <td style={{ padding: 6 }}>
+              <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ padding: 6, color: 'var(--text)' }}>{a.address}</td>
+                <td style={{ padding: 6, color: 'var(--text)' }}>{a.suburb || '—'}</td>
+                <td style={{ padding: 6, color: 'var(--text)' }}>{formatIsoDate(a.appraisal_date) || a.appraisal_date}</td>
+                <td style={{ padding: 6, color: 'var(--text)' }}>
                   {a.estimated_price ? `$${Number(a.estimated_price).toLocaleString()}` : '—'}
                 </td>
-                <td style={{ padding: 6 }}>{a.next_followup || '—'}</td>
-                <td style={{ padding: 6, fontWeight: 600,
-                  color: a.status === 'won' ? '#166534'
-                    : a.status === 'lost' ? '#b91c1c' : '#1e40af' }}>
-                  {a.status}
+                <td style={{ padding: 6, color: 'var(--text)' }}>{formatIsoDate(a.next_followup) || '—'}</td>
+                <td style={{ padding: 6 }}>
+                  <Chip status={a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'} size="sm">
+                    {a.status}
+                  </Chip>
                 </td>
                 <td style={{ padding: 6 }}>
                   {a.status === 'active' && (
                     <span style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => markWon(a.id)}
-                        style={{ cursor: 'pointer', fontSize: 12 }}>Won</button>
-                      <button onClick={() => setStatus(a.id, 'lost')}
-                        style={{ cursor: 'pointer', fontSize: 12 }}>Lost</button>
+                      <Button variant="secondary" size="sm" onClick={() => markWon(a.id)}>Won</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setStatus(a.id, 'lost')}>Lost</Button>
                     </span>
                   )}
                 </td>
@@ -204,4 +195,10 @@ export default function AppraisalsView() {
       )}
     </div>
   )
+}
+
+const inputStyle = {
+  padding: '8px 10px', fontSize: 13, borderRadius: 'var(--radius-sm)',
+  border: '1px solid var(--border)', background: 'var(--surface)',
+  color: 'var(--text)', outline: 'none', boxSizing: 'border-box',
 }
