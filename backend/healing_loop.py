@@ -47,7 +47,7 @@ logger = logging.getLogger('healing_loop')
 
 # Where the scraper team will get paged. Hard-coded per spec — this is the
 # operator address, not an end-user, so it doesn't go through user scoping.
-ALERT_TO = 'louis@suburbdesk.com'
+ALERT_TO = 'louiscoplot@gmail.com'
 
 # Throttle file — one alert every ALERT_COOLDOWN seconds across the whole
 # run (the GHA runner shares /tmp across the parallel suburb workers, so
