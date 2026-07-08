@@ -11,10 +11,13 @@
  *   - inline meta + 'listings' label colours
  */
 
+/* --brand is now an alias of the single app accent (tokens.css).
+   The v2-era indigo (#5B5BD6) is gone — every rule below that says
+   var(--brand) renders the Acton|Belle green from now on. */
 :root {
-  --brand: #5B5BD6;
-  --brand-soft: #EEEEFB;
-  --brand-strong: #4848BC;
+  --brand: var(--accent);
+  --brand-soft: var(--accent-soft);
+  --brand-strong: var(--accent-hover);
 }
 
 /* Active tab pill in the header — brand fill on whatever theme. */
@@ -96,22 +99,22 @@ button.btn-primary:hover {
  * ---------------------------------------------------------------- */
 
 [data-theme="v2"] {
-  --brand: #5B5BD6;
-  --brand-soft: #EEEEFB;
-  --ink: #1C1D22;
+  --brand: var(--accent);
+  --brand-soft: var(--accent-soft);
+  --ink: var(--text);
   --ink-2: #3A3B42;
-  --muted: #6B6C75;
-  --faint: #A4A5AD;
+  --muted: var(--text-muted);
+  --faint: var(--text-faint);
   --border: #E8E8EC;
   --bg: #FBFBFC;
-  --panel: #FFFFFF;
+  --panel: var(--surface);
   --sidebar-bg: #F7F7F9;
-  --green: #0E9F6E;
-  --green-soft: #E8F5EE;
-  --amber: #D97706;
-  --amber-soft: #FDF3E3;
-  --red: #DC2626;
-  --red-soft: #FBECEC;
+  --green: var(--status-good);
+  --green-soft: var(--status-good-bg);
+  --amber: var(--status-watch);
+  --amber-soft: var(--status-watch-bg);
+  --red: var(--status-alert);
+  --red-soft: var(--status-alert-bg);
 
   /* Override theme.js-driven CSS vars to match the brand on first paint. */
   --surface: var(--panel);
@@ -196,8 +199,8 @@ button.btn-primary:hover {
 }
 [data-theme="v2"] .btn-primary:hover,
 [data-theme="v2"] button.btn-primary:hover {
-  background: #4848BC;
-  border-color: #4848BC;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* Catch any old generic blue (#3b82f6 / #2563eb / hardcoded) by adding
@@ -208,7 +211,7 @@ button.btn-primary:hover {
   border-color: var(--brand);
 }
 [data-theme="v2"] .btn:not(.btn-ghost):not(.btn-danger):not(.btn-secondary):hover {
-  background: #4848BC;
+  background: var(--accent-hover);
 }
 
 /* Sidebar ---------------------------------------------------------- */
@@ -404,7 +407,7 @@ button.btn-primary:hover {
   background: var(--brand);
 }
 [data-theme="classic"] .theme-toggle .dot {
-  background: #386351;
+  background: var(--accent);
 }
 
 /* Hot Vendors recent-reports cards — active state in brand. -------- */
@@ -439,7 +442,7 @@ button.btn-primary:hover {
   height: 22px;
   border-radius: 50%;
   border: 2px solid rgba(0, 0, 0, 0.08);
-  border-top-color: #5B5BD6;
+  border-top-color: var(--accent);
   animation: loading-spin 0.7s linear infinite;
 }
 .loading-spinner-sm {
@@ -453,11 +456,11 @@ button.btn-primary:hover {
 .loading-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1C1D22;
+  color: var(--text);
 }
 .loading-sub {
   font-size: 12px;
-  color: #6B6C75;
+  color: var(--text-muted);
   max-width: 360px;
   line-height: 1.5;
 }

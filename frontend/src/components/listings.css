@@ -88,10 +88,10 @@
   flex-shrink: 0;
 }
 
-tr.status-active .status-badge { color: #16a34a; }
-tr.status-under_offer .status-badge { color: #ea580c; }
-tr.status-sold .status-badge { color: #2563eb; }
-tr.status-withdrawn .status-badge { color: #dc2626; }
+tr.status-active .status-badge { color: var(--status-active); }
+tr.status-under_offer .status-badge { color: var(--status-under-offer); }
+tr.status-sold .status-badge { color: var(--status-sold); }
+tr.status-withdrawn .status-badge { color: var(--status-withdrawn); }
 
 
 /* Filter bar — slightly cleaner spacing */
@@ -113,10 +113,10 @@ tr.status-withdrawn .status-badge { color: #dc2626; }
 
 /* Status row stripe — keep the coloured 3px left rail, but only on the
    first cell so it doesn't fight with the sticky-column background. */
-tr.status-active td:first-child { box-shadow: inset 3px 0 0 #16a34a, 1px 0 0 var(--border); }
-tr.status-under_offer td:first-child { box-shadow: inset 3px 0 0 #ea580c, 1px 0 0 var(--border); }
-tr.status-sold td:first-child { box-shadow: inset 3px 0 0 #2563eb, 1px 0 0 var(--border); }
-tr.status-withdrawn td:first-child { box-shadow: inset 3px 0 0 #dc2626, 1px 0 0 var(--border); }
+tr.status-active td:first-child { box-shadow: inset 3px 0 0 var(--status-active), 1px 0 0 var(--border); }
+tr.status-under_offer td:first-child { box-shadow: inset 3px 0 0 var(--status-under-offer), 1px 0 0 var(--border); }
+tr.status-sold td:first-child { box-shadow: inset 3px 0 0 var(--status-sold), 1px 0 0 var(--border); }
+tr.status-withdrawn td:first-child { box-shadow: inset 3px 0 0 var(--status-withdrawn), 1px 0 0 var(--border); }
 
 .table-wrapper tbody tr {
   border-left: none !important;

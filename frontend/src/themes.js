@@ -2,7 +2,8 @@
 // has no saved theme. Bumping THEME_STORAGE_KEY forces existing users
 // to migrate to the new default on next load.
 
-export const THEME_STORAGE_KEY = 'ms_theme_v4'
+// v5 — forces everyone onto the corrected brand green (#386350).
+export const THEME_STORAGE_KEY = 'ms_theme_v5'
 
 
 // Acton | Belle Property official brand green over a clean neutral
@@ -15,7 +16,9 @@ export const ACTON = {
   border: '#E7E5E4',
   text: '#0C0A09',
   textMuted: '#78716C',
-  primary: '#386351',
+  // Canonical brand green — matches --accent in tokens.css. Was
+  // #386351, a one-nibble drift from the letters/emails green.
+  primary: '#386350',
 }
 
 

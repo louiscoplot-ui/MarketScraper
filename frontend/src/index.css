@@ -4,20 +4,19 @@
   box-sizing: border-box;
 }
 
+/* Base palette lives in tokens.css (imported before this file).
+   The legacy names below are kept for the hundreds of existing
+   usages, but they now POINT AT the tokens — no more dark-slate
+   first-paint flash, no more legacy blue primary. themes.js presets
+   may still override the surface/text group at runtime. */
 :root {
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --surface-hover: #334155;
-  --border: #334155;
-  --text: #e2e8f0;
-  --text-muted: #94a3b8;
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --danger: #ef4444;
-  --active: #22c55e;
-  --under-offer: #f59e0b;
-  --sold: #3b82f6;
-  --withdrawn: #ef4444;
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --danger: var(--status-alert);
+  --active: var(--status-active);
+  --under-offer: var(--status-under-offer);
+  --sold: var(--status-sold);
+  --withdrawn: var(--status-withdrawn);
 }
 
 body {
@@ -499,16 +498,18 @@ tr:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
-/* Light row tint per status — matches the filter pill colours above. */
-tr.status-active { background: rgba(34, 197, 94, 0.08); border-left: 3px solid var(--active); }
-tr.status-under_offer { background: rgba(245, 158, 11, 0.09); border-left: 3px solid var(--under-offer); }
-tr.status-sold { background: rgba(59, 130, 246, 0.08); border-left: 3px solid var(--sold); }
-tr.status-withdrawn { background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--withdrawn); }
+/* Light row tint per status — driven by the --row-tint-opacity token
+   so the whole app can be retuned from one number. Withdrawn keeps
+   the same full-intensity tint as the others (hot lead, never greyed). */
+tr.status-active { background: color-mix(in srgb, var(--status-active) var(--row-tint-opacity), transparent); border-left: 3px solid var(--active); }
+tr.status-under_offer { background: color-mix(in srgb, var(--status-under-offer) var(--row-tint-opacity), transparent); border-left: 3px solid var(--under-offer); }
+tr.status-sold { background: color-mix(in srgb, var(--status-sold) var(--row-tint-opacity), transparent); border-left: 3px solid var(--sold); }
+tr.status-withdrawn { background: color-mix(in srgb, var(--status-withdrawn) var(--row-tint-opacity), transparent); border-left: 3px solid var(--withdrawn); }
 
-tr.status-active:hover { background: rgba(34, 197, 94, 0.14); }
-tr.status-under_offer:hover { background: rgba(245, 158, 11, 0.15); }
-tr.status-sold:hover { background: rgba(59, 130, 246, 0.14); }
-tr.status-withdrawn:hover { background: rgba(239, 68, 68, 0.14); }
+tr.status-active:hover { background: color-mix(in srgb, var(--status-active) var(--row-tint-opacity-hover), transparent); }
+tr.status-under_offer:hover { background: color-mix(in srgb, var(--status-under-offer) var(--row-tint-opacity-hover), transparent); }
+tr.status-sold:hover { background: color-mix(in srgb, var(--status-sold) var(--row-tint-opacity-hover), transparent); }
+tr.status-withdrawn:hover { background: color-mix(in srgb, var(--status-withdrawn) var(--row-tint-opacity-hover), transparent); }
 
 /* Tighter density for the main listings table only. */
 .listings-table { font-size: 12.5px; }
