@@ -1283,9 +1283,11 @@ tr.status-withdrawn:hover { background: color-mix(in srgb, var(--status-withdraw
   letter-spacing: 0;
 }
 
-.hv-stat.hv-hot .hv-stat-num { color: #dc2626; }
-.hv-stat.hv-warm .hv-stat-num { color: #ea580c; }
-.hv-stat.hv-medium .hv-stat-num { color: #ca8a04; }
+/* Count colours double as the score-badge legend — same palette as the
+   HOT/WARM/MEDIUM badges so the top row reads as a key for the table. */
+.hv-stat.hv-hot .hv-stat-num { color: var(--score-hot); }
+.hv-stat.hv-warm .hv-stat-num { color: var(--score-warm); }
+.hv-stat.hv-medium .hv-stat-num { color: var(--score-medium); }
 
 .hv-controls {
   display: flex;
@@ -1299,6 +1301,9 @@ tr.status-withdrawn:hover { background: color-mix(in srgb, var(--status-withdraw
 }
 
 .hv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 14px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -1312,7 +1317,16 @@ tr.status-withdrawn:hover { background: color-mix(in srgb, var(--status-withdraw
 
 .hv-pill:hover { background: var(--surface-hover); }
 .hv-pill.active {
-  border-color: var(--primary);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Category filter dot — score-badge palette, set inline per filter. */
+.hv-cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .hv-controls select,

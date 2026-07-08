@@ -4,8 +4,10 @@
 // .xlsx report is regenerated on demand from the persisted data.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Download, MapPin, ChevronDown } from 'lucide-react'
 import StickyHScroll from './components/StickyHScroll'
 import { formatIsoDate } from './hooks/useListings'
+import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -15,83 +17,86 @@ import { formatIsoDate } from './hooks/useListings'
 const API = ''
 const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
 const ACTIVE_JOB_KEY = 'agentdeck_hv_active_job'
-// Bumped at every push that touches the upload flow — visible in the
-// header so we can tell at a glance which frontend bundle is live.
-const BUILD_TAG = 'upload-direct-v3'
 
-const CATEGORY_COLORS = {
-  HOT: '#FFD7D7',
-  WARM: '#FFE8CC',
-  MEDIUM: '#FFFACC',
-  LOW: null,
-}
-
-const CATEGORY_BADGE = {
-  HOT: { bg: '#dc2626', label: '🔴 HOT' },
-  WARM: { bg: '#ea580c', label: '🟠 WARM' },
-  MEDIUM: { bg: '#ca8a04', label: '🟡 MEDIUM' },
-  LOW: { bg: '#9ca3af', label: '⚪ LOW' },
-}
-
-// User-controlled per-row flags. Tints override the category colour.
-const STATUS_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'listed', label: '✓ Listed / Appraised' },
-  { value: 'pending', label: '… Considering / Pending' },
-  { value: 'declined', label: '✗ Not interested' },
+// Category filter chips — a coloured dot (score-badge palette) + a
+// plain label. No emoji, no full-pill fill: the row stays neutral and
+// the only place category colour lives is the ScoreBadge column.
+const CAT_FILTERS = [
+  { key: 'ALL', label: 'All' },
+  { key: 'HOT', label: 'Hot', dot: 'var(--score-hot)' },
+  { key: 'WARM', label: 'Warm', dot: 'var(--score-warm)' },
+  { key: 'MEDIUM', label: 'Medium', dot: 'var(--score-medium)' },
+  { key: 'LOW', label: 'Low', dot: 'var(--score-low)' },
 ]
 
-const STATUS_TINT = {
-  listed: '#bbf7d0',
-  pending: '#fde68a',
-  declined: '#fecaca',
+// User-controlled per-row workflow flags. Plain labels — no emoji, and
+// no row tint any more (rows are neutral; the flag lives in the select).
+const STATUS_OPTIONS = [
+  { value: '', label: '—' },
+  { value: 'listed', label: 'Listed / Appraised' },
+  { value: 'pending', label: 'Considering / Pending' },
+  { value: 'declined', label: 'Not interested' },
+]
+
+// Display-only: RP Data ships addresses in ALL CAPS. Title-case them
+// for the UI without ever touching the stored value.
+function titleCase(s) {
+  if (!s) return s
+  return String(s).toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase())
+}
+
+// Whole months since an ISO/date string, or null if unparseable.
+function monthsSince(value) {
+  if (!value) return null
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return null
+  return Math.max(0, Math.round((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24 * 30.4)))
+}
+
+// Soft, non-blocking freshness note. Nothing before 3 months; after
+// that a neutral grey line — never "expired", never red. Access to the
+// data / scoring / export is NEVER gated on age.
+const STALE_AFTER_MONTHS = 3
+function stalenessLabel(uploadedAt) {
+  const n = monthsSince(uploadedAt)
+  if (n == null || n < STALE_AFTER_MONTHS) return null
+  return `~${n} month${n === 1 ? '' : 's'} old`
 }
 
 
-// Renders the small expiry pill on each saved-upload card. Threshold
-// values are sourced from backend (HV_EXPIRY_DAYS / WARN_THRESHOLD) and
-// surface in every upload's `days_remaining` field.
+// Small, neutral freshness note on each saved-upload card. Nothing
+// before 3 months; after that a discreet grey pill — never red, never
+// "expired". A 6-month-old RP Data export on properties held 10+ years
+// is still perfectly usable, so we suggest, we don't alarm.
 function renderExpiryBadge(u) {
-  if (u == null || u.days_remaining == null) return null
-  const dr = u.days_remaining
-  let label, bg, color
-  if (dr < 0) {
-    label = 'Expired — Re-import required'
-    bg = '#fee2e2'; color = '#991b1b'
-  } else if (dr <= 7) {
-    label = `Expiring soon — ${dr}d`
-    bg = '#fef3c7'; color = '#92400e'
-  } else {
-    label = `Valid — ${dr}d remaining`
-    bg = '#dcfce7'; color = '#166534'
-  }
+  const label = stalenessLabel(u && u.uploaded_at)
+  if (!label) return null
   return (
     <div style={{
-      marginTop: 6, fontSize: 11, padding: '2px 6px',
-      borderRadius: 4, background: bg, color, display: 'inline-block',
+      marginTop: 6, fontSize: 11, padding: '2px 7px',
+      borderRadius: 'var(--radius-sm)', display: 'inline-block',
+      background: 'var(--status-off-bg)', color: 'var(--text-muted)',
     }}>{label}</div>
   )
 }
 
-// Page-wide warning banner shown above the Hot Vendor section when the
-// currently loaded upload is expired or within the warn window.
+// Page-wide freshness line above the table — same neutral logic as the
+// card badge. Non-blocking: it never disables data, scoring or export.
 function renderExpiryBanner(data) {
-  if (!data || data.days_remaining == null) return null
-  const dr = data.days_remaining
-  if (dr > 7) return null
-  const expired = dr < 0
-  const when = data.expires_at ? formatIsoDate(data.expires_at) : ''
+  if (!data) return null
+  const label = stalenessLabel(data.uploaded_at)
+  if (!label) return null
+  const when = data.uploaded_at ? formatIsoDate(data.uploaded_at) : ''
   return (
     <div style={{
-      margin: '0 0 12px', padding: '10px 14px', borderRadius: 6,
-      background: expired ? '#fef2f2' : '#fefce8',
-      border: `1px solid ${expired ? '#fca5a5' : '#fde047'}`,
-      color: expired ? '#991b1b' : '#854d0e',
-      fontSize: 13,
+      margin: '0 0 12px', padding: '9px 14px',
+      borderRadius: 'var(--radius)', fontSize: 13,
+      background: 'var(--status-off-bg)',
+      border: '1px solid var(--border)',
+      color: 'var(--text-muted)',
     }}>
-      {expired
-        ? `⚠️ Your Hot Vendor data expired${when ? ` on ${when}` : ''}. Import a new RP Data export to refresh your scores.`
-        : `Your Hot Vendor scores expire in ${dr} day${dr === 1 ? '' : 's'}. Re-import your RP Data to keep your prospecting current.`}
+      Last updated{when ? ` ${when}` : ''} · {label}. Re-import your RP Data
+      for the freshest scores whenever you like.
     </div>
   )
 }
@@ -273,7 +278,6 @@ export default function HotVendorScoring() {
         console.warn('[poll] network blip, retrying:', netErr.message)
         continue
       }
-      console.log(`[poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
       if (sJson.stage) setLoadingStage(sJson.stage)
       if (sJson.status === 'done' && sJson.result) {
         onResult?.(sJson.result)
@@ -292,7 +296,6 @@ export default function HotVendorScoring() {
     setError('')
     setLoading(true)
     setLoadingStage(`Uploading ${(file.size / (1024 * 1024)).toFixed(1)} MB…`)
-    console.log(`[upload] ${file.name} — ${(file.size / (1024 * 1024)).toFixed(2)} MB`)
     const t0 = Date.now()
     try {
       const fd = new FormData()
@@ -303,7 +306,6 @@ export default function HotVendorScoring() {
         method: 'POST',
         body: fd,
       })
-      console.log(`[upload] POST took ${Date.now() - t0} ms, status=${startRes.status}`)
       const startJson = await startRes.json()
       if (!startRes.ok || !startJson.job_id) {
         throw new Error(startJson.error || `Upload rejected (${startRes.status})`)
@@ -315,10 +317,8 @@ export default function HotVendorScoring() {
           job_id: jobId, filename: file.name, started_at: Date.now(),
         }))
       } catch {}
-      console.log(`[upload] queued job ${jobId} — polling every 2.5s`)
 
       const result = await pollJob(jobId)
-      console.log(`[upload] job ${jobId} done in ${((Date.now() - t0) / 1000).toFixed(1)}s`)
       setData(result)
       refreshSavedUploads()
       try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
@@ -340,7 +340,6 @@ export default function HotVendorScoring() {
     let stored
     try { stored = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || 'null') } catch { stored = null }
     if (!stored?.job_id) return
-    console.log(`[resume] picking up job ${stored.job_id} from localStorage`)
     setLoading(true)
     setLoadingStage('Resuming…')
     ;(async () => {
@@ -378,8 +377,6 @@ export default function HotVendorScoring() {
 
   const downloadExcel = async () => {
     const id = data?.upload_id ?? data?.id ?? data?.uploadId
-    console.log('[Excel] Download clicked. data keys =', data && Object.keys(data),
-                ' upload_id =', id, ' suburb =', data?.suburb)
     if (!id) {
       setError(
         'No upload_id on this report. The backend may not have finished ' +
@@ -415,7 +412,6 @@ export default function HotVendorScoring() {
         throw new Error(startJson.error || `Could not start Excel job (${startRes.status})`)
       }
       const jobId = startJson.job_id
-      console.log(`[Excel] queued job ${jobId} — polling`)
 
       const POLL_MS = 1500
       const MAX_MS = 10 * 60 * 1000
@@ -441,9 +437,7 @@ export default function HotVendorScoring() {
         consecutivePollErrors = 0
         const sJson = await sRes.json().catch(() => ({}))
         if (sJson.stage) setExcelStage(sJson.stage)
-        console.log(`[Excel poll ${jobId}] status=${sJson.status} stage=${sJson.stage}`)
         if (sJson.status === 'done' && sJson.has_file) {
-          console.log(`[Excel] ready in ${((Date.now() - t0) / 1000).toFixed(1)}s — fetching file`)
           const fileRes = await fetch(
             `${BACKEND_DIRECT}/api/hot-vendors/excel-job/${jobId}/file`,
             { signal: AbortSignal.timeout(FILE_TIMEOUT_MS) }
@@ -670,11 +664,7 @@ export default function HotVendorScoring() {
       {expiryBanner}
       <div className="hot-vendor-header">
         <div>
-          <h2>Hot Vendor Scoring <span style={{
-            fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)',
-            marginLeft: 8, padding: '2px 6px', border: '1px solid var(--border)',
-            borderRadius: 4, fontFamily: 'monospace',
-          }}>{BUILD_TAG}</span></h2>
+          <h2>Hot Vendor Scoring</h2>
           <p className="hot-vendor-sub">
             Drop an RP Data / CoreLogic / Landgate CSV (or xlsx). The backend
             v4 pipeline auto-calibrates scoring weights against the suburb's
@@ -684,18 +674,16 @@ export default function HotVendorScoring() {
         </div>
         {hasData && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              className="btn btn-primary"
+            <Button
+              variant="primary"
               onClick={downloadExcel}
-              disabled={excelLoading || (data && data.is_expired)}
-              title={(data && data.is_expired)
-                ? 'Data expired. Re-import your RP Data to export.'
-                : undefined}
+              loading={excelLoading}
+              icon={excelLoading ? undefined : Download}
             >
               {excelLoading
-                ? `⏳ ${excelStage || 'Generating…'}`
-                : '⬇ Download Excel report'}
-            </button>
+                ? (excelStage || 'Generating…')
+                : 'Download Excel report'}
+            </Button>
             {excelFallbackUrl && (
               <a
                 href={excelFallbackUrl}
@@ -703,7 +691,7 @@ export default function HotVendorScoring() {
                 className="btn btn-ghost btn-sm"
                 style={{ textDecoration: 'none' }}
               >
-                ⬇ Click here if it didn't download
+                Click here if it didn't download
               </a>
             )}
           </div>
@@ -839,9 +827,9 @@ export default function HotVendorScoring() {
 
           <div className="hv-stats">
             <div className="hv-stat"><span className="hv-stat-num">{properties.length}</span><span>Properties</span></div>
-            <div className="hv-stat hv-hot"><span className="hv-stat-num">{counts.HOT}</span><span>🔴 HOT</span></div>
-            <div className="hv-stat hv-warm"><span className="hv-stat-num">{counts.WARM}</span><span>🟠 WARM</span></div>
-            <div className="hv-stat hv-medium"><span className="hv-stat-num">{counts.MEDIUM}</span><span>🟡 MEDIUM</span></div>
+            <div className="hv-stat hv-hot"><span className="hv-stat-num">{counts.HOT}</span><span>Hot</span></div>
+            <div className="hv-stat hv-warm"><span className="hv-stat-num">{counts.WARM}</span><span>Warm</span></div>
+            <div className="hv-stat hv-medium"><span className="hv-stat-num">{counts.MEDIUM}</span><span>Medium</span></div>
             <div className="hv-stat"><span className="hv-stat-num">{avgScore.toFixed(1)}</span><span>Avg score</span></div>
             <div className="hv-stat"><span className="hv-stat-num">{(profile.median_hold ?? 0).toFixed(1)} yr</span><span>Median holding</span></div>
             <div style={{ marginLeft: 'auto' }}>
@@ -852,24 +840,26 @@ export default function HotVendorScoring() {
           </div>
 
           <div className="hv-controls">
-            {['ALL', 'HOT', 'WARM', 'MEDIUM', 'LOW'].map(c => (
+            {CAT_FILTERS.map(({ key, label, dot }) => (
               <button
-                key={c}
-                className={`hv-pill ${filter === c ? 'active' : ''}`}
-                onClick={() => setFilter(c)}
-                style={filter === c && c !== 'ALL' ? { background: CATEGORY_BADGE[c].bg, color: '#fff' } : null}
+                key={key}
+                className={`hv-pill ${filter === key ? 'active' : ''}`}
+                onClick={() => setFilter(key)}
               >
-                {c === 'ALL' ? 'ALL' : CATEGORY_BADGE[c].label}
+                {dot && <span className="hv-cat-dot" style={{ background: dot }} />}
+                {label}
               </button>
             ))}
 
             {uniqueSuburbs.length > 1 && (
               <div className="hv-suburb-filter" ref={suburbDropdownRef}>
                 <button
-                  className={`hv-pill ${selectedSuburbs.size > 0 ? 'active' : ''}`}
+                  className={`hv-pill hv-pill-icon ${selectedSuburbs.size > 0 ? 'active' : ''}`}
                   onClick={() => setSuburbDropdownOpen(o => !o)}
                 >
-                  📍 {suburbBtnLabel} ▾
+                  <MapPin size={14} strokeWidth={2} aria-hidden="true" />
+                  {suburbBtnLabel}
+                  <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
                 </button>
                 {suburbDropdownOpen && (
                   <div className="hv-suburb-menu">
@@ -878,14 +868,14 @@ export default function HotVendorScoring() {
                       <button className="btn-link" onClick={() => setSelectedSuburbs(new Set(uniqueSuburbs))}>All</button>
                     </div>
                     {uniqueSuburbs.map(s => (
-                      <label key={s} className="hv-suburb-item">
-                        <input
-                          type="checkbox"
+                      <div key={s} className="hv-suburb-item">
+                        <Checkbox
                           checked={selectedSuburbs.has(s)}
                           onChange={() => toggleSuburb(s)}
+                          label={s}
+                          size="sm"
                         />
-                        {s}
-                      </label>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -897,15 +887,20 @@ export default function HotVendorScoring() {
               onClick={() => setCompact(c => !c)}
               title="Toggle compact column widths"
             >
-              {compact ? '⊟ Compact' : '⊞ Compact'}
+              Compact
             </button>
 
             <div className="hv-spacer" />
-            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option value="ALL">All Types</option>
-              <option value="HOUSE">Houses only</option>
-              <option value="APARTMENT">Apartments only</option>
-            </select>
+            <Select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              size="sm"
+              options={[
+                { value: 'ALL', label: 'All Types' },
+                { value: 'HOUSE', label: 'Houses only' },
+                { value: 'APARTMENT', label: 'Apartments only' },
+              ]}
+            />
             <input
               type="search"
               placeholder="Search address or owner…"
@@ -950,11 +945,11 @@ export default function HotVendorScoring() {
               <tbody>
                 {sorted.map(p => {
                   const userStatus = statuses[p.address] || ''
-                  const tint = userStatus ? STATUS_TINT[userStatus] : CATEGORY_COLORS[p.category]
+                  const addr = titleCase(p.address)
                   return (
-                    <tr key={p.rank} style={{ background: tint || undefined }}>
+                    <tr key={p.rank}>
                       <td className="num">{p.rank}</td>
-                      <td className="hv-cell-address" title={p.address}>{p.address}</td>
+                      <td className="hv-cell-address" title={addr}>{addr}</td>
                       <td>{p.type}</td>
                       <td className="num">{p.bedrooms ?? '-'}</td>
                       <td className="num">{fmtMoney(p.last_sale_price)}</td>
@@ -965,23 +960,18 @@ export default function HotVendorScoring() {
                       <td className="num">{p.sales_count}</td>
                       <td className="num"><strong>{fmtNum(p.final_score)}</strong></td>
                       <td>
-                        <span className="hv-badge" style={{ background: CATEGORY_BADGE[p.category]?.bg }}>
-                          {CATEGORY_BADGE[p.category]?.label || p.category}
-                        </span>
+                        <ScoreBadge category={p.category} score={p.final_score} />
                       </td>
                       <td className="hv-cell-owner" title={p.current_owner || ''}>{p.current_owner || '-'}</td>
                       <td className="hv-cell-agency" title={p.agency || ''}>{p.agency || '-'}</td>
                       <td className="hv-cell-agent" title={p.agent || ''}>{p.agent || '-'}</td>
                       <td>
-                        <select
-                          className="hv-status-select"
+                        <Select
                           value={userStatus}
                           onChange={(e) => setStatus(p.address, e.target.value)}
-                        >
-                          {STATUS_OPTIONS.map(o => (
-                            <option key={o.value} value={o.value}>{o.label}</option>
-                          ))}
-                        </select>
+                          size="sm"
+                          options={STATUS_OPTIONS}
+                        />
                       </td>
                       <td className="note-cell">
                         {(() => {

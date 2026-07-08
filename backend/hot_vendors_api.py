@@ -862,11 +862,10 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': 'Upload not found'}), 404
         if not user_can_access_suburb(dict(row).get('suburb')):
             return jsonify({'error': 'Not authorised for that suburb'}), 403
-        if _expiry_fields(dict(row).get('uploaded_at'))['is_expired']:
-            return jsonify({
-                'error': 'Upload expired. Please re-import your RP Data '
-                         'to generate a fresh export.'
-            }), 403
+        # Age never blocks export — an older RP Data export on long-hold
+        # owners is still useful. The days_remaining/is_expired fields are
+        # still returned for the UI's soft freshness note, but they gate
+        # nothing here (product decision 08/07/2026).
         _hv_excel_purge_expired()
         job_id = uuid.uuid4().hex[:12]
         _hv_excel_set(job_id, status='running', stage='Queued', upload_id=upload_id)
@@ -934,11 +933,7 @@ def register_hot_vendors_routes(app):
             (upload_id,)
         ).fetchone()
         conn.close()
-        if row and _expiry_fields(dict(row).get('uploaded_at'))['is_expired']:
-            return jsonify({
-                'error': 'Upload expired. Please re-import your RP Data '
-                         'to generate a fresh export.'
-            }), 403
+        # Age never blocks export (see excel_job_start above).
         try:
             from hot_vendor_excel import build_workbook, workbook_filename
         except ImportError as e:
