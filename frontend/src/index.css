@@ -1799,6 +1799,8 @@ body.col-resizing * {
 .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.08); }
 
 .admin-row-actions { display: flex; gap: 6px; }
+/* Action buttons never truncate their label (was showing "Manage A…"). */
+.admin-row-actions .btn { white-space: nowrap; flex-shrink: 0; }
 
 .admin-assign-modal { width: 520px; max-width: 92vw; }
 .admin-assign-hint {

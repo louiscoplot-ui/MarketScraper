@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { apiJson, getAccessKey, setAccessKey, readCache, writeCache, BACKEND_DIRECT } from '../lib/api'
+import { Select, Checkbox } from '../components/ui'
 
 // Self-contained "set / change password" card for the current user.
 // Writes via the existing auth-required POST /api/users/me/set-password
@@ -65,7 +66,7 @@ function PasswordCard({ me }) {
         </button>
       </div>
       {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>{err}</div>}
-      {ok && <div style={{ color: 'var(--active)', fontSize: 13, marginTop: 8 }}>✓ Password saved</div>}
+      {ok && <div style={{ color: 'var(--active)', fontSize: 13, marginTop: 8 }}>Password saved</div>}
     </form>
   )
 }
@@ -653,7 +654,7 @@ export default function AdminUsers() {
   }
   const deleteRentalSuburb = async (s) => {
     const yes = window.confirm(
-      `Delete rental suburb "${s.name}"? This also removes every rental_listing + rental_owner row for that suburb. Cannot be undone.`
+      `Delete rental suburb "${s.name}"? This also clears all its rental listings and owner notes, and can't be undone.`
     )
     if (!yes) return
     try {
@@ -740,20 +741,17 @@ export default function AdminUsers() {
           </div>
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--text)' }}>Notifications</h4>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-              <input
-                type="checkbox"
-                checked={profileDraft.digest_enabled}
-                onChange={(e) => setProfileDraft({ ...profileDraft, digest_enabled: e.target.checked })}
-              />
-              Send me the SuburbDesk Morning Brief (after the nightly scrape)
-            </label>
+            <Checkbox
+              checked={profileDraft.digest_enabled}
+              onChange={(e) => setProfileDraft({ ...profileDraft, digest_enabled: e.target.checked })}
+              label="Send me the SuburbDesk Morning Brief (after the nightly scrape)"
+            />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
             <button className="btn btn-primary btn-sm" type="submit" disabled={profileSaving}>
               {profileSaving ? 'Saving…' : 'Save profile'}
             </button>
-            {profileSaved && <span style={{ color: 'var(--active)', fontSize: 13 }}>✓ Saved</span>}
+            {profileSaved && <span style={{ color: 'var(--active)', fontSize: 13 }}>Saved</span>}
             {profileError && <span style={{ color: 'var(--danger)', fontSize: 13 }}>{profileError}</span>}
           </div>
         </form>
@@ -766,8 +764,8 @@ export default function AdminUsers() {
         <div className={`admin-newkey ${newKey.email_sent ? 'admin-newkey-success' : ''}`}>
           <div className="admin-newkey-title">
             {newKey.email_sent
-              ? `✓ User created — welcome email sent to ${newKey.email}`
-              : '✓ User created — email NOT sent, copy the key below manually'}
+              ? `User created — welcome email sent to ${newKey.email}`
+              : 'User created — email NOT sent, copy the key below manually'}
           </div>
           {!newKey.email_sent && newKey.email_error && (
             <div className="admin-newkey-warn">
@@ -814,11 +812,10 @@ export default function AdminUsers() {
           <input placeholder="Phone (optional)"
             value={draft.phone}
             onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
-          <select value={draft.role}
-            onChange={(e) => setDraft({ ...draft, role: e.target.value })}>
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
+          <Select value={draft.role}
+            onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+            options={[{ value: 'user', label: 'User' }, { value: 'admin', label: 'Admin' }]}
+          />
           <button className="btn btn-primary" type="submit" disabled={saving}>
             {saving ? 'Adding…' : 'Add user'}
           </button>
@@ -939,7 +936,7 @@ export default function AdminUsers() {
                     ? 'Admins see every suburb / rental / digest automatically'
                     : 'Manage sales suburbs, rental access and notifications in one place'}
                 >
-                  Manage Access
+                  Manage
                 </button>
                 <button
                   className="btn btn-ghost btn-sm btn-danger"
@@ -962,10 +959,10 @@ export default function AdminUsers() {
         <div style={{ marginTop: 32 }}>
           <h3>Rental Suburbs</h3>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-            Allowlist for the rental scraper. Tick the suburbs to keep
-            active, untick to skip; click Save to apply. Delete cascades
-            — it removes every rental_listing + rental_owner row for
-            that suburb. Use the input below to add a new one.
+            Which suburbs the rental scraper covers. Tick to keep a suburb
+            active, untick to pause it, then click Save. Deleting a suburb
+            also clears all its rental listings and owner notes, and can't
+            be undone. Add a new one with the box below.
           </p>
 
           {/* Add new suburb — visible block above the list with its
@@ -1064,18 +1061,16 @@ export default function AdminUsers() {
               return (
               <div key={s.id} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
-                padding: '6px 10px', borderRadius: 4,
-                background: dirty ? '#fef3c7' : (isActive ? 'transparent' : '#fafafa'),
+                padding: '6px 10px', borderRadius: 'var(--radius-sm)',
+                background: dirty ? 'var(--status-watch-bg)' : (isActive ? 'transparent' : 'var(--bg)'),
               }}>
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={isActive}
                   onChange={() => toggleRentalCheckbox(s)}
-                  style={{ cursor: 'pointer' }}
                 />
                 <span style={{
                   flex: 1, fontSize: 13,
-                  color: isActive ? '#111827' : '#9ca3af',
+                  color: isActive ? 'var(--text)' : 'var(--text-faint)',
                   textDecoration: isActive ? 'none' : 'line-through',
                 }}>
                   {s.name}
@@ -1169,53 +1164,55 @@ export default function AdminUsers() {
             {/* All-suburbs access — full read scope without per-suburb
                 assignment. When on, the sales grid below is irrelevant
                 (the user already sees every suburb, current + future). */}
-            <label style={{
+            <div style={{
               display: 'flex', alignItems: 'flex-start', gap: 8,
               padding: '10px 12px', marginTop: 4, marginBottom: 8,
-              background: managing.all_suburbs ? '#eff6ff' : 'transparent',
-              border: '1px solid', borderColor: managing.all_suburbs ? '#bfdbfe' : 'var(--border)',
-              borderRadius: 6, cursor: 'pointer',
+              background: managing.all_suburbs ? 'var(--status-info-bg)' : 'transparent',
+              border: '1px solid', borderColor: managing.all_suburbs ? 'var(--status-info)' : 'var(--border)',
+              borderRadius: 'var(--radius-sm)',
             }}>
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={!!managing.all_suburbs}
                 onChange={() => updateManaging({ all_suburbs: !managing.all_suburbs })}
                 disabled={managing.saving || managing.loading}
-                style={{ marginTop: 2 }}
+                style={{ alignItems: 'flex-start' }}
+                label={
+                  <span>
+                    <strong style={{ fontSize: 13 }}>Access to all suburbs</strong>
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Sees every suburb now and any added later — no per-suburb
+                      assignment needed. Stays a regular user (no admin powers).
+                    </span>
+                  </span>
+                }
               />
-              <span>
-                <strong style={{ fontSize: 13 }}>Access to all suburbs</strong>
-                <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Sees every suburb now and any added later — no per-suburb
-                  assignment needed. Stays a regular user (no admin powers).
-                </span>
-              </span>
-            </label>
+            </div>
 
             {/* Can add suburbs — lets this user introduce NEW suburbs
                 to the system (scraped nightly) without the admin role. */}
-            <label style={{
+            <div style={{
               display: 'flex', alignItems: 'flex-start', gap: 8,
               padding: '10px 12px', marginBottom: 8,
-              background: managing.can_add_suburbs ? '#eff6ff' : 'transparent',
-              border: '1px solid', borderColor: managing.can_add_suburbs ? '#bfdbfe' : 'var(--border)',
-              borderRadius: 6, cursor: 'pointer',
+              background: managing.can_add_suburbs ? 'var(--status-info-bg)' : 'transparent',
+              border: '1px solid', borderColor: managing.can_add_suburbs ? 'var(--status-info)' : 'var(--border)',
+              borderRadius: 'var(--radius-sm)',
             }}>
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={!!managing.can_add_suburbs}
                 onChange={() => updateManaging({ can_add_suburbs: !managing.can_add_suburbs })}
                 disabled={managing.saving || managing.loading}
-                style={{ marginTop: 2 }}
+                style={{ alignItems: 'flex-start' }}
+                label={
+                  <span>
+                    <strong style={{ fontSize: 13 }}>Can add new suburbs</strong>
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Shows the "+ add suburb" box in their sidebar so they can
+                      start scraping any WA suburb themselves. Still no admin powers.
+                    </span>
+                  </span>
+                }
               />
-              <span>
-                <strong style={{ fontSize: 13 }}>Can add new suburbs</strong>
-                <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Shows the "+ add suburb" box in their sidebar so they can
-                  start scraping any WA suburb themselves. Still no admin powers.
-                </span>
-              </span>
-            </label>
+            </div>
 
             {/* Sales suburbs — disabled when all-suburbs is on. */}
             <div style={{ marginTop: 4, opacity: managing.all_suburbs ? 0.45 : 1, pointerEvents: managing.all_suburbs ? 'none' : 'auto' }}>
@@ -1256,18 +1253,22 @@ export default function AdminUsers() {
                     (a.name || '').localeCompare(b.name || '')
                   )
                   return merged.map(s => (
-                    <label key={s.id} className="admin-assign-row">
-                      <input
-                        type="checkbox"
+                    <div key={s.id} className="admin-assign-row">
+                      <Checkbox
                         checked={managing.sales_suburb_ids.has(s.id)}
                         onChange={() => toggleManagingSales(s.id)}
                         disabled={managing.saving || managing.loading}
+                        style={{ flex: 1 }}
+                        label={
+                          <span>
+                            {s.name}
+                            {!s.active && (
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4 }}>(custom)</span>
+                            )}
+                          </span>
+                        }
                       />
-                      <span className="admin-assign-name">{s.name}</span>
-                      {!s.active && (
-                        <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>(custom)</span>
-                      )}
-                    </label>
+                    </div>
                   ))
                 })()}
                 {!allSuburbs.length && !(managing.sales_user_suburbs || []).length && (
@@ -1333,19 +1334,18 @@ export default function AdminUsers() {
 
             {/* Rental access + suburbs */}
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-                {/* The toggle is hydrated from the row (u.rental_access)
-                    the instant the modal opens, so it doesn't depend on
-                    the async fetch — disable only while a save is in
-                    flight, not while the suburb lists are loading. */}
-                <input
-                  type="checkbox"
+              {/* The toggle is hydrated from the row (u.rental_access)
+                  the instant the modal opens, so it doesn't depend on
+                  the async fetch — disable only while a save is in
+                  flight, not while the suburb lists are loading. */}
+              <div style={{ marginBottom: 8 }}>
+                <Checkbox
                   checked={managing.rental_access}
                   onChange={(e) => updateManaging({ rental_access: e.target.checked })}
                   disabled={managing.saving}
+                  label={<strong style={{ fontSize: 13 }}>Rental enabled</strong>}
                 />
-                Rental enabled
-              </label>
+              </div>
               {managing.rental_access && (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1365,15 +1365,15 @@ export default function AdminUsers() {
                   </div>
                   <div className="admin-assign-grid">
                     {(managing.rental_available || []).map(name => (
-                      <label key={name} className="admin-assign-row">
-                        <input
-                          type="checkbox"
+                      <div key={name} className="admin-assign-row">
+                        <Checkbox
                           checked={managing.rental_assigned.has(name)}
                           onChange={() => toggleManagingRental(name)}
                           disabled={managing.saving || managing.loading}
+                          style={{ flex: 1 }}
+                          label={name}
                         />
-                        <span className="admin-assign-name">{name}</span>
-                      </label>
+                      </div>
                     ))}
                     {!(managing.rental_available && managing.rental_available.length) && (
                       <div className="empty">No rental suburbs available — set them up in the Rental Suburbs panel below.</div>
@@ -1440,18 +1440,15 @@ export default function AdminUsers() {
             {/* Features */}
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
               <strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>Features</strong>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-                {/* digest_enabled is hydrated from u (row data) the
-                    instant the modal opens — no dependency on the
-                    suburb fetch, so gate only on saving. */}
-                <input
-                  type="checkbox"
-                  checked={managing.digest_enabled}
-                  onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
-                  disabled={managing.saving}
-                />
-                Morning digest email
-              </label>
+              {/* digest_enabled is hydrated from u (row data) the
+                  instant the modal opens — no dependency on the
+                  suburb fetch, so gate only on saving. */}
+              <Checkbox
+                checked={managing.digest_enabled}
+                onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
+                disabled={managing.saving}
+                label="Morning digest email"
+              />
             </div>
 
             {managing.error && (
