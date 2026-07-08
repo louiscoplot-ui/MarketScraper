@@ -256,6 +256,19 @@ def scrape_one(suburb):
     # still-listed property. (Forcing confident=True here is what let the
     # rescue mask every withdrawal → counts never came back down.)
 
+    # A skipped for-sale page (transient load failure) means some
+    # genuinely-active listings never made it into forsale_urls. Never
+    # run the confident bulk-withdrawal path in that case — those
+    # listings would be wrongly marked withdrawn. They stay active and
+    # get picked up on the next clean scrape. Mirrors the guard the
+    # manual path already has (scrape_runner.py run_scrape).
+    load_failed = any('Failed to load for-sale page' in str(e)
+                      for e in result.get('errors', []))
+    if load_failed and confident:
+        confident = False
+        log.warning(f"[{name}] for-sale page load failure(s) detected — "
+                    f"forcing confident=False to avoid wrongful withdrawals")
+
     # Safety guards against wrongful mass-withdraw:
     #   1. ZERO actives + 5+ candidates → parser fault (DOM rename,
     #      Playwright blanket timeout).
