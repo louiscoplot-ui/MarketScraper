@@ -64,6 +64,26 @@ export default function MultiSelect({
       >
         {selected.length === 0 ? (
           <span style={{ color: 'var(--text-muted)' }}>{placeholder}</span>
+        ) : options.length > 1 && selected.length === options.length ? (
+          // Everything selected → collapse to one "All (N)" chip instead
+          // of N chips. Clicking the × clears the selection (deselect all).
+          <span
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '2px 6px 2px 8px', fontSize: fontSize - 1,
+              fontWeight: 600, background: 'var(--accent-soft)',
+              color: 'var(--accent)', borderRadius: 'var(--radius-pill)',
+            }}
+          >
+            {allLabel} ({options.length})
+            <X
+              size={13}
+              strokeWidth={2.5}
+              aria-label="Clear selection"
+              onClick={(e) => { e.stopPropagation(); clearAll() }}
+              style={{ cursor: 'pointer', flexShrink: 0 }}
+            />
+          </span>
         ) : (
           selected.map((v) => (
             <span
