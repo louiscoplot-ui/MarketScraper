@@ -56,6 +56,30 @@ const COLS = [
 ]
 
 
+// Display-only: always render "address, suburb" uniformly, whatever the
+// source. Excel-imported rows already carry the suburb inside the address
+// ("38/34 Davies Road, Claremont"); REIWA-scraped rows don't ("2 Windsor
+// Court"). Dedup so we never produce "…, Claremont, Claremont". Touches
+// NOTHING in the DB — address & suburb stay separate columns (the import
+// matching key); this recomposes the string on the fly at render time.
+function displayAddress(address, suburb) {
+  const a = String(address || '').trim().replace(/[,\s]+$/, '')
+  const s = String(suburb || '').trim()
+  if (!a) return s
+  if (!s) return a
+  const la = a.toLowerCase()
+  const ls = s.toLowerCase()
+  const idx = la.lastIndexOf(ls)
+  // Suburb already at the very end as a whole word (start of string, or
+  // preceded by a comma/space)? Don't append it a second time.
+  if (idx >= 0 && idx + ls.length === la.length) {
+    const before = idx === 0 ? '' : a[idx - 1]
+    if (idx === 0 || before === ' ' || before === ',') return a
+  }
+  return `${a}, ${s}`
+}
+
+
 function StatusBadge({ status }) {
   const s = STATUS_STYLES[status] || { bg: '#f3f4f6', color: '#374151', label: status || '—' }
   return (
@@ -935,6 +959,16 @@ export default function RentalView({ selectedNames } = {}) {
                               >
                                 REIWA <span aria-hidden="true">↗</span>
                               </a>
+                            </td>
+                          )
+                        }
+                        if (c.key === 'address') {
+                          // Uniform "address, suburb" everywhere (dedup'd).
+                          const shown = displayAddress(r.address, r.suburb)
+                          return (
+                            <td key={c.key} style={cellStyle}
+                                title={truncate ? shown : undefined}>
+                              {shown || '—'}
                             </td>
                           )
                         }
