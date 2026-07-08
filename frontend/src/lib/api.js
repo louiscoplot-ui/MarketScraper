@@ -65,13 +65,26 @@ export async function apiJson(url, options = {}) {
 //
 // Retries on: network errors, 5xx, 502 (bad gateway from Vercel after
 // the proxy timeout). Does NOT retry on 4xx (client error / auth).
-export async function fetchWithRetry(url, options = {}, tries = 4) {
+// `timeoutMs` is OPT-IN and defaults to 0 = no timeout, so every existing
+// caller (report, listings, legal, bootstrap) keeps its current
+// behaviour untouched — a legitimately slow request (e.g. an all-suburbs
+// /api/report on a cold dyno) is never cut short. When a caller passes a
+// positive value, each ATTEMPT gets its own AbortSignal.timeout: a stalled
+// cold-start connect aborts after `timeoutMs`, is recorded as an error,
+// and the retry loop moves on instead of hanging forever. Only the
+// Pipeline calls (grouped / suburbs / recent-sales) opt in — that's where
+// the "infinite spinner on first load" bug lived (a hung fetch has no
+// deadline, so setLoading(false) never ran).
+export async function fetchWithRetry(url, options = {}, tries = 4, timeoutMs = 0) {
   const delays = [0, 2000, 4000, 8000]
   let lastErr
   for (let i = 0; i < tries; i++) {
     if (delays[i]) await new Promise(r => setTimeout(r, delays[i]))
     try {
-      const res = await fetch(url, options)
+      const opts = timeoutMs > 0
+        ? { ...options, signal: AbortSignal.timeout(timeoutMs) }
+        : options
+      const res = await fetch(url, opts)
       if (res.ok) return res
       if (res.status < 500 && res.status !== 0) return res  // 4xx — don't retry
       lastErr = new Error(`HTTP ${res.status}`)
