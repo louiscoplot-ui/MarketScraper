@@ -212,6 +212,30 @@ export default function AdminUsers() {
     }
   }
 
+  // Lightweight refresh: refetch ONLY the users list (1 round trip)
+  // instead of the full refresh() which also re-pulls me + all suburbs +
+  // rental suburbs (4 calls, each able to hit a Render cold-start). A
+  // user add/revoke/toggle changes nothing but the users table, so
+  // that's all we reload. Used after every user mutation.
+  const reloadUsers = async () => {
+    try {
+      const list = await apiJson('/api/admin/users')
+      setUsers(list.users)
+      writeCache('admin_users', list.users)
+    } catch { /* keep current rows on transient failure */ }
+  }
+
+  // Optimistic in-place patch of one user row — the toggles below flip a
+  // single column, so we update local state immediately (instant UI) and
+  // only reconcile with the server if the PATCH actually failed.
+  const patchUserLocal = (id, fields) => {
+    setUsers(prev => {
+      const next = prev.map(u => u.id === id ? { ...u, ...fields } : u)
+      writeCache('admin_users', next)
+      return next
+    })
+  }
+
   const saveProfile = async (e) => {
     e.preventDefault()
     setProfileError('')
@@ -254,7 +278,7 @@ export default function AdminUsers() {
         email_error: res.email_error || null,
       })
       setDraft({ email: '', first_name: '', last_name: '', phone: '', role: 'user' })
-      refresh()
+      reloadUsers()   // just the new row — not the whole admin bootstrap
     } catch (e) {
       setError(e.message)
     } finally {
@@ -267,10 +291,20 @@ export default function AdminUsers() {
       `Revoke access for ${u.email}? They won't be able to log in until re-added.`
     )
     if (!yes) return
+    // Optimistic: drop the row immediately so the click feels instant.
+    // The DELETE already scopes to this admin; on failure we reload to
+    // put the row back and surface the error.
+    const previous = users
+    setUsers(prev => {
+      const next = prev.filter(x => x.id !== u.id)
+      writeCache('admin_users', next)
+      return next
+    })
     try {
       await apiJson(`/api/admin/users/${u.id}`, { method: 'DELETE' })
-      refresh()
     } catch (e) {
+      setUsers(previous)
+      writeCache('admin_users', previous)
       alert(`Could not revoke: ${e.message}`)
     }
   }
@@ -281,13 +315,14 @@ export default function AdminUsers() {
     // block it in the UI too so the user never sees their role flicker.
     if (me && me.id === u.id) return
     const newRole = u.role === 'admin' ? 'user' : 'admin'
+    patchUserLocal(u.id, { role: newRole })
     try {
       await apiJson(`/api/admin/users/${u.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ role: newRole }),
       })
-      refresh()
     } catch (e) {
+      patchUserLocal(u.id, { role: u.role })   // revert
       alert(`Could not change role: ${e.message}`)
     }
   }
@@ -295,26 +330,28 @@ export default function AdminUsers() {
   // Per-user rental_access toggle — flips the column in users table.
   const toggleRentalAccess = async (u) => {
     const next = !u.rental_access
+    patchUserLocal(u.id, { rental_access: next ? 1 : 0 })
     try {
       await apiJson(`/api/admin/users/${u.id}/rental-access`, {
         method: 'PATCH',
         body: JSON.stringify({ rental_access: next }),
       })
-      refresh()
     } catch (e) {
+      patchUserLocal(u.id, { rental_access: u.rental_access })   // revert
       alert(`Could not toggle rental access: ${e.message}`)
     }
   }
 
   const toggleDigest = async (u) => {
     const cur = u.digest_enabled !== 0 && u.digest_enabled !== false
+    patchUserLocal(u.id, { digest_enabled: cur ? 0 : 1 })
     try {
       await apiJson(`/api/admin/users/${u.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ digest_enabled: !cur }),
       })
-      refresh()
     } catch (e) {
+      patchUserLocal(u.id, { digest_enabled: u.digest_enabled })   // revert
       alert(`Could not toggle morning digest: ${e.message}`)
     }
   }
@@ -536,7 +573,7 @@ export default function AdminUsers() {
         ? `Saved with ${failures} rental suburb error(s) — retry to fix.`
         : 'Saved.'
       updateManaging({ saving: false, message: msg })
-      refresh()
+      reloadUsers()   // rental_access flag may have changed; masters didn't
     } catch (e) {
       updateManaging({ saving: false, error: `Save failed: ${e.message}` })
     }
