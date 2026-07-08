@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import StickyHScroll from './components/StickyHScroll'
+import { formatIsoDate } from './hooks/useListings'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -79,7 +80,7 @@ function renderExpiryBanner(data) {
   const dr = data.days_remaining
   if (dr > 7) return null
   const expired = dr < 0
-  const when = data.expires_at ? new Date(data.expires_at).toLocaleDateString() : ''
+  const when = data.expires_at ? formatIsoDate(data.expires_at) : ''
   return (
     <div style={{
       margin: '0 0 12px', padding: '10px 14px', borderRadius: 6,
@@ -751,7 +752,7 @@ export default function HotVendorScoring() {
                   <div className="hv-saved-suburb">{u.suburb}</div>
                   <div className="hv-saved-meta">
                     {u.row_count} properties
-                    {u.uploaded_at && ` · ${(u.uploaded_at || '').slice(0, 10)}`}
+                    {u.uploaded_at && ` · ${formatIsoDate(u.uploaded_at)}`}
                   </div>
                   {expiryBadge}
                 </button>

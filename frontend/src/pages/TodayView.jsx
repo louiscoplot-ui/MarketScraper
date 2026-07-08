@@ -6,6 +6,7 @@
 // window.open would bypass the X-Access-Key interceptor.
 import { useState, useEffect, useCallback } from 'react'
 import { api, apiJson } from '../lib/api'
+import { formatIsoDate } from '../hooks/useListings'
 
 function scoreColor(score) {
   if (score >= 0.6) return '#c0392b'
@@ -97,7 +98,7 @@ export default function TodayView() {
     <div style={{ padding: '16px 24px', maxWidth: 760, margin: '0 auto' }}>
       <h2 style={{ marginBottom: 2 }}>Today</h2>
       <div style={{ color: '#7f8c8d', marginBottom: 16, fontSize: 14 }}>
-        {brief?.brief_date || ''}{brief?.live ? ' · built live (tonight’s brief will be emailed)' : ''}
+        {formatIsoDate(brief?.brief_date) || ''}{brief?.live ? ' · built live (tonight’s brief will be emailed)' : ''}
       </div>
 
       {loading ? (
