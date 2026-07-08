@@ -28,12 +28,14 @@ const SUBURBS_CACHE = 'suburbs'
 
 const VALID_VIEWS = ['today', 'listings', 'signals', 'fallen', 'pipeline', 'report', 'hot-vendors', 'rentals', 'logs', 'admin', 'terms', 'privacy']
 
-// SENTINEL S4 — 'today' (the morning brief) is the default view at login:
-// the brief is the product, the agent lands on it.
+// Listings is the default view at login: it's the tab operators open most
+// and it paints fast (cached listings), so the app is usable immediately.
+// Today (the morning brief) sits one click away — its /api/brief/today
+// call can be slow, so it no longer gates the initial render.
 function readViewFromHash() {
-  if (typeof window === 'undefined') return 'today'
+  if (typeof window === 'undefined') return 'listings'
   const h = (window.location.hash || '').replace(/^#/, '')
-  return VALID_VIEWS.includes(h) ? h : 'today'
+  return VALID_VIEWS.includes(h) ? h : 'listings'
 }
 
 function App() {

@@ -44,9 +44,12 @@ function ThemeToggle() {
   )
 }
 
+// Listings first — it's the tab operators open most, and it loads fast
+// (cached listings) so a returning visit paints immediately instead of
+// waiting on the slower /api/brief/today call. Today sits right after.
 const TABS = [
-  { id: 'today', label: 'Today' },
   { id: 'listings', label: 'Listings' },
+  { id: 'today', label: 'Today' },
   { id: 'signals', label: 'Signals' },
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'appraisals', label: 'Appraisals' },
