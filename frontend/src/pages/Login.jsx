@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { MapPin } from 'lucide-react'
 import { setAccessKey, BACKEND_DIRECT } from '../lib/api'
 import Footer from '../components/Footer'
 
@@ -129,7 +130,10 @@ export default function Login() {
     <div style={styles.page}>
       <div style={styles.card}>
         <div style={styles.brandBand}>
-          <h1 style={styles.brandTitle}>SUBURBDESK</h1>
+          <div style={styles.brandLogo}>
+            <MapPin size={22} strokeWidth={2.5} aria-hidden="true" />
+            <h1 style={styles.brandTitle}>SuburbDesk</h1>
+          </div>
           <div style={styles.brandSub}>Real-estate prospecting</div>
         </div>
         <div style={styles.body}>
@@ -243,46 +247,52 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#f5f5f5',
+    background: 'var(--bg)',
     padding: '24px',
-    fontFamily: 'system-ui, -apple-system, Arial, sans-serif',
+    fontFamily: 'var(--font-ui)',
   },
   agreement: {
-    margin: '12px 0 0', color: '#9ca3af', fontSize: 11,
+    margin: '12px 0 0', color: 'var(--text-faint)', fontSize: 11,
     textAlign: 'center', lineHeight: 1.5,
   },
   agreementLink: {
-    color: '#6b7280', textDecoration: 'underline',
+    color: 'var(--text-muted)', textDecoration: 'underline',
   },
   card: {
     width: '100%',
     maxWidth: 440,
-    background: '#fff',
-    borderRadius: 10,
-    boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+    background: 'var(--surface)',
+    borderRadius: 'var(--radius-card)',
+    boxShadow: 'var(--shadow-pop)',
     overflow: 'hidden',
+    border: '1px solid var(--border)',
   },
   brandBand: {
-    background: '#386351',
+    background: 'var(--accent)',
     padding: '28px 32px',
-    color: '#fff',
+    color: 'var(--accent-fg)',
+  },
+  brandLogo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
   },
   brandTitle: {
     margin: 0,
-    fontSize: 26,
-    letterSpacing: 3,
+    fontSize: 24,
+    letterSpacing: '-0.02em',
     fontWeight: 700,
   },
   brandSub: {
     marginTop: 6,
     fontSize: 13,
-    color: '#cfe0d6',
+    color: 'color-mix(in srgb, var(--accent-fg) 78%, var(--accent))',
   },
   body: { padding: '32px' },
-  h2: { margin: '0 0 12px', fontSize: 20, color: '#222' },
+  h2: { margin: '0 0 12px', fontSize: 20, color: 'var(--text)' },
   p: {
     margin: '0 0 20px',
-    color: '#444',
+    color: 'var(--text-muted)',
     fontSize: 14,
     lineHeight: 1.55,
   },
@@ -291,18 +301,18 @@ const styles = {
     boxSizing: 'border-box',
     padding: '12px 14px',
     fontSize: 15,
-    border: '1px solid #d4d4d4',
-    borderRadius: 6,
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
     marginBottom: 12,
     outline: 'none',
   },
   btn: {
     width: '100%',
     padding: '12px 16px',
-    background: '#386351',
-    color: '#fff',
+    background: 'var(--accent)',
+    color: 'var(--accent-fg)',
     border: 'none',
-    borderRadius: 6,
+    borderRadius: 'var(--radius-sm)',
     fontSize: 15,
     fontWeight: 600,
     cursor: 'pointer',
@@ -310,7 +320,7 @@ const styles = {
   linkBtn: {
     background: 'none',
     border: 'none',
-    color: '#386351',
+    color: 'var(--accent)',
     fontSize: 14,
     fontWeight: 600,
     cursor: 'pointer',
@@ -319,36 +329,36 @@ const styles = {
   },
   fineprint: {
     margin: '20px 0 0',
-    color: '#999',
+    color: 'var(--text-faint)',
     fontSize: 12,
     textAlign: 'center',
   },
   keyToggleWrap: {
     marginTop: 18,
     paddingTop: 18,
-    borderTop: '1px solid #eee',
+    borderTop: '1px solid var(--border)',
     textAlign: 'center',
   },
   btnSecondary: {
     width: '100%',
     padding: '10px 16px',
-    background: '#fff',
-    color: '#386351',
-    border: '1px solid #386351',
-    borderRadius: 6,
+    background: 'var(--surface)',
+    color: 'var(--accent)',
+    border: '1px solid var(--accent)',
+    borderRadius: 'var(--radius-sm)',
     fontSize: 14,
     fontWeight: 600,
     cursor: 'pointer',
   },
   helperText: {
     margin: '6px 0 14px',
-    color: '#888',
+    color: 'var(--text-muted)',
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 1.4,
   },
   err: {
-    color: '#b91c1c',
+    color: 'var(--status-alert-text)',
     fontSize: 13,
     marginBottom: 10,
     textAlign: 'left',
