@@ -294,7 +294,8 @@ def import_rpdata():
     suburb_by_name = {r['name'].lower(): dict(r) for r in suburb_rows}
 
     listing_rows = conn.execute(
-        "SELECT id, suburb_id, normalized_address, sold_date, sold_price, status "
+        "SELECT id, suburb_id, normalized_address, sold_date, sold_price, "
+        "status, first_seen "
         "FROM listings"
     ).fetchall()
     listings_by_key = {}
@@ -307,6 +308,7 @@ def import_rpdata():
     matched = 0
     no_match = 0
     skipped = 0
+    skipped_active = 0
     date_updates = 0
     price_updates = 0
     status_updates = 0
@@ -369,6 +371,21 @@ def import_rpdata():
 
             sold_date = _parse_date(cell('sold_date'))
             sold_price = _parse_price(cell('sold_price'))
+
+            # RP Data rows are ownership HISTORY — a sale from years ago
+            # must never flip a listing that is currently live on REIWA.
+            # Only a sale dated on/after the listing's first_seen can
+            # legitimately mark it sold. Otherwise skip the row entirely
+            # (no date/price writes either: an old sold_date on an active
+            # listing corrupts the pipeline's recent-sales window just as
+            # badly as the status flip). Missing dates → conservative skip.
+            if existing['status'] in ('active', 'under_offer'):
+                first_seen_day = str(existing.get('first_seen') or '')[:10]
+                csv_sale_newer = bool(sold_date and first_seen_day
+                                      and sold_date >= first_seen_day)
+                if not csv_sale_newer:
+                    skipped_active += 1
+                    continue
 
             new_sold_date = existing['sold_date']
             new_sold_price = existing['sold_price']
@@ -449,6 +466,7 @@ def import_rpdata():
         'unmatched': no_match,
         'updated': matched,
         'skipped': skipped,
+        'skipped_active': skipped_active,
         'date_updates': date_updates,
         'price_updates': price_updates,
         'status_updates': status_updates,
