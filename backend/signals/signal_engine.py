@@ -90,7 +90,27 @@ def rebuild_signals(suburb_ids=None):
                 "ORDER BY detected_at",
                 (sid, lookback)
             ).fetchall()]
-            if not events:
+            # RP-Data long-hold owners (existing Hot Vendors upload data).
+            # Loaded BEFORE the empty-events guard: a suburb with an RP
+            # Data upload but no recent market events must still produce
+            # long_hold signals. The old `if not events: continue` dropped
+            # every RP-Data-only suburb — Ellenbrook had its CSV uploaded
+            # but no Sentinel events yet (the ledger only fills over a few
+            # nightly scrapes), so it silently produced zero signals.
+            hv = {}
+            for r in conn.execute(
+                "SELECT p.normalized_address, p.address, p.holding_years, "
+                "p.owner_gain_pct, p.owner_gain_dollars "
+                "FROM hot_vendor_properties p "
+                "JOIN hot_vendor_uploads u ON u.id = p.upload_id "
+                "WHERE LOWER(TRIM(u.suburb)) = LOWER(TRIM(?))", (sname,)
+            ).fetchall():
+                d = dict(r)
+                k = normalize_address(d['address'], sname)
+                if k:
+                    hv[k] = d
+
+            if not events and not hv:
                 summary['suburbs'] += 1
                 continue
 
@@ -119,20 +139,6 @@ def rebuild_signals(suburb_ids=None):
                 k = normalize_address(dict(r)['address'], sname)
                 if k:
                     active_keys.add(k)
-
-            # RP-Data long-hold owners (existing Hot Vendors upload data)
-            hv = {}
-            for r in conn.execute(
-                "SELECT p.normalized_address, p.address, p.holding_years, "
-                "p.owner_gain_pct, p.owner_gain_dollars "
-                "FROM hot_vendor_properties p "
-                "JOIN hot_vendor_uploads u ON u.id = p.upload_id "
-                "WHERE LOWER(u.suburb) = LOWER(?)", (sname,)
-            ).fetchall():
-                d = dict(r)
-                k = normalize_address(d['address'], sname)
-                if k:
-                    hv[k] = d
 
             candidates = set(by_addr) | set(hv)
             for key in candidates:

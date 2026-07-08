@@ -41,24 +41,46 @@ function PrecisionCard() {
   )
 }
 
+// Score thresholds. long_hold_gain alone = 20; anything ≥ 35 means the
+// address triggered a SECOND signal (withdrawn, price drops, street
+// momentum…) — those are the leads worth doorknocking first.
+const SCORE_FILTERS = [
+  { v: 0, label: 'All scores' },
+  { v: 0.35, label: 'Multi-signal (35+)' },
+  { v: 0.5, label: 'Hot only (50+)' },
+]
+
 export default function SignalsView() {
   const [signals, setSignals] = useState([])
   const [status, setStatus] = useState('new')
+  const [suburb, setSuburb] = useState('')        // '' = all my suburbs
+  const [minScore, setMinScore] = useState(0)
+  const [suburbs, setSuburbs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
 
+  // Populate the suburb picker from the caller's own scoped suburbs.
+  useEffect(() => {
+    apiJson('/api/suburbs')
+      .then(d => setSuburbs(Array.isArray(d) ? d : (d.suburbs || [])))
+      .catch(() => setSuburbs([]))
+  }, [])
+
   const fetchSignals = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const data = await apiJson(`/api/signals?status=${status}&limit=200`)
+      const params = new URLSearchParams({ status, limit: '200' })
+      if (suburb) params.set('suburb', suburb)
+      if (minScore > 0) params.set('min_score', String(minScore))
+      const data = await apiJson(`/api/signals?${params.toString()}`)
       setSignals(data.signals || [])
     } catch (e) {
       setError(e.message || 'Could not load signals')
     } finally {
       setLoading(false)
     }
-  }, [status])
+  }, [status, suburb, minScore])
 
   useEffect(() => { fetchSignals() }, [fetchSignals])
 
@@ -79,14 +101,32 @@ export default function SignalsView() {
 
   return (
     <div style={{ padding: '16px 24px', maxWidth: 980, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <h2 style={{ margin: 0 }}>Vendor Signals</h2>
+        <select value={suburb} onChange={e => setSuburb(e.target.value)}
+                style={{ padding: '4px 8px' }} title="Filter by suburb">
+          <option value="">All my suburbs</option>
+          {suburbs.map(s => (
+            <option key={s.id || s.name} value={s.name}>{s.name}</option>
+          ))}
+        </select>
+        <select value={minScore} onChange={e => setMinScore(Number(e.target.value))}
+                style={{ padding: '4px 8px' }} title="Minimum score">
+          {SCORE_FILTERS.map(f => (
+            <option key={f.v} value={f.v}>{f.label}</option>
+          ))}
+        </select>
         <select value={status} onChange={e => setStatus(e.target.value)}
                 style={{ padding: '4px 8px' }}>
           {Object.entries(STATUS_LABELS).map(([v, l]) =>
             <option key={v} value={v}>{l}</option>)}
         </select>
         <button onClick={fetchSignals} style={{ padding: '4px 10px' }}>Refresh</button>
+        {!loading && (
+          <span style={{ color: '#7f8c8d', fontSize: 13, marginLeft: 'auto' }}>
+            {signals.length} shown
+          </span>
+        )}
       </div>
 
       <PrecisionCard />

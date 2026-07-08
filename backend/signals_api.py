@@ -189,6 +189,10 @@ def register_signals_routes(app):
         limit = max(1, min(request.args.get('limit', default=100, type=int)
                            or 100, 200))
         suburb_name = (request.args.get('suburb') or '').strip()
+        # min_score filters in SQL so the LIMIT applies to the ALREADY
+        # thresholded set — otherwise 200 rows fill with low long-hold
+        # scores and the genuine high-score leads get truncated away.
+        min_score = request.args.get('min_score', default=0.0, type=float) or 0.0
 
         where, params = [], []
         conn = get_db()
@@ -211,6 +215,8 @@ def register_signals_routes(app):
                 where.append(f"v.suburb_id IN ({ph})"); params.extend(allowed_ids)
             if status != 'all':
                 where.append("v.status = ?"); params.append(status)
+            if min_score > 0:
+                where.append("v.score >= ?"); params.append(min_score)
 
             clause = (" WHERE " + " AND ".join(where)) if where else ""
             rows = conn.execute(
