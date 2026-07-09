@@ -164,6 +164,9 @@ export default function HotVendorScoring() {
   }, [compact])
   const [statuses, setStatuses] = useState({})
   const [notes, setNotes] = useState({})
+  // Property dossier popup (desk) — opens when the operator clicks an
+  // address; shows every field the score is built from + contact.
+  const [propDetail, setPropDetail] = useState(null)
   const [noteEditing, setNoteEditing] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
@@ -715,7 +718,7 @@ export default function HotVendorScoring() {
       return out.slice(0, 3)
     }
     const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
-    const GRID = '52px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.05fr) 104px 120px'
+    const GRID = '54px minmax(0,1.5fr) minmax(0,1.1fr) minmax(0,1fr) 132px 156px'
     const noteFor = (a) => (notes[a] || '').trim()
     const catBadge = (cat) => cat === 'HOT' ? { bg: 'var(--score-hot-bg)', fg: 'var(--score-hot-text)' }
       : cat === 'WARM' ? { bg: 'var(--status-watch-bg)', fg: 'var(--status-watch-text)' }
@@ -731,6 +734,20 @@ export default function HotVendorScoring() {
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Hot Vendors</h2>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {Math.round(avgScore)}</div>
+          </div>
+          {/* Search — filters by address OR owner as you type (e.g. "beach"
+              → every Beach Street owner). Bound to the same `search` state
+              the classic view uses. */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search address or owner…"
+              style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px 9px 34px', width: 260, outline: 'none' }}
+            />
+            <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', fontSize: 13 }}>⌕</span>
+            {search && <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{sorted.length}</div>}
           </div>
         </div>
 
@@ -772,7 +789,7 @@ export default function HotVendorScoring() {
         </div>
 
         <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, padding: '13px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, padding: '13px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
             {HV_HEAD.map(h => (
               <span key={h.l} onClick={h.f ? () => toggleSort(h.f) : undefined} style={{ cursor: h.f ? 'pointer' : 'default', userSelect: 'none' }}>{h.l}{h.f ? sortIndicator(h.f) : ''}</span>
             ))}
@@ -782,10 +799,11 @@ export default function HotVendorScoring() {
               const cb = catBadge(p.category)
               const note = noteFor(p.address)
               return (
-              <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
+                  <button type="button" onClick={() => setPropDetail(p)} title="Open details"
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</button>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}</div>
                 </div>
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.current_owner || '—'}</span>
@@ -825,6 +843,73 @@ export default function HotVendorScoring() {
             </div>
           </div>
         )}
+
+        {/* Property dossier — click an address to open. Every field the
+            score is built from, plus contact + one-click actions. */}
+        {propDetail && (() => {
+          const p = propDetail
+          const money = (v) => (v || v === 0) && !Number.isNaN(Number(v)) ? `$${Number(v).toLocaleString()}` : '—'
+          const phone = p.owner_phone || p.phone || p.contact_phone || ''
+          const cb = catBadge(p.category)
+          const rows = [
+            ['Owner', p.current_owner || '—'],
+            ['Phone', phone || 'Not in this export'],
+            ['Type', [p.type, p.bedrooms ? `${p.bedrooms} bd` : null, p.bathrooms ? `${p.bathrooms} ba` : null].filter(Boolean).join(' · ') || '—'],
+            ['Held', p.holding_years != null ? `${p.holding_years} yrs` : '—'],
+            ['Bought', `${money(p.owner_purchase_price)}${p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}`],
+            ['Est. gain', `${money(p.owner_gain_dollars)}${p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}`],
+            ['CAGR', p.cagr != null ? `${p.cagr}%` : '—'],
+            ['Sales in street', p.sales_count != null ? p.sales_count : '—'],
+            ['Last sale', money(p.last_sale_price)],
+            ['Agency', p.agency || '—'],
+            ['Agent', p.agent || '—'],
+          ]
+          return (
+            <div className="note-modal-overlay" onClick={() => setPropDetail(null)}>
+              <div className="note-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, width: '92vw' }}>
+                <div className="note-modal-header" style={{ alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, width: 46, height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: cb.bg, color: cb.fg, flexShrink: 0 }}>{Math.round(p.final_score)}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''}</div>
+                    </div>
+                  </div>
+                  <button className="btn-icon" onClick={() => setPropDetail(null)} title="Close">×</button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 16, rowGap: 9, padding: '4px 2px 12px' }}>
+                  {rows.flatMap(([k, v]) => [
+                    <span key={k + '-k'} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-faint)', alignSelf: 'center' }}>{k}</span>,
+                    <span key={k + '-v'} style={{ fontFamily: k === 'Phone' && phone ? 'var(--font-mono)' : 'var(--font-ui)', fontSize: 13, fontWeight: k === 'Phone' && phone ? 700 : 500, color: k === 'Phone' && !phone ? 'var(--text-faint)' : 'var(--text)' }}>
+                      {k === 'Phone' && phone ? <a href={`tel:${phone}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{phone}</a> : v}
+                    </span>,
+                  ])}
+                </div>
+
+                {sigChips(p).length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 2px 12px' }}>
+                    {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px' }}>{s}</span>)}
+                  </div>
+                )}
+
+                {noteFor(p.address) && (
+                  <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 8, padding: '9px 12px', margin: '0 2px 12px', fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--status-watch-text)' }}>{noteFor(p.address)}</div>
+                )}
+
+                <div className="note-modal-footer">
+                  <div style={{ minWidth: 0 }}>
+                    <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                  </div>
+                  <div className="note-modal-actions">
+                    <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
+                    <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'CONTACTED'); setPropDetail(null) }}>Log a call</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
