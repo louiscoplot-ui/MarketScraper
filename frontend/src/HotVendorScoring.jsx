@@ -9,6 +9,7 @@ import StickyHScroll from './components/StickyHScroll'
 import { formatIsoDate } from './hooks/useListings'
 import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
 import { getDeskMode } from './lib/deskFlag'
+import { readCache, writeCache } from './lib/api'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -140,7 +141,10 @@ const SORT_FIELDS = {
 
 
 export default function HotVendorScoring() {
-  const [data, setData] = useState(null)
+  // Stale-while-revalidate: hydrate the last-scored report from localStorage
+  // so the table is on screen instantly on every visit/reload — no "Working
+  // on it…" flash. Only a new upload/score replaces it (see writeCache below).
+  const [data, setData] = useState(() => readCache('hv_last_report'))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('ALL')
@@ -168,8 +172,9 @@ export default function HotVendorScoring() {
   const [dragActive, setDragActive] = useState(false)
   const wrapperRef = useRef(null)
   const suburbDropdownRef = useRef(null)
-  const [savedUploads, setSavedUploads] = useState([])
-  const [savedLoading, setSavedLoading] = useState(true)
+  const [savedUploads, setSavedUploads] = useState(() => readCache('hv_uploads') || [])
+  // Only show the "Loading…" hint when we have nothing cached to show yet.
+  const [savedLoading, setSavedLoading] = useState(() => (readCache('hv_uploads') || []).length === 0)
   // Visible feedback when the operator switches between saved reports
   // (separate from `loading`, which doubles as the upload-in-progress
   // flag). Drives the small "Loading…" hint next to "Recent reports".
@@ -197,6 +202,10 @@ export default function HotVendorScoring() {
         if (cancelled) return
         const uploads = j.uploads || []
         setSavedUploads(uploads)
+        writeCache('hv_uploads', uploads)
+        // Auto-load the latest report only if nothing is on screen yet — a
+        // cache-hydrated `data` means we keep it (no refetch) until the user
+        // clicks another suburb or uploads anew.
         if (uploads.length > 0 && !data) {
           loadSavedUpload(uploads[0].id)
         }
@@ -219,9 +228,19 @@ export default function HotVendorScoring() {
   const loadSavedUpload = async (uploadId) => {
     const seq = ++loadSeqRef.current
     setError('')
-    // Cache hit → swap data instantly, skip the fetch entirely.
+    // Cache hit (in-memory this session, or localStorage from a past visit)
+    // → swap data instantly, skip the fetch entirely.
     if (reportCache.current.has(uploadId)) {
-      setData(reportCache.current.get(uploadId))
+      const hit = reportCache.current.get(uploadId)
+      setData(hit)
+      writeCache('hv_last_report', hit)
+      return
+    }
+    const persisted = readCache(`hv_report_${uploadId}`)
+    if (persisted) {
+      reportCache.current.set(uploadId, persisted)
+      setData(persisted)
+      writeCache('hv_last_report', persisted)
       return
     }
     setLoading(true)
@@ -233,6 +252,11 @@ export default function HotVendorScoring() {
       if (!res.ok) throw new Error(result.error || `Load failed (${res.status})`)
       reportCache.current.set(uploadId, result)
       setData(result)
+      // Persist so this report is instant next visit. writeCache silently
+      // no-ops if the payload blows the quota (big suburbs) — the network
+      // stays the fallback, so correctness is unaffected.
+      writeCache(`hv_report_${uploadId}`, result)
+      writeCache('hv_last_report', result)
     } catch (e) {
       if (seq !== loadSeqRef.current) return
       console.error(e)
@@ -251,8 +275,19 @@ export default function HotVendorScoring() {
       if (res.ok) {
         const j = await res.json()
         setSavedUploads(j.uploads || [])
+        writeCache('hv_uploads', j.uploads || [])
       }
     } catch {}
+  }
+
+  // A freshly-scored report replaces the cached one (the "except on new
+  // upload" case) so the next visit hydrates to the latest, not the old.
+  const persistScored = (result) => {
+    if (!result || result.error) return
+    const id = result.upload_id ?? result.id ?? result.uploadId
+    if (id != null) reportCache.current.set(id, result)
+    if (id != null) writeCache(`hv_report_${id}`, result)
+    writeCache('hv_last_report', result)
   }
 
   const [loadingStage, setLoadingStage] = useState('')
@@ -321,6 +356,7 @@ export default function HotVendorScoring() {
 
       const result = await pollJob(jobId)
       setData(result)
+      persistScored(result)
       refreshSavedUploads()
       try { localStorage.removeItem(ACTIVE_JOB_KEY) } catch {}
     } catch (e) {
@@ -348,6 +384,7 @@ export default function HotVendorScoring() {
         const result = await pollJob(stored.job_id, { signal: { get aborted() { return cancelled } } })
         if (cancelled) return
         setData(result)
+        persistScored(result)
         refreshSavedUploads()
       } catch (e) {
         if (cancelled) return
