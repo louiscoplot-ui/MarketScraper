@@ -337,7 +337,7 @@ export default function ListingsView({
             ))}
             {checkedSuburbs.size > 8 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px' }}>+ {checkedSuburbs.size - 8} more</span>}
             {suburbs.length > 0 && toggleCheckSuburb && (
-              <div ref={subPickerRef} style={{ position: 'relative' }}>
+              <div ref={subPickerRef} style={{ position: 'relative', order: -1 }}>
                 <button type="button" onClick={() => setSubPickerOpen(o => !o)} title="Add or remove suburbs"
                   style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 500, color: subPickerOpen ? 'var(--accent)' : 'var(--text-muted)', border: `1px dashed ${subPickerOpen ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 999, padding: '6px 12px', background: 'var(--surface)', cursor: 'pointer' }}>
                   + suburb ▾
