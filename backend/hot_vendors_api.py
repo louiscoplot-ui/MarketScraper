@@ -764,6 +764,210 @@ def register_hot_vendors_routes(app):
 
 
     # ------------------------------------------------------------------
+    # POST a contacts spreadsheet (names / addresses / phone numbers) and
+    # merge it into the scored Hot Vendors list by address. Same model as
+    # the official RP-Data import: _read_rows (csv/xlsx) + automatic
+    # column detection by header aliases; when headers are ambiguous and
+    # ANTHROPIC_API_KEY is configured, Claude maps them (heuristics are
+    # always the fallback — the import never depends on the API).
+    # ------------------------------------------------------------------
+    CONTACT_ALIASES = {
+        'address': ['address', 'property address', 'street address', 'site address', 'adresse', 'property'],
+        'suburb': ['suburb', 'locality', 'city', 'town'],
+        'owner': ['owner', 'owner name', 'name', 'contact', 'contact name', 'vendor', 'vendor name',
+                  'full name', 'owner 1', 'owner1'],
+        'phone': ['phone', 'phone number', 'mobile', 'mobile number', 'telephone', 'tel', 'contact number',
+                  'ph', 'cell', 'owner phone'],
+    }
+
+    def _detect_contact_columns(header):
+        norm_h = [(h or '').strip().lower() for h in header]
+        out = {}
+        for canonical, aliases in CONTACT_ALIASES.items():
+            for alias in aliases:
+                if alias in norm_h:
+                    out[canonical] = norm_h.index(alias)
+                    break
+        return out
+
+    def _ai_map_contact_columns(header):
+        """Ask Claude to map ambiguous headers → canonical fields. Returns
+        a {canonical: index} dict or None. Never raises; heuristics remain
+        the source of truth when this returns nothing usable."""
+        try:
+            from signals.brief_builder import generate_text
+            cols = [str(h or '')[:60] for h in header][:40]
+            text = generate_text(
+                'You map spreadsheet column headers to canonical fields. '
+                'Reply with ONLY a JSON object, no prose.',
+                'Headers (0-indexed): ' + json.dumps(cols) +
+                '\nMap to canonical fields address, suburb, owner, phone. '
+                'Reply as {"address": <index or null>, "suburb": ..., '
+                '"owner": ..., "phone": ...} using null when absent.',
+                max_tokens=200, timeout=15,
+            )
+            if not text:
+                return None
+            m = json.loads(text[text.index('{'):text.rindex('}') + 1])
+            out = {}
+            for k in ('address', 'suburb', 'owner', 'phone'):
+                v = m.get(k)
+                if isinstance(v, int) and 0 <= v < len(header):
+                    out[k] = v
+            return out if 'address' in out else None
+        except Exception:
+            logger.exception("AI column mapping failed (falling back to heuristics)")
+            return None
+
+    @app.route('/api/hot-vendors/import-contacts', methods=['POST'])
+    def import_contacts():
+        _user, allowed_names = get_user_allowed_suburb_names()
+        if _user is None:
+            return jsonify({'error': 'Unauthenticated'}), 401
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded. Use multipart field "file".'}), 400
+        f = request.files['file']
+        if not f.filename:
+            return jsonify({'error': 'Empty filename'}), 400
+
+        from import_api import _read_rows
+        rows, err = _read_rows(f)
+        if err:
+            return jsonify({'error': err}), 400
+        rows = [r for r in (rows or []) if r and any(str(c or '').strip() for c in r)]
+        if not rows:
+            return jsonify({'error': 'File is empty'}), 400
+
+        # Header detection — scan the first rows for one that maps at
+        # least address + (phone or owner); AI assist if heuristics fail.
+        used_ai = False
+        header_idx, mapping = -1, {}
+        for i in range(min(10, len(rows))):
+            m = _detect_contact_columns(rows[i])
+            if 'address' in m and ('phone' in m or 'owner' in m):
+                header_idx, mapping = i, m
+                break
+        if header_idx < 0:
+            ai = _ai_map_contact_columns(rows[0])
+            if ai:
+                header_idx, mapping, used_ai = 0, ai, True
+        if header_idx < 0 or 'address' not in mapping:
+            return jsonify({
+                'error': "Could not find the address column. Make sure the "
+                         "sheet has headers like Address / Owner / Phone.",
+                'first_row_seen': [str(c) for c in rows[0][:10]],
+            }), 400
+
+        def cell(row, key):
+            idx = mapping.get(key)
+            if idx is None or idx >= len(row):
+                return ''
+            v = str(row[idx] or '').strip()
+            return '' if v == '-' else v
+
+        conn = get_db()
+        try:
+            # Pre-fetch scored properties (normalized_address → suburb)
+            # so matching + scope checks are in-memory, not per-row queries.
+            prop_rows = conn.execute(
+                "SELECT p.normalized_address, u.suburb "
+                "FROM hot_vendor_properties p "
+                "JOIN hot_vendor_uploads u ON u.id = p.upload_id "
+                "WHERE p.normalized_address IS NOT NULL AND p.normalized_address != ''"
+            ).fetchall()
+            prop_suburb = {}
+            for r in prop_rows:
+                d = dict(r)
+                prop_suburb.setdefault(d['normalized_address'], d['suburb'])
+
+            matched = phones_saved = owners_filled = unmatched = skipped_scope = 0
+            unmatched_sample = []
+            now_sql = 'CURRENT_TIMESTAMP' if USE_POSTGRES else "datetime('now')"
+            for row in rows[header_idx + 1:]:
+                addr = cell(row, 'address')
+                if not addr:
+                    continue
+                phone = cell(row, 'phone')
+                owner = cell(row, 'owner')
+                if not phone and not owner:
+                    continue
+                norm = normalize_address(addr)
+                if not norm:
+                    continue
+                suburb = prop_suburb.get(norm)
+                if suburb is None:
+                    unmatched += 1
+                    if len(unmatched_sample) < 10:
+                        unmatched_sample.append(addr)
+                    continue
+                if allowed_names is not None and (suburb or '').strip().lower() not in {
+                        s.lower() for s in allowed_names}:
+                    skipped_scope += 1
+                    continue
+                matched += 1
+                if phone:
+                    if USE_POSTGRES:
+                        conn.execute(
+                            "INSERT INTO hot_vendor_property_status "
+                            "(normalized_address, phone, updated_at) "
+                            "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                            "ON CONFLICT (normalized_address) DO UPDATE SET "
+                            "phone = EXCLUDED.phone, updated_at = CURRENT_TIMESTAMP",
+                            (norm, phone)
+                        )
+                    else:
+                        existing = conn.execute(
+                            "SELECT 1 FROM hot_vendor_property_status WHERE normalized_address = ?",
+                            (norm,)
+                        ).fetchone()
+                        if existing:
+                            conn.execute(
+                                f"UPDATE hot_vendor_property_status SET phone = ?, "
+                                f"updated_at = {now_sql} WHERE normalized_address = ?",
+                                (phone, norm)
+                            )
+                        else:
+                            conn.execute(
+                                f"INSERT INTO hot_vendor_property_status "
+                                f"(normalized_address, phone, updated_at) "
+                                f"VALUES (?, ?, {now_sql})",
+                                (norm, phone)
+                            )
+                    phones_saved += 1
+                if owner:
+                    # Fill only where RP Data had no owner — never overwrite
+                    # title data with a spreadsheet.
+                    cur = conn.execute(
+                        "UPDATE hot_vendor_properties SET current_owner = ? "
+                        "WHERE normalized_address = ? "
+                        "AND (current_owner IS NULL OR current_owner = '')",
+                        (owner, norm)
+                    )
+                    try:
+                        owners_filled += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                    except Exception:
+                        pass
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("import-contacts failed")
+            return jsonify({'error': 'Import failed — see server logs'}), 500
+        finally:
+            conn.close()
+
+        return jsonify({
+            'matched': matched,
+            'phones_saved': phones_saved,
+            'owners_filled': owners_filled,
+            'unmatched': unmatched,
+            'unmatched_sample': unmatched_sample,
+            'skipped_scope': skipped_scope,
+            'used_ai': used_ai,
+            'mapping': mapping,
+        })
+
+
+    # ------------------------------------------------------------------
     # GET all per-address statuses (for hydrating the UI on a fresh load)
     # ------------------------------------------------------------------
     @app.route('/api/hot-vendors/statuses', methods=['GET'])

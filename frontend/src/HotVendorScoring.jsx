@@ -636,6 +636,47 @@ export default function HotVendorScoring() {
   const [phones, setPhones] = useState({})
   const [phoneSaving, setPhoneSaving] = useState(false)
   const [phoneDraft, setPhoneDraft] = useState('')
+  // Contacts import — same model as the official RP-Data upload: drop a
+  // csv/xlsx with names/addresses/phones, the backend auto-detects the
+  // columns and merges by address into the scored list.
+  const contactsInputRef = useRef(null)
+  const [importingContacts, setImportingContacts] = useState(false)
+  const importContacts = async (file) => {
+    if (!file) return
+    setImportingContacts(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`${BACKEND_DIRECT}/api/hot-vendors/import-contacts`, {
+        method: 'POST',
+        body: fd,
+        headers: { 'X-Access-Key': localStorage.getItem('agentdeck_access_key') || '' },
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || `Import failed (${res.status})`)
+      let msg = `Contacts imported — ${j.phones_saved} phone number${j.phones_saved === 1 ? '' : 's'} saved`
+        + (j.owners_filled ? `, ${j.owners_filled} owner name${j.owners_filled === 1 ? '' : 's'} filled` : '')
+        + ` (${j.matched} address${j.matched === 1 ? '' : 'es'} matched).`
+      if (j.unmatched) msg += `\n${j.unmatched} address${j.unmatched === 1 ? '' : 'es'} not in your scored list${j.unmatched_sample?.length ? `, e.g. ${j.unmatched_sample.slice(0, 3).join('; ')}` : ''}.`
+      alert(msg)
+      // Refresh the on-screen report so the new phones hydrate.
+      const id = data?.upload_id ?? data?.id ?? data?.uploadId
+      if (id) {
+        const res2 = await fetch(`${API}/api/hot-vendors/uploads/${id}`)
+        const result = await res2.json().catch(() => null)
+        if (res2.ok && result && !result.error) {
+          reportCache.current.set(id, result)
+          setData(result)
+          persistScored(result)
+        }
+      }
+    } catch (e) {
+      alert(`Contacts import failed: ${e.message}`)
+    } finally {
+      setImportingContacts(false)
+      if (contactsInputRef.current) contactsInputRef.current.value = ''
+    }
+  }
   const openDetail = (p) => {
     setPropDetail(p)
     setPhoneDraft(phones[p.address] ?? p.phone ?? '')
@@ -802,6 +843,16 @@ export default function HotVendorScoring() {
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {Math.round(avgScore)}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {/* Contacts import — csv/xlsx with names/addresses/phones,
+                merged by address into this list (same flow as the
+                official RP-Data upload). */}
+            <input ref={contactsInputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }}
+              onChange={(e) => importContacts(e.target.files && e.target.files[0])} />
+            <button onClick={() => contactsInputRef.current && contactsInputRef.current.click()} disabled={importingContacts}
+              title="Import a spreadsheet of names, addresses and phone numbers — matched to this list by address"
+              style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px', cursor: importingContacts ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+              {importingContacts ? 'Importing…' : '⇪ Import contacts'}
+            </button>
             {/* Suburb picker — desk has no sidebar, so surface suburb
                 selection here. Empty selection = all. */}
             {uniqueSuburbs.length > 1 && (
