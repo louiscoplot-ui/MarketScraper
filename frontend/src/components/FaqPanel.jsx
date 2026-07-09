@@ -62,8 +62,8 @@ const SECTIONS = [
         'You import your own RP Data or CoreLogic export (from your existing licence). Your data is never shared with other users on the platform.'],
       ['Why do scores expire after 60 days?',
         'Market conditions change. Re-importing keeps your prospecting targets current and accurate.'],
-      ['What do HOT / WARM / MEDIUM / COLD mean?',
-        'HOT (75-100) = call today. WARM (50-74) = monitor closely. MEDIUM (25-49) = longer term watch. COLD (0-24) = low priority.'],
+      ['What do HOT / WARM / MEDIUM / LOW mean?',
+        'HOT (75-100) = call today. WARM (50-74) = monitor closely. MEDIUM (25-49) = longer term watch. LOW (0-24) = low priority.'],
     ],
   },
   {
@@ -81,14 +81,64 @@ const SECTIONS = [
     label: 'History',
     items: [
       ['What is the History tab?',
-        'Daily market snapshots showing how listing volumes, median prices and days-on-market have evolved over time for your suburbs.'],
+        'A ledger of every nightly scrape — when it ran, how many listings were for sale / sold / new / withdrawn, and any errors. It\'s about trusting the data pipeline.'],
+    ],
+  },
+  {
+    id: 'today',
+    label: 'Dashboard',
+    items: [
+      ['What is the Dashboard?',
+        'Your morning brief: what changed overnight. The top vendor signals for your suburbs, KPIs (fresh signals, hot/watch counts), the metro market-pulse trend, signals by suburb, and sales that just fell through — in one glance.'],
+      ['What is "Market pulse"?',
+        'The metro median asking price over time, built from the nightly market snapshots. The trend fills in as more days of data accumulate.'],
+    ],
+  },
+  {
+    id: 'signals',
+    label: 'Signals',
+    items: [
+      ['What are Signals?',
+        'The raw event stream behind the scores — every new listing, price cut, withdrawal, relisting and sale as it\'s detected, each scored 0-100 by how likely the owner is to sell. Hot Vendors is the ranked digest of this firehose.'],
+      ['What does the score mean?',
+        '60+ = strong signal, act now. 35-60 = worth watching. Below 35 = lower priority. Filter by New / Actioned / Dismissed.'],
+    ],
+  },
+  {
+    id: 'appraisals',
+    label: 'Appraisals',
+    items: [
+      ['What is the Appraisals tab?',
+        'Log an appraisal request and SuburbDesk auto-schedules J+30 / J+60 / J+90 follow-ups so nothing slips. Track open vs won / lost and your commission ROI.'],
+    ],
+  },
+  {
+    id: 'fallen',
+    label: 'Sales Fallen Through',
+    items: [
+      ['What is "Sales Fallen Through"?',
+        'Under-offer listings that returned to active in the last 14 days — the sale collapsed and the vendor\'s confidence in their agent is shaken. A ~2-week window to approach a genuinely motivated seller.'],
     ],
   },
 ]
 
+// Map the current view (URL hash, kept in sync by App.jsx) to the FAQ
+// section, so the "?" opens on the page you're actually looking at.
+const HASH_TO_SECTION = {
+  today: 'today', listings: 'listings', signals: 'signals', pipeline: 'pipeline',
+  appraisals: 'appraisals', report: 'report', 'hot-vendors': 'hot-vendors',
+  rentals: 'rental', fallen: 'fallen', logs: 'history',
+}
+function sectionForHash() {
+  try {
+    const h = (window.location.hash || '').replace(/^#/, '')
+    return HASH_TO_SECTION[h] || 'general'
+  } catch { return 'general' }
+}
+
 export default function FaqPanel() {
   const [open, setOpen] = useState(false)
-  const [section, setSection] = useState('general')
+  const [section, setSection] = useState(sectionForHash)
 
   useEffect(() => {
     if (!open) return
@@ -110,7 +160,7 @@ export default function FaqPanel() {
       <button
         type="button"
         aria-label="Open help and FAQ"
-        onClick={() => setOpen(true)}
+        onClick={() => { setSection(sectionForHash()); setOpen(true) }}
         style={s.btn}
         onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.05)' }}
         onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)' }}
