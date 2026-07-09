@@ -6,7 +6,7 @@
 // window.open would bypass the X-Access-Key interceptor.
 import { useState, useEffect, useCallback } from 'react'
 import { FileText, Phone, X } from 'lucide-react'
-import { api, apiJson } from '../lib/api'
+import { api, apiJson, readCache, writeCache } from '../lib/api'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Chip, Checkbox, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
@@ -56,11 +56,20 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [] }
   const [cooldownCount, setCooldownCount] = useState(0)
 
   const fetchBrief = useCallback(async () => {
-    setLoading(true); setError('')
+    // Stale-while-revalidate: the brief is computed live server-side
+    // (heavy, worse on a cold Render dyno), so a fresh fetch every visit
+    // felt slow. Paint the last cached brief instantly, then refresh in
+    // the background. Cache is access-key-scoped (readCache/writeCache).
+    const cached = readCache('brief_today')
+    if (cached) { setBrief(cached); setLoading(false) }
+    else { setLoading(true) }
+    setError('')
     try {
-      setBrief(await apiJson('/api/brief/today'))
+      const d = await apiJson('/api/brief/today')
+      setBrief(d)
+      if (d && !d.error) writeCache('brief_today', d)
     } catch (e) {
-      setError(e.message || 'Could not load your brief')
+      if (!cached) setError(e.message || 'Could not load your brief')
     } finally {
       setLoading(false)
     }
