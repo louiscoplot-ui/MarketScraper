@@ -142,6 +142,24 @@ export default function TodayView() {
         {formatIsoDate(brief?.brief_date) || ''}{brief?.live ? ' · built live (tonight’s brief will be emailed)' : ''}
       </div>
 
+      {/* Desk-mode KPI marquee (mock 01). Hidden in classic via CSS. */}
+      {!loading && !error && (
+        <div className="desk-kpis">
+          <div className="desk-kpi" data-c="rose">
+            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.length}</div><div className="desk-kpi-l">Fresh signals</div></div>
+          </div>
+          <div className="desk-kpi" data-c="alert">
+            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.filter(i => (i.score || 0) >= 0.6).length}</div><div className="desk-kpi-l">Hot ≥ 60</div></div>
+          </div>
+          <div className="desk-kpi" data-c="watch">
+            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.filter(i => (i.score || 0) >= 0.35 && (i.score || 0) < 0.6).length}</div><div className="desk-kpi-l">Watch 35–60</div></div>
+          </div>
+          <div className="desk-kpi" data-c="info">
+            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{new Set(items.map(i => i.suburb).filter(Boolean)).size}</div><div className="desk-kpi-l">Suburbs</div></div>
+          </div>
+        </div>
+      )}
+
       {/* Signal colour key — explains the dot next to each "why" reason. */}
       {items.length > 0 && (
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
