@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Spinner } from '../components/ui'
+import { getDeskMode } from '../lib/deskFlag'
 
 export default function FallenView({ bootApi }) {
   const [items, setItems] = useState(null)
@@ -26,6 +27,59 @@ export default function FallenView({ bootApi }) {
   }, [bootApi])
 
   useEffect(() => { fetchItems() }, [fetchItems])
+
+  // ── Desk redesign — full render of mock #fallen (amber hero + table + map). ──
+  if (getDeskMode() === 'desk') {
+    const list = Array.isArray(items) ? items : []
+    const GRID = '1.7fr 150px 150px 150px'
+    return (
+      <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Sales Fallen Through</h2>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>Under-offer listings back on market · last 14 days</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={fetchItems}>Refresh</Button>
+        </div>
+
+        {list.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'var(--status-watch-bg)', border: '1px solid #F5C88A', borderRadius: 16, padding: '16px 22px' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 34, lineHeight: 1, color: '#7c2d12' }}>{list.length}</span>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: '#92400E' }}>Motivated vendors · 14 days</div>
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: '#92400E', fontWeight: 500 }}>sale{list.length !== 1 ? 's' : ''} fallen through — best approached now</div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
+          <div style={{ width: '64%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+              <span>Address</span><span>Suburb</span><span>Was listed at</span><span>Back on market</span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {items === null ? <div style={{ padding: 24, color: 'var(--text-muted)', display: 'flex', gap: 10, alignItems: 'center' }}><Spinner size={16} muted inline /> Loading…</div>
+                : error ? <div style={{ padding: 24, color: 'var(--status-alert-text)' }}>{error}</div>
+                : list.length === 0 ? <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No live fallen sales right now.</div>
+                : list.map(it => (
+                  <div key={it.id} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid var(--border)', borderLeft: '3px solid var(--status-watch)' }}>
+                    <a href={it.reiwa_url || '#'} target={it.reiwa_url ? '_blank' : undefined} rel="noreferrer" onClick={it.reiwa_url ? undefined : (e) => e.preventDefault()}
+                      style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.address}</a>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)' }}>{it.suburb || ''}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>{it.original_price || '—'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{formatIsoDate(it.detected_at) || '—'}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <div className="desk-map" style={{ flex: 1, minHeight: 0 }}>
+            <div className="desk-map-label">Doorknock run · same day</div>
+            {list.slice(0, 24).map((it, i) => { const s = String(it.address || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff; return <span key={it.id ?? i} style={{ position: 'absolute', top: `${18 + (h % 62)}%`, left: `${14 + ((h >> 4) % 70)}%`, width: 13, height: 13, borderRadius: '50%', background: 'var(--status-watch)', border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} /> })}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ padding: '16px 24px', maxWidth: 980, margin: '0 auto' }}>
