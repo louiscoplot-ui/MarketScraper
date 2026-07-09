@@ -282,7 +282,7 @@ export default function ListingsView({
       {/* Desk-mode page header — serif title + mono context line. Hidden
           in classic via CSS ([data-desk] scope in desk.css). */}
       <div className="desk-page-head">
-        <h2 className="desk-page-title">Prospecting</h2>
+        <h2 className="desk-page-title">Prospecting · Sales</h2>
         <div className="desk-page-sub">
           {filteredListings.length} listing{filteredListings.length !== 1 ? 's' : ''}
           {scopeCount > 0 && ` · ${scopeCount} suburb${scopeCount !== 1 ? 's' : ''}`}
