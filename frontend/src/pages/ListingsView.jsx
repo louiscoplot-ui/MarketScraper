@@ -39,7 +39,7 @@ export default function ListingsView({
   toggleCheckSuburb, selectAllCheck, deselectAllCheck,
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing, mirrorListing,
-  bootLoading,
+  bootLoading, onNavigate, hasRental = false,
 }) {
   // Note editor state — `editing` holds the listing whose note we're
   // editing (or null). PATCH writes to listing_notes keyed on the
@@ -329,9 +329,17 @@ export default function ListingsView({
             <div>
               <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, marginBottom: 12 }}>
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: '#fff', background: 'var(--accent)', borderRadius: 7, padding: '5px 18px' }}>Sales</span>
-                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                  Rental <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.08em', background: 'var(--border)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px' }}>ACCOUNT</span>
-                </span>
+                {hasRental ? (
+                  <button type="button" onClick={() => onNavigate && onNavigate('rentals')}
+                    style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 18px', background: 'transparent', border: 'none', borderRadius: 7, cursor: 'pointer' }}
+                    title="Switch to Rental">
+                    Rental
+                  </button>
+                ) : (
+                  <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    Rental <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.08em', background: 'var(--border)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px' }}>ACCOUNT</span>
+                  </span>
+                )}
               </div>
               <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Prospecting · Sales</h2>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>

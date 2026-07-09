@@ -1063,6 +1063,8 @@ function App() {
               calcDOM={calcDOM} formatIsoDate={formatIsoDate}
               deleteListing={deleteListing} updateListing={updateListing} mirrorListing={mirrorListing}
               bootLoading={listingsBootLoading}
+              onNavigate={handleNavigate}
+              hasRental={!!me && ((me.role || '').toLowerCase() === 'admin' || !!me.rental_access)}
             />
           </div>
 
