@@ -51,6 +51,17 @@ export default function ListingsView({
   // (mock 03) instead of linking out to REIWA. Classic keeps the link.
   const [detail, setDetail] = useState(null)
   const isDesk = getDeskMode() === 'desk'
+  // Desk suburb multiselect — stays open while toggling (closes only on
+  // outside click), so the operator can add/remove several without
+  // reopening it each time.
+  const [subPickerOpen, setSubPickerOpen] = useState(false)
+  const subPickerRef = useRef(null)
+  useEffect(() => {
+    if (!subPickerOpen) return
+    const h = (e) => { if (subPickerRef.current && !subPickerRef.current.contains(e.target)) setSubPickerOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [subPickerOpen])
   const wrapperRef = useRef(null)
   // Compact mode defaults ON for first-time visitors (denser table fits
   // more on a laptop screen). User toggles persist after that.
@@ -325,18 +336,33 @@ export default function ListingsView({
               </span>
             ))}
             {checkedSuburbs.size > 8 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px' }}>+ {checkedSuburbs.size - 8} more</span>}
-            {suburbs.some(s => !checkedSuburbs.has(s.id)) && (
-              <select value="" onChange={e => { const id = Number(e.target.value); if (id && toggleCheckSuburb) toggleCheckSuburb(id) }} title="Add a suburb"
-                style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px', background: 'var(--surface)', cursor: 'pointer' }}>
-                <option value="">+ suburb</option>
-                {suburbs.filter(s => !checkedSuburbs.has(s.id)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            )}
-            {selectAllCheck && suburbs.length > 0 && (
-              <button type="button" onClick={checkedSuburbs.size === suburbs.length ? deselectAllCheck : selectAllCheck}
-                style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--accent)', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
-                {checkedSuburbs.size === suburbs.length ? 'Clear all' : 'All suburbs'}
-              </button>
+            {suburbs.length > 0 && toggleCheckSuburb && (
+              <div ref={subPickerRef} style={{ position: 'relative' }}>
+                <button type="button" onClick={() => setSubPickerOpen(o => !o)} title="Add or remove suburbs"
+                  style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 500, color: subPickerOpen ? 'var(--accent)' : 'var(--text-muted)', border: `1px dashed ${subPickerOpen ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 999, padding: '6px 12px', background: 'var(--surface)', cursor: 'pointer' }}>
+                  + suburb ▾
+                </button>
+                {subPickerOpen && (
+                  <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-pop)', padding: 6, minWidth: 210, maxHeight: 340, overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', gap: 6, padding: '4px 6px 8px', borderBottom: '1px solid var(--border)', marginBottom: 4 }}>
+                      <button type="button" onClick={() => selectAllCheck && selectAllCheck()} style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-soft)', border: 'none', borderRadius: 6, padding: '5px 0', cursor: 'pointer' }}>All</button>
+                      <button type="button" onClick={() => deselectAllCheck && deselectAllCheck()} style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 0', cursor: 'pointer' }}>Clear</button>
+                    </div>
+                    {suburbs.map(s => {
+                      const on = checkedSuburbs.has(s.id)
+                      return (
+                        <div key={s.id} onClick={() => toggleCheckSuburb(s.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <span style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent)' : 'transparent', color: '#fff', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{on ? '✓' : ''}</span>
+                          {s.name}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             )}
             <span style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
             {STATUS_PILLS.map(p => {

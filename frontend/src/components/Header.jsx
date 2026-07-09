@@ -205,7 +205,9 @@ export default function Header({
         >
           {isExporting ? 'Exporting…' : 'Export'}
         </button>
-        <ThemeToggle />
+        {/* Legacy visual-identity toggle + theme gear — hidden in desk
+            mode (the rail carries tone + "Back to classic"). */}
+        {!railMode && <ThemeToggle />}
         {setShowAccountModal && (
           <button
             className="btn btn-ghost btn-sm"
@@ -215,14 +217,16 @@ export default function Header({
             Account
           </button>
         )}
-        <button
-          className="btn btn-ghost btn-icon-sm"
-          onClick={() => setShowThemeModal(true)}
-          aria-label="Theme settings"
-          title="Theme"
-        >
-          ⚙
-        </button>
+        {!railMode && (
+          <button
+            className="btn btn-ghost btn-icon-sm"
+            onClick={() => setShowThemeModal(true)}
+            aria-label="Theme settings"
+            title="Theme"
+          >
+            ⚙
+          </button>
+        )}
       </div>
     </header>
   )

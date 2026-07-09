@@ -44,7 +44,7 @@ const SIGNAL_LEGEND = [
   { label: 'Neighbour sold', status: 'good' },
 ]
 
-export default function TodayView({ setView, saleFallenCount = 0 }) {
+export default function TodayView({ setView, saleFallenCount = 0, suburbs = [] }) {
   const [scope, setScope] = useState('all')   // desk dashboard scope selector
   const [brief, setBrief] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -140,7 +140,12 @@ export default function TodayView({ setView, saleFallenCount = 0 }) {
   // ── Desk redesign — full render of mock #dashboard. Separate from
   // classic; wires real brief data + a local scope selector. ──
   if (getDeskMode() === 'desk') {
-    const suburbsList = [...new Set(items.map(i => i.suburb).filter(Boolean))].sort()
+    // All tracked suburbs (from the full list App passes) drive the scope
+    // menu + the "tracked" count — not just the ones that happen to have a
+    // signal in today's brief. KPIs/bars stay signal-based.
+    const trackedNames = suburbs.length ? suburbs.map(s => s.name).filter(Boolean).sort()
+      : [...new Set(items.map(i => i.suburb).filter(Boolean))].sort()
+    const suburbsList = trackedNames
     const scoped = scope === 'all' ? items : items.filter(i => i.suburb === scope)
     const hot = scoped.filter(i => (i.score || 0) >= 0.6).length
     const watch = scoped.filter(i => (i.score || 0) >= 0.35 && (i.score || 0) < 0.6).length
