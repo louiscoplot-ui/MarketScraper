@@ -678,8 +678,16 @@ export default function HotVendorScoring() {
       return out.slice(0, 3)
     }
     const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
-    const GRID = '54px 1.7fr 1.1fr 1.5fr 150px'
+    const GRID = '64px 1.5fr 1fr 1.3fr 128px 132px'
     const noteFor = (a) => (notes[a] || '').trim()
+    const catBadge = (cat) => cat === 'HOT' ? { bg: 'var(--score-hot-bg)', fg: 'var(--score-hot-text)' }
+      : cat === 'WARM' ? { bg: 'var(--status-watch-bg)', fg: 'var(--status-watch-text)' }
+      : cat === 'MEDIUM' ? { bg: 'var(--status-good-bg)', fg: 'var(--status-good-text)' }
+      : { bg: 'var(--status-off-bg)', fg: 'var(--status-off-text)' }
+    const HV_HEAD = [
+      { l: 'Score', f: 'final_score' }, { l: 'Address', f: 'address' }, { l: 'Owner', f: 'current_owner' },
+      { l: 'Signals' }, { l: 'Status' }, { l: 'Note' },
+    ]
     return (
       <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -728,28 +736,33 @@ export default function HotVendorScoring() {
 
         <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, padding: '13px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
-            <span>Score</span><span>Address</span><span>Owner</span><span>Signals</span><span>Status</span>
+            {HV_HEAD.map(h => (
+              <span key={h.l} onClick={h.f ? () => toggleSort(h.f) : undefined} style={{ cursor: h.f ? 'pointer' : 'default', userSelect: 'none' }}>{h.l}{h.f ? sortIndicator(h.f) : ''}</span>
+            ))}
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {sorted.map(p => (
+            {sorted.map(p => {
+              const cb = catBadge(p.category)
+              const note = noteFor(p.address)
+              return (
               <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
-                <ScoreBadge category={p.category} score={p.final_score} />
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{fmtNum(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}{noteFor(p.address) ? ' · 📝' : ''}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}</div>
                 </div>
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.current_owner || '—'}</span>
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{s}</span>)}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
-                  <button onClick={() => openNote(p)} title={noteFor(p.address) || 'Add a note'} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: noteFor(p.address) ? 'var(--status-watch-text)' : 'var(--text-faint)', display: 'flex' }}>
-                    <StickyNote size={15} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                </div>
+                <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                <button onClick={() => openNote(p)} title={note || 'Add a note'}
+                  style={{ textAlign: 'left', background: note ? 'var(--status-watch-bg)' : 'transparent', border: note ? '1px solid var(--status-watch)' : '1px dashed var(--border)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 11.5, color: note ? 'var(--status-watch-text)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {note ? note : '+ note'}
+                </button>
               </div>
-            ))}
+              )
+            })}
             {!sorted.length && <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No properties match the current filters.</div>}
           </div>
         </div>

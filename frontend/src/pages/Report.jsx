@@ -172,7 +172,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               </div>
             </div>
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
-              <div style={pTitle}>Price movements <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>· motivated sellers</span></div>
+              <div style={pTitle}>Price movements <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>· % change vs previous asking</span></div>
               <div style={{ overflowY: 'auto' }}>
                 {drops.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No recent price changes.</div> : drops.map((m, i) => {
                   const cut = (m.delta_amount ?? 0) < 0
@@ -180,7 +180,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · was {m.old_price || '—'}</div></div>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{m.new_price || '—'}</span>
-                      {m.delta_pct != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, width: 60, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(m.delta_pct)}%</span>}
+                      {m.delta_pct != null && Math.abs(m.delta_pct) <= 200 && <span title="Change vs previous asking price" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, minWidth: 62, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(Math.round(m.delta_pct))}%</span>}
                     </div>
                   )
                 })}
