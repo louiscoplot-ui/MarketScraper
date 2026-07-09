@@ -17,7 +17,9 @@ export default function FallenView({ bootApi }) {
   const fetchItems = useCallback(async () => {
     setError('')
     try {
-      const res = await fetch(`${bootApi}/signals/sale-fallen`)
+      // Deadline: a stalled cold start otherwise leaves items === null
+      // and the view shows "Loading…" forever.
+      const res = await fetch(`${bootApi}/signals/sale-fallen`, { signal: AbortSignal.timeout(30000) })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const d = await res.json()
       setItems(Array.isArray(d) ? d : [])

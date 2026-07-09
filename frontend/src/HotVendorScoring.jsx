@@ -35,6 +35,7 @@ const CAT_FILTERS = [
 // no row tint any more (rows are neutral; the flag lives in the select).
 const STATUS_OPTIONS = [
   { value: '', label: '—' },
+  { value: 'contacted', label: 'Called / Contacted' },
   { value: 'listed', label: 'Listed / Appraised' },
   { value: 'pending', label: 'Considering / Pending' },
   { value: 'declined', label: 'Not interested' },
@@ -416,6 +417,18 @@ export default function HotVendorScoring() {
   const [excelFallbackUrl, setExcelFallbackUrl] = useState(null)
   const [excelFallbackName, setExcelFallbackName] = useState('')
 
+  // The "click here if it didn't download" fallback belongs to ONE report:
+  // clear it (and release the blob) when the report on screen changes, so
+  // it can't hand out the previous suburb's file under a stale name.
+  useEffect(() => {
+    setExcelFallbackUrl(prev => {
+      if (prev) { try { URL.revokeObjectURL(prev) } catch { /* ignore */ } }
+      return null
+    })
+    setExcelFallbackName('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
   const downloadExcel = async () => {
     const id = data?.upload_id ?? data?.id ?? data?.uploadId
     if (!id) {
@@ -427,7 +440,10 @@ export default function HotVendorScoring() {
       return
     }
     setError('')
-    setExcelFallbackUrl(null)
+    setExcelFallbackUrl(prev => {
+      if (prev) { try { URL.revokeObjectURL(prev) } catch { /* ignore */ } }
+      return null
+    })
     setExcelLoading(true)
     setExcelStage('Starting…')
     const t0 = Date.now()
@@ -522,15 +538,21 @@ export default function HotVendorScoring() {
   // side join against hot_vendor_property_status). Re-runs on new
   // uploads; notes survive across re-uploads keyed on normalized address.
   useEffect(() => {
-    if (!data) { setStatuses({}); setNotes({}); setSelectedSuburbs(new Set()); return }
+    if (!data) { setStatuses({}); setNotes({}); setPhones({}); setSelectedSuburbs(new Set()); return }
     const nextS = {}
     const nextN = {}
+    const nextP = {}
     for (const p of data.properties || []) {
       if (p.user_status) nextS[p.address] = p.user_status
       if (p.user_note) nextN[p.address] = p.user_note
+      // Hydrate the backend-saved phone too — and RESET on report switch:
+      // phones is keyed by raw address, so a stale map showed suburb A's
+      // hand-typed number on a same-named address in suburb B.
+      if (p.phone) nextP[p.address] = p.phone
     }
     setStatuses(nextS)
     setNotes(nextN)
+    setPhones(nextP)
     setSelectedSuburbs(new Set())
   }, [data])
 
@@ -618,37 +640,55 @@ export default function HotVendorScoring() {
     setPropDetail(p)
     setPhoneDraft(phones[p.address] ?? p.phone ?? '')
   }
+  // Optimistic with REVERT + alert on failure (same contract as saveNote):
+  // a hand-typed owner phone number silently vanishing on the next reload
+  // because a cold-start PATCH failed is the worst kind of data loss.
   const savePhone = async (address, phone) => {
     const trimmed = (phone || '').trim()
+    let previous
     setPhoneSaving(true)
-    setPhones(prev => ({ ...prev, [address]: trimmed }))
+    setPhones(prev => { previous = prev[address]; return { ...prev, [address]: trimmed } })
     try {
-      await fetch(`${API}/api/hot-vendors/phone`, {
+      const res = await fetch(`${API}/api/hot-vendors/phone`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address, phone: trimmed }),
       })
+      if (!res.ok) throw new Error(`Save failed (${res.status})`)
     } catch (e) {
-      console.error('Failed to save phone', e)
+      setPhones(prev => {
+        const next = { ...prev }
+        if (previous === undefined) delete next[address]; else next[address] = previous
+        return next
+      })
+      alert(`Could not save the phone number: ${e.message}. Please try again.`)
     } finally {
       setPhoneSaving(false)
     }
   }
 
   const setStatus = async (address, status) => {
+    let previous
     setStatuses(prev => {
+      previous = prev[address]
       const next = { ...prev }
       if (status) next[address] = status; else delete next[address]
       return next
     })
     try {
-      await fetch(`${API}/api/hot-vendors/status`, {
+      const res = await fetch(`${API}/api/hot-vendors/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address, status }),
       })
+      if (!res.ok) throw new Error(`Save failed (${res.status})`)
     } catch (e) {
-      console.error('Failed to save status', e)
+      setStatuses(prev => {
+        const next = { ...prev }
+        if (previous === undefined) delete next[address]; else next[address] = previous
+        return next
+      })
+      alert(`Could not save the status: ${e.message}. Please try again.`)
     }
   }
 
@@ -815,7 +855,7 @@ export default function HotVendorScoring() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button onClick={() => setStatus(top.address, 'CONTACTED')} style={{ background: 'var(--score-hot)', border: 'none', color: '#fff', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Log a call</button>
+              <button onClick={() => setStatus(top.address, 'contacted')} style={{ background: 'var(--score-hot)', border: 'none', color: '#fff', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Log a call</button>
               <button onClick={() => openNote(top)} style={{ background: 'var(--surface)', border: '1px solid rgba(219,39,119,.3)', color: 'var(--score-hot-text)', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Add note</button>
             </div>
           </div>
@@ -852,7 +892,7 @@ export default function HotVendorScoring() {
               const cb = catBadge(p.category)
               const note = noteFor(p.address)
               return (
-              <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div key={p.rank ?? `${p.address}-${getSuburb(p) || ''}`} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
                   <button type="button" onClick={() => openDetail(p)} title="Open details"
@@ -1003,7 +1043,7 @@ export default function HotVendorScoring() {
                     <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
                   </div>
                   <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
-                  <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'CONTACTED'); setPropDetail(null) }}>Log a call</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'contacted'); setPropDetail(null) }}>Log a call</button>
                 </div>
               </div>
             </div>

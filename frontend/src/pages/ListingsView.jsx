@@ -288,7 +288,8 @@ export default function ListingsView({
 
   // Suburbs currently in scope (for the desk-mode context line). Falls
   // back to the total when nothing is explicitly checked (= all shown).
-  const scopeCount = checkedSuburbs.size > 0 ? checkedSuburbs.size : suburbs.length
+  // Explicit selection: the Set holds exactly the suburbs shown.
+  const scopeCount = checkedSuburbs.size
 
   // ── Desk redesign — full, clean render of mock #prospecting. Separate
   // from classic (returned below) so nothing old bleeds through. ──
@@ -311,7 +312,7 @@ export default function ListingsView({
     // suburb rows (active_count / under_offer_count / …) — same source as
     // the classic sidebar counters. Independent of the status filter, so
     // the operator always sees the full breakdown.
-    const scopeSubs = suburbs.filter(s => checkedSuburbs.size === 0 || checkedSuburbs.has(s.id))
+    const scopeSubs = suburbs.filter(s => checkedSuburbs.has(s.id))
     const statusCounts = {
       active: scopeSubs.reduce((n, s) => n + (s.active_count || 0), 0),
       under_offer: scopeSubs.reduce((n, s) => n + (s.under_offer_count || 0), 0),

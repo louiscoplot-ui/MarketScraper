@@ -47,7 +47,20 @@ function App() {
   const [suburbs, setSuburbs] = useState(() => readCache(SUBURBS_CACHE) || [])
   const [suburbsLoading, setSuburbsLoading] = useState(() => (readCache(SUBURBS_CACHE) || []).length === 0)
   const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
-  const [checkedSuburbs, setCheckedSuburbs] = useState(new Set())
+  // EXPLICIT selection semantics (same as the rental sidebar): the Set
+  // holds exactly the suburbs being shown — empty = show nothing. It
+  // seeds to "all" once suburbs are known (cache-synchronously below, or
+  // via the effect on first-ever visit), so "Deselect all" really empties
+  // the table instead of paradoxically showing everything.
+  const [checkedSuburbs, setCheckedSuburbs] = useState(
+    () => new Set((readCache(SUBURBS_CACHE) || []).map(s => s.id))
+  )
+  const checkedSeededRef = useRef((readCache(SUBURBS_CACHE) || []).length > 0)
+  useEffect(() => {
+    if (checkedSeededRef.current || suburbs.length === 0) return
+    checkedSeededRef.current = true
+    setCheckedSuburbs(new Set(suburbs.map(s => s.id)))
+  }, [suburbs])
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(['active', 'under_offer']))
   const [newSuburb, setNewSuburb] = useState('')
   const [suggestions, setSuggestions] = useState([])

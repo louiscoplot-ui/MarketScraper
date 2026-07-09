@@ -141,8 +141,9 @@ _PROP_COLUMNS = [
     'current_owner', 'agency', 'agent',
 ]
 
-# Status values shown in the UI dropdown.
-_VALID_STATUSES = {'listed', 'pending', 'declined', '', None}
+# Status values shown in the UI dropdown. 'contacted' backs the
+# "Log a call" one-click action.
+_VALID_STATUSES = {'contacted', 'listed', 'pending', 'declined', '', None}
 
 
 def _safe_int(v):
@@ -579,7 +580,7 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': 'address required'}), 400
         if status not in _VALID_STATUSES:
             return jsonify({
-                'error': f'invalid status — use one of: listed, pending, declined, or empty',
+                'error': 'invalid status — use one of: contacted, listed, pending, declined, or empty',
             }), 400
 
         norm = normalize_address(addr)

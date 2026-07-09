@@ -23,6 +23,10 @@ const API = `${BACKEND_DIRECT}/api`
 function authFetch(url, options = {}) {
   const key = localStorage.getItem('agentdeck_access_key') || ''
   return fetch(url, {
+    // A stalled Render cold start never rejects on its own — without a
+    // deadline setLoading(false) is unreachable and the view spins
+    // forever. 30s covers a slow cold start while guaranteeing an exit.
+    signal: AbortSignal.timeout(30000),
     ...options,
     headers: {
       'X-Access-Key': key,
@@ -98,13 +102,28 @@ export default function AppraisalsView() {
     }
   }
 
+  // Optimistic row update: patch the ONE row locally, revert on failure.
+  // The old `load()` flipped the whole table to "Loading…" for a network
+  // round-trip after every Won/Lost click.
+  const patchRowLocally = (id, status) => {
+    let previous = null
+    setItems(prev => prev.map(a => {
+      if (a.id !== id) return a
+      previous = a
+      return { ...a, status }
+    }))
+    return () => { if (previous) setItems(prev => prev.map(a => (a.id === id ? previous : a))) }
+  }
+
   const setStatus = async (id, status) => {
+    const revert = patchRowLocally(id, status)
     try {
       const res = await authFetch(`${API}/appraisals/${id}/status`, {
         method: 'PATCH', body: JSON.stringify({ status }),
       })
-      if (res.ok) load()
-    } catch { /* ignore — list reload will reflect server state */ }
+      if (!res.ok) { revert(); return }
+      loadRoi()
+    } catch { revert() }
   }
 
   // PERF-2 — mark won and capture commission for the ROI tracker.
@@ -112,13 +131,15 @@ export default function AppraisalsView() {
     const raw = window.prompt('Commission value (AUD)?', '')
     if (raw === null) return
     const commission = parseInt(String(raw).replace(/[^\d]/g, ''), 10) || 0
+    const revert = patchRowLocally(id, 'won')
     try {
       const res = await authFetch(`${API}/appraisals/${id}/won`, {
         method: 'PATCH',
         body: JSON.stringify({ commission_value: commission, mandate_source: 'manual' }),
       })
-      if (res.ok) load()
-    } catch { /* list reload reflects server state */ }
+      if (!res.ok) { revert(); return }
+      loadRoi()
+    } catch { revert() }
   }
 
   const wonCount = items.filter(a => a.status === 'won').length

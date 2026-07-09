@@ -515,7 +515,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 {latestMedian && (
                   <div className="trend-card">
                     <span className="trend-val">${latestMedian.toLocaleString()}</span>
-                    <span className="trend-label">Median Price</span>
+                    <span className="trend-label" title="Average of each suburb's median asking price">Median Price (avg across suburbs)</span>
                     {prevMedian && <span className={`trend-delta ${latestMedian > prevMedian ? 'up' : latestMedian < prevMedian ? 'down' : ''}`}>{latestMedian > prevMedian ? '+' : ''}{((latestMedian - prevMedian) / prevMedian * 100).toFixed(1)}% vs prev</span>}
                   </div>
                 )}
@@ -523,7 +523,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               {dates.length > 1 && (
                 <table className="snapshot-table">
                   <thead>
-                    <tr><th>Date</th><th>Active</th><th>Under Offer</th><th>Sold</th><th>Withdrawn</th><th>New</th><th>Median Price</th><th>Avg DOM</th></tr>
+                    <tr><th>Date</th><th>Active</th><th>Under Offer</th><th>Sold</th><th>Withdrawn</th><th>New</th><th title="Average of each suburb's median asking price">Median (avg)</th><th>Avg DOM</th></tr>
                   </thead>
                   <tbody>
                     {dates.slice().reverse().map(date => {

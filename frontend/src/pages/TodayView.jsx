@@ -69,7 +69,7 @@ function MarketPulse({ report, suburbCount }) {
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{series.length >= 2 ? 'nightly snapshots' : 'building'}</span>
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-        Median asking price across your {suburbCount || ''} tracked suburbs, over time
+        Average of each suburb's median asking price ({suburbCount || '—'} tracked), over time
       </div>
     </div>
   )
@@ -227,7 +227,9 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     else { setLoading(true) }
     setError('')
     try {
-      const d = await apiJson('/api/brief/today')
+      // Deadline so a stalled cold-start socket can't hang the spinner
+      // forever — the finally below only runs if the promise settles.
+      const d = await apiJson('/api/brief/today', { signal: AbortSignal.timeout(30000) })
       setBrief(d)
       if (d && !d.error) writeCache('brief_today', d)
     } catch (e) {
@@ -345,10 +347,19 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
       .sort((a, b) => b.count - a.count).slice(0, 12)
     const maxBar = Math.max(1, ...bars.map(b => b.count))
     // Market counters: whole portfolio, or one suburb from report.suburbs.
+    // If the scoped suburb has no row in the report (no listings yet, or
+    // report still warming), show ZEROS with an honest tag — never the
+    // whole-portfolio totals under a single-suburb header.
     let counts = r.summary || {}
+    let countsScopeLabel = scopeAll ? `${suburbsList.length} suburbs` : scope
     if (!scopeAll) {
       const entry = (r.suburbs || []).find(x => Array.isArray(x) && eq(x[0], scope))
-      if (entry && entry[1]) counts = entry[1]
+      if (entry && entry[1]) {
+        counts = entry[1]
+      } else {
+        counts = { active: 0, under_offer: 0, sold: 0, withdrawn: 0 }
+        countsScopeLabel = `${scope} · no report data yet`
+      }
     }
     const marketTiles = [
       { l: 'Active', v: counts.active || 0, c: 'var(--status-good)' },
@@ -482,7 +493,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
             <div style={colStyle}>
               {W('market', (
                 <div style={card}>
-                  {titleRow('Market state', scopeAll ? `${suburbsList.length} suburbs` : scope)}
+                  {titleRow('Market state', countsScopeLabel)}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
                     {marketTiles.map(t => (
                       <div key={t.l} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 11, padding: '12px 13px' }}>

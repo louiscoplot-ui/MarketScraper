@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from '../lib/api'
 
 const API = '/api'
@@ -64,6 +64,8 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   const [soldLoadError, setSoldLoadError] = useState(false)
   const [sortField, setSortField] = useState('')
   const [sortDir, setSortDir] = useState('desc')
+  // Monotonic counter so only the latest fetchListings call commits state.
+  const fetchSeqRef = useRef(0)
 
   // Progressive load — fetch the two priority statuses (the ones the
   // UI defaults to: active + under_offer) FIRST so the table is
@@ -75,6 +77,12 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   // Cache the merged result to localStorage so subsequent visits land
   // on real data on first paint (stale-while-revalidate).
   const fetchListings = useCallback(async () => {
+    // Out-of-order guard: fetchListings fires from several places (mount,
+    // post-scrape poll, add/delete suburb). If two runs overlap, the later
+    // run's priority setListings(active+UO) would transiently WIPE the
+    // earlier run's already-merged sold/withdrawn rows. Only the latest
+    // call may commit.
+    const seq = ++fetchSeqRef.current
     const fetchSet = async (statuses) => {
       const url = statuses
         ? `${BOOT_LISTINGS}?statuses=${encodeURIComponent(statuses)}`
@@ -89,9 +97,11 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
       // visible after a successful refresh.
       setSoldLoadError(false)
       const priority = await fetchSet('active,under_offer')
+      if (seq !== fetchSeqRef.current) return
       setListings(priority)
       writeCache(LISTINGS_CACHE, priority)
       fetchSet('sold,withdrawn').then((rest) => {
+        if (seq !== fetchSeqRef.current) return
         setListings((prev) => {
           const seen = new Set(prev.map((l) => l.id))
           const merged = prev.slice()
@@ -100,13 +110,14 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
           return merged
         })
       }).catch((e) => {
+        if (seq !== fetchSeqRef.current) return
         console.warn('background fetch (sold/withdrawn) failed:', e)
         setSoldLoadError(true)
       })
     } catch (e) {
       console.warn('priority fetchListings failed after retries:', e)
     } finally {
-      setBootLoading(false)
+      if (seq === fetchSeqRef.current) setBootLoading(false)
     }
   }, [])
 
@@ -133,7 +144,10 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
 
   const filteredListings = useMemo(() => {
     const filtered = listings.filter(l => {
-      if (checkedSuburbs.size > 0 && !checkedSuburbs.has(l.suburb_id)) return false
+      // Explicit-selection semantics: the Set holds exactly what's shown,
+      // so empty = nothing (App seeds it to all suburbs on boot). The old
+      // "empty = all" made Deselect-all paradoxically show everything.
+      if (!checkedSuburbs.has(l.suburb_id)) return false
       if (selectedStatuses.size > 0 && !selectedStatuses.has(l.status)) return false
       if (selectedAgent && l.agent !== selectedAgent) return false
       if (selectedAgency && l.agency !== selectedAgency) return false
@@ -194,7 +208,7 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   // collapse (and vice-versa).
   const facetListings = useMemo(
     () => listings.filter(l => {
-      if (checkedSuburbs.size > 0 && !checkedSuburbs.has(l.suburb_id)) return false
+      if (!checkedSuburbs.has(l.suburb_id)) return false
       if (selectedStatuses.size > 0 && !selectedStatuses.has(l.status)) return false
       return true
     }),
