@@ -609,6 +609,32 @@ export default function HotVendorScoring() {
     })
   }
 
+  // Manual phone numbers keyed by address — hydrated from the property's
+  // `phone` field (backend) and overridden locally on save.
+  const [phones, setPhones] = useState({})
+  const [phoneSaving, setPhoneSaving] = useState(false)
+  const [phoneDraft, setPhoneDraft] = useState('')
+  const openDetail = (p) => {
+    setPropDetail(p)
+    setPhoneDraft(phones[p.address] ?? p.phone ?? '')
+  }
+  const savePhone = async (address, phone) => {
+    const trimmed = (phone || '').trim()
+    setPhoneSaving(true)
+    setPhones(prev => ({ ...prev, [address]: trimmed }))
+    try {
+      await fetch(`${API}/api/hot-vendors/phone`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, phone: trimmed }),
+      })
+    } catch (e) {
+      console.error('Failed to save phone', e)
+    } finally {
+      setPhoneSaving(false)
+    }
+  }
+
   const setStatus = async (address, status) => {
     setStatuses(prev => {
       const next = { ...prev }
@@ -802,7 +828,7 @@ export default function HotVendorScoring() {
               <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
-                  <button type="button" onClick={() => setPropDetail(p)} title="Open details"
+                  <button type="button" onClick={() => openDetail(p)} title="Open details"
                     style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</button>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}</div>
                 </div>
@@ -849,62 +875,80 @@ export default function HotVendorScoring() {
         {propDetail && (() => {
           const p = propDetail
           const money = (v) => (v || v === 0) && !Number.isNaN(Number(v)) ? `$${Number(v).toLocaleString()}` : '—'
-          const phone = p.owner_phone || p.phone || p.contact_phone || ''
           const cb = catBadge(p.category)
-          const rows = [
-            ['Owner', p.current_owner || '—'],
-            ['Phone', phone || 'Not in this export'],
+          const savedPhone = phones[p.address] ?? p.phone ?? ''
+          const dirty = (phoneDraft || '').trim() !== (savedPhone || '').trim()
+          const facts = [
             ['Type', [p.type, p.bedrooms ? `${p.bedrooms} bd` : null, p.bathrooms ? `${p.bathrooms} ba` : null].filter(Boolean).join(' · ') || '—'],
             ['Held', p.holding_years != null ? `${p.holding_years} yrs` : '—'],
             ['Bought', `${money(p.owner_purchase_price)}${p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}`],
             ['Est. gain', `${money(p.owner_gain_dollars)}${p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}`],
             ['CAGR', p.cagr != null ? `${p.cagr}%` : '—'],
-            ['Sales in street', p.sales_count != null ? p.sales_count : '—'],
+            ['Sales in street', p.sales_count != null ? String(p.sales_count) : '—'],
             ['Last sale', money(p.last_sale_price)],
             ['Agency', p.agency || '—'],
             ['Agent', p.agent || '—'],
           ]
+          const lblStyle = { fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 4 }
+          const valStyle = { fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--text)', lineHeight: 1.25 }
           return (
             <div className="note-modal-overlay" onClick={() => setPropDetail(null)}>
-              <div className="note-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460, width: '92vw' }}>
-                <div className="note-modal-header" style={{ alignItems: 'flex-start' }}>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, width: 46, height: 46, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: cb.bg, color: cb.fg, flexShrink: 0 }}>{Math.round(p.final_score)}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''}</div>
-                    </div>
+              <div className="note-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, width: '92vw' }}>
+                {/* header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 16, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 700, width: 50, height: 50, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: cb.bg, color: cb.fg, flexShrink: 0 }}>{Math.round(p.final_score)}</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''}</div>
                   </div>
                   <button className="btn-icon" onClick={() => setPropDetail(null)} title="Close">×</button>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 16, rowGap: 9, padding: '4px 2px 12px' }}>
-                  {rows.flatMap(([k, v]) => [
-                    <span key={k + '-k'} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-faint)', alignSelf: 'center' }}>{k}</span>,
-                    <span key={k + '-v'} style={{ fontFamily: k === 'Phone' && phone ? 'var(--font-mono)' : 'var(--font-ui)', fontSize: 13, fontWeight: k === 'Phone' && phone ? 700 : 500, color: k === 'Phone' && !phone ? 'var(--text-faint)' : 'var(--text)' }}>
-                      {k === 'Phone' && phone ? <a href={`tel:${phone}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{phone}</a> : v}
-                    </span>,
-                  ])}
+                {/* contact — owner + editable phone */}
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
+                  <div style={lblStyle}>Owner</div>
+                  <div style={{ ...valStyle, fontSize: 15, marginBottom: 12 }}>{p.current_owner || '—'}</div>
+                  <div style={lblStyle}>Phone</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="tel"
+                      value={phoneDraft}
+                      onChange={(e) => setPhoneDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && dirty) savePhone(p.address, phoneDraft) }}
+                      placeholder="Add a phone number…"
+                      style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', outline: 'none' }}
+                    />
+                    {savedPhone && !dirty && <a href={`tel:${savedPhone}`} className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>Call</a>}
+                    {dirty && <button className="btn btn-primary btn-sm" disabled={phoneSaving} onClick={() => savePhone(p.address, phoneDraft)}>{phoneSaving ? 'Saving…' : 'Save'}</button>}
+                  </div>
+                </div>
+
+                {/* facts grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 18px', marginBottom: 14 }}>
+                  {facts.map(([k, v]) => (
+                    <div key={k} style={{ minWidth: 0 }}>
+                      <div style={lblStyle}>{k}</div>
+                      <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={String(v)}>{v}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {sigChips(p).length > 0 && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 2px 12px' }}>
-                    {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px' }}>{s}</span>)}
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                    {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 9px' }}>{s}</span>)}
                   </div>
                 )}
 
                 {noteFor(p.address) && (
-                  <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 8, padding: '9px 12px', margin: '0 2px 12px', fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--status-watch-text)' }}>{noteFor(p.address)}</div>
+                  <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 8, padding: '10px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--status-watch-text)' }}>{noteFor(p.address)}</div>
                 )}
 
-                <div className="note-modal-footer">
-                  <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
                   </div>
-                  <div className="note-modal-actions">
-                    <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
-                    <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'CONTACTED'); setPropDetail(null) }}>Log a call</button>
-                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'CONTACTED'); setPropDetail(null) }}>Log a call</button>
                 </div>
               </div>
             </div>

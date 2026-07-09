@@ -779,6 +779,15 @@ def init_db():
             ON hot_vendor_property_status(status);
     """)
 
+    # Manual phone number per property (operator-entered — RP Data exports
+    # don't carry owner contact). Same key as status/note so it survives
+    # re-uploads. Idempotent ALTER for DBs created before this column.
+    try:
+        conn.execute("ALTER TABLE hot_vendor_property_status ADD COLUMN phone TEXT")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     # Re-upload behaviour: on the next score-csv we want UPSERT instead of
     # plain INSERT (no duplicate rows when the same suburb is re-uploaded
     # 6 / 12 months later — only the mutable fields refresh: sale_date,

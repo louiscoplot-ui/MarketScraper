@@ -285,7 +285,7 @@ def _insert_property_rows(conn, upload_id, rows):
 
 
 def _fetch_status_map(conn, normalized_addresses):
-    """Return {normalized_address: (status, note)} tuples for hydration."""
+    """Return {normalized_address: (status, note, phone)} for hydration."""
     if not normalized_addresses:
         return {}
     addrs = [a for a in normalized_addresses if a]
@@ -293,25 +293,26 @@ def _fetch_status_map(conn, normalized_addresses):
         return {}
     placeholders = ','.join(['?'] * len(addrs))
     rows = conn.execute(
-        f"SELECT normalized_address, status, note FROM hot_vendor_property_status "
+        f"SELECT normalized_address, status, note, phone FROM hot_vendor_property_status "
         f"WHERE normalized_address IN ({placeholders})",
         addrs
     ).fetchall()
     out = {}
     for r in rows:
         d = dict(r)
-        out[d['normalized_address']] = (d.get('status') or '', d.get('note') or '')
+        out[d['normalized_address']] = (d.get('status') or '', d.get('note') or '', d.get('phone') or '')
     return out
 
 
 def _attach_user_status(conn, properties):
-    """Mutate `properties` to include `user_status` and `user_note`."""
+    """Mutate `properties` to include `user_status`, `user_note`, `phone`."""
     addrs = [normalize_address(p.get('address') or '') for p in properties]
     status_map = _fetch_status_map(conn, addrs)
     for p, na in zip(properties, addrs):
-        s, n = status_map.get(na, ('', ''))
+        s, n, ph = status_map.get(na, ('', '', ''))
         p['user_status'] = s
         p['user_note'] = n
+        p['phone'] = ph
 
 
 def _build_upload_payload(conn, upload_id):
@@ -697,6 +698,68 @@ def register_hot_vendors_routes(app):
             try: conn.close()
             except Exception: pass
         return jsonify({'normalized_address': norm, 'note': note or ''})
+
+
+    # ------------------------------------------------------------------
+    # PATCH manual phone number for an address. RP Data exports don't carry
+    # owner contact, so the operator can type it once and it sticks (same
+    # hot_vendor_property_status row, keyed on normalized address).
+    # ------------------------------------------------------------------
+    @app.route('/api/hot-vendors/phone', methods=['PATCH'])
+    def patch_phone():
+        body = request.get_json(silent=True) or {}
+        addr = (body.get('address') or '').strip()
+        phone = (body.get('phone') or '').strip()
+        if not addr:
+            return jsonify({'error': 'address required'}), 400
+        norm = normalize_address(addr)
+        if not norm:
+            return jsonify({'error': 'address normalises to empty'}), 400
+
+        conn = get_db()
+        suburb_rows = conn.execute(
+            "SELECT DISTINCT u.suburb FROM hot_vendor_properties p "
+            "JOIN hot_vendor_uploads u ON p.upload_id = u.id "
+            "WHERE p.normalized_address = ?",
+            (norm,)
+        ).fetchall()
+        owning = [r['suburb'] for r in suburb_rows if r['suburb']]
+        if not owning or not any(user_can_access_suburb(s) for s in owning):
+            conn.close()
+            return jsonify({'error': 'Not authorised for that property'}), 403
+        try:
+            if USE_POSTGRES:
+                conn.execute(
+                    "INSERT INTO hot_vendor_property_status "
+                    "(normalized_address, phone, updated_at) "
+                    "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT (normalized_address) DO UPDATE SET "
+                    "phone = EXCLUDED.phone, updated_at = CURRENT_TIMESTAMP",
+                    (norm, phone or None)
+                )
+            else:
+                existing = conn.execute(
+                    "SELECT 1 FROM hot_vendor_property_status WHERE normalized_address = ?",
+                    (norm,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE hot_vendor_property_status SET phone = ?, "
+                        "updated_at = datetime('now') WHERE normalized_address = ?",
+                        (phone or None, norm)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO hot_vendor_property_status "
+                        "(normalized_address, phone, updated_at) "
+                        "VALUES (?, ?, datetime('now'))",
+                        (norm, phone or None)
+                    )
+            conn.commit()
+        finally:
+            try: conn.close()
+            except Exception: pass
+        return jsonify({'normalized_address': norm, 'phone': phone or ''})
 
 
     # ------------------------------------------------------------------
