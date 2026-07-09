@@ -43,18 +43,30 @@ def register_appraisals_routes(app):
 
         conn = get_db()
         try:
-            cur = conn.execute(
+            params = (user['id'], address, (body.get('suburb') or '').strip() or None,
+                      (body.get('vendor_name') or '').strip() or None,
+                      (body.get('vendor_email') or '').strip() or None,
+                      (body.get('vendor_phone') or '').strip() or None,
+                      d.isoformat(), body.get('estimated_price'),
+                      (body.get('notes') or '').strip() or None)
+            insert_sql = (
                 "INSERT INTO appraisals (user_id, address, suburb, vendor_name, "
                 "vendor_email, vendor_phone, appraisal_date, estimated_price, notes) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                (user['id'], address, (body.get('suburb') or '').strip() or None,
-                 (body.get('vendor_name') or '').strip() or None,
-                 (body.get('vendor_email') or '').strip() or None,
-                 (body.get('vendor_phone') or '').strip() or None,
-                 d.isoformat(), body.get('estimated_price'),
-                 (body.get('notes') or '').strip() or None)
+                "VALUES (?,?,?,?,?,?,?,?,?)"
             )
-            appraisal_id = cur.lastrowid
+            # Postgres: lastrowid is always None, and the old address-guess
+            # fallback could attach the J+30/60/90 follow-ups to the WRONG
+            # appraisal when the same address is appraised twice. RETURNING
+            # gives the real id; SQLite (no RETURNING pre-3.35) keeps
+            # lastrowid, which is reliable there.
+            appraisal_id = None
+            try:
+                row = conn.execute(insert_sql + " RETURNING id", params).fetchone()
+                if row is not None:
+                    appraisal_id = dict(row)['id']
+            except Exception:
+                cur = conn.execute(insert_sql, params)
+                appraisal_id = cur.lastrowid
             if appraisal_id is None:
                 row = conn.execute(
                     "SELECT id FROM appraisals WHERE user_id = ? AND address = ? "
@@ -98,14 +110,28 @@ def register_appraisals_routes(app):
                 "ORDER BY created_at DESC LIMIT 500", (user['id'],)
             ).fetchall()
         appraisals = [dict(r) for r in rows]
-        # attach followup summary (next pending date) per appraisal
-        for a in appraisals:
-            fu = conn.execute(
-                "SELECT scheduled_for, followup_day, status FROM appraisal_followups "
-                "WHERE appraisal_id = ? ORDER BY followup_day", (a['id'],)
+        # Attach follow-ups with ONE query instead of one per appraisal —
+        # the old loop fired up to 500 queries per page load.
+        by_appraisal = {}
+        if appraisals:
+            ids = [a['id'] for a in appraisals]
+            ph = ','.join(['?'] * len(ids))
+            fu_rows = conn.execute(
+                f"SELECT appraisal_id, scheduled_for, followup_day, status "
+                f"FROM appraisal_followups WHERE appraisal_id IN ({ph}) "
+                f"ORDER BY followup_day", ids
             ).fetchall()
-            a['followups'] = [dict(x) for x in fu]
-            pending = [dict(x) for x in fu if dict(x)['status'] == 'pending']
+            for x in fu_rows:
+                x = dict(x)
+                by_appraisal.setdefault(x['appraisal_id'], []).append(x)
+        for a in appraisals:
+            fu = by_appraisal.get(a['id'], [])
+            a['followups'] = [
+                {'scheduled_for': x['scheduled_for'],
+                 'followup_day': x['followup_day'],
+                 'status': x['status']} for x in fu
+            ]
+            pending = [x for x in fu if x['status'] == 'pending']
             a['next_followup'] = pending[0]['scheduled_for'] if pending else None
         conn.close()
         return jsonify(appraisals)

@@ -105,7 +105,13 @@ def send_due_followups():
 
             html = _email_html(r['vendor_name'], r['address'], data_point, r['followup_day'])
             try:
-                email_service._send(r['vendor_email'], subject, html)
+                # _send returns (ok, err) and does NOT raise on a Resend
+                # 4xx/5xx — a rejected email must stay 'pending' for retry,
+                # not be marked sent.
+                ok, err = email_service._send(r['vendor_email'], subject, html)
+                if not ok:
+                    logger.error("followup: Resend rejected %s: %s", r['vendor_email'], err)
+                    continue
                 sent += 1
             except Exception:
                 logger.exception("followup: send failed to %s", r['vendor_email'])

@@ -370,23 +370,34 @@ def init_db():
     # original listing_date can't be recovered (REIWA doesn't show it
     # on the sold detail page); user can manually edit via the inline
     # cell editor when they remember the date.
-    try:
-        conn.execute(
-            "UPDATE listings "
-            "SET sold_date = SUBSTR(listing_date, 7, 4) || '-' "
-            "              || SUBSTR(listing_date, 4, 2) || '-' "
-            "              || SUBSTR(listing_date, 1, 2), "
-            "    listing_date = NULL "
-            "WHERE status = 'sold' "
-            "AND sold_date IS NULL "
-            "AND listing_date IS NOT NULL "
-            "AND LENGTH(listing_date) = 10 "
-            "AND SUBSTR(listing_date, 3, 1) = '/' "
-            "AND SUBSTR(listing_date, 6, 1) = '/'"
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
+    # Guarded by schema_migrations: firing on EVERY boot silently re-derived
+    # sold_date (and re-NULLed listing_date) over any manual correction an
+    # agent made via the inline editor. Runs at most once now.
+    _safe_exec(
+        conn,
+        "CREATE TABLE IF NOT EXISTS schema_migrations ("
+        "key TEXT PRIMARY KEY, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+        label='schema_migrations',
+    )
+    if not _migration_done(conn, 'sold_date_from_listing_date_190fed0'):
+        try:
+            conn.execute(
+                "UPDATE listings "
+                "SET sold_date = SUBSTR(listing_date, 7, 4) || '-' "
+                "              || SUBSTR(listing_date, 4, 2) || '-' "
+                "              || SUBSTR(listing_date, 1, 2), "
+                "    listing_date = NULL "
+                "WHERE status = 'sold' "
+                "AND sold_date IS NULL "
+                "AND listing_date IS NOT NULL "
+                "AND LENGTH(listing_date) = 10 "
+                "AND SUBSTR(listing_date, 3, 1) = '/' "
+                "AND SUBSTR(listing_date, 6, 1) = '/'"
+            )
+            conn.commit()
+            _mark_migration(conn, 'sold_date_from_listing_date_190fed0')
+        except Exception:
+            conn.rollback()
 
     # One-shot backfill: pipeline_tracking.source_price values inserted
     # before the _price_to_int decimal fix (commit 1797f87) inflated by

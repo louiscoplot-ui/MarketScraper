@@ -159,6 +159,10 @@ def record_market_snapshot(suburb_id, name, new_count):
 
 scrape_jobs = {}
 scrape_cancel = set()
+# Guards the check-then-set on scrape_jobs: two near-simultaneous start
+# requests for the same suburb must not both pass the "already running"
+# guard and launch two Playwright threads (double proxy bandwidth).
+scrape_jobs_lock = threading.Lock()
 
 
 def run_scrape_all(suburbs):

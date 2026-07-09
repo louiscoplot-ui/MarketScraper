@@ -98,12 +98,19 @@ def process_withdrawn_orphans():
                 )
 
             today = datetime.utcnow().strftime('%Y-%m-%d')
+            # source_suburb_lower must be set at INSERT time — every scoped
+            # Pipeline read filters on it, and the boot-time backfill only
+            # runs on restart, so NULL here means the lead is invisible to
+            # the agent until the next reboot.
             conn.execute(
                 "INSERT INTO pipeline_tracking "
-                "(source_address, source_suburb, target_address, target_owner_name, "
-                " status, sent_date, notes) VALUES (?,?,?,?,?,?,?) "
+                "(source_address, source_suburb, source_suburb_lower, "
+                " target_address, target_owner_name, "
+                " status, sent_date, notes) VALUES (?,?,?,?,?,?,?,?) "
                 "ON CONFLICT (target_address, sent_date) DO NOTHING",
-                (o['address'], o['suburb'], o['address'], None,
+                (o['address'], o['suburb'],
+                 (o['suburb'] or '').strip().lower(),
+                 o['address'], None,
                  'withdrawn_orphan', today,
                  f"Withdrawn {str(o['withdrawn_date'])[:10]} — orphan lead (LOOP-2)")
             )

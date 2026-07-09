@@ -293,10 +293,13 @@ def register_signals_routes(app):
                     items = []
                 return jsonify({'brief_id': d['id'], 'brief_date': d['brief_date'],
                                 'items': items, 'live': False})
-            # no brief yet today — build items live (no email, no narrative
-            # API cost beyond the top-5 calls; falls back to reasons text)
+            # no brief yet today — build items live WITHOUT the Claude
+            # narrative calls (use_ai=False): five sequential 20s API calls
+            # on a GET could hang the Today view ~100s on a cold morning.
+            # The narrative falls back to the reason codes verbatim; the
+            # cron-built brief keeps the AI version.
             from signals.brief_builder import build_items
-            items = build_items(conn, dict(user))
+            items = build_items(conn, dict(user), use_ai=False)
             return jsonify({'brief_id': None, 'brief_date': today,
                             'items': items, 'live': True})
         finally:

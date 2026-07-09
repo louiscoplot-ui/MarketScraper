@@ -110,12 +110,23 @@ def process_sale_fallen_alerts():
 
             html = _alert_html(r['address'], r['suburb'], price_text, r['detected_at'])
             subject = f"🔔 Sale fallen — {r['address']} is back on the market"
+            delivered = 0
             for to in recipients:
                 try:
-                    email_service._send(to, subject, html)
-                    sent += 1
+                    # _send returns (ok, err) without raising on a Resend
+                    # rejection — count only real deliveries.
+                    ok, err = email_service._send(to, subject, html)
+                    if ok:
+                        delivered += 1
+                        sent += 1
+                    else:
+                        logger.error("sale_fallen: Resend rejected %s: %s", to, err)
                 except Exception:
                     logger.exception("sale_fallen: send failed to %s", to)
+            if delivered == 0:
+                # Nobody got the alert — leave unprocessed so the next run
+                # retries instead of silently dropping the lead.
+                continue
             conn.execute(
                 "UPDATE listing_transitions SET processed = 1, processed_at = ? "
                 "WHERE id = ?",

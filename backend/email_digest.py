@@ -69,6 +69,19 @@ def _build_sections(suburb_rows, user_id, since_iso):
     suburb_ids = tuple(s['id'] for s in suburb_rows)
     placeholders = ','.join(['?'] * len(suburb_ids))
     conn = get_db()
+    # Wrap the whole section build so the connection is ALWAYS closed —
+    # this runs once per opted-in user every night; leaking one Neon
+    # connection per user exhausts the free-tier pool.
+    try:
+        return _build_sections(conn, suburb_ids, placeholders, since_iso, user_id, suburb_rows)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _build_sections(conn, suburb_ids, placeholders, since_iso, user_id, suburb_rows):
     try:
         new_listings = conn.execute(
             f"SELECT l.address, l.price_text, l.bedrooms, l.bathrooms, "

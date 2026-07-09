@@ -131,20 +131,27 @@ def _top_signals(conn, suburb_ids, limit=TOP_N):
     return out
 
 
-def build_items(conn, user):
+def build_items(conn, user, use_ai=True):
     """Assemble (and narrate) the top signals for one user. Pure read —
-    used by both the email pass and the on-demand /api/brief/today."""
+    used by both the email pass and the on-demand /api/brief/today.
+
+    use_ai=False skips the Claude narrative calls (falls back to the
+    reason codes verbatim). The on-demand GET path uses this: up to five
+    sequential 20s API calls on a page load could hang the Today view for
+    ~100s — the cron keeps the narrated version."""
     signals = _top_signals(conn, _user_suburb_ids(conn, user))
     items = []
     for s in signals:
+        reasons = s['reason_codes'] or ['New vendor signal']
+        narrative = (_narrative(s['address'], s['suburb'], reasons)
+                     if use_ai else ' '.join(reasons)[:280])
         items.append({
             'signal_id': s['id'],
             'address': s['address'],
             'suburb': s['suburb'],
             'score': s['score'],
             'reasons': s['reason_codes'],
-            'narrative': _narrative(s['address'], s['suburb'],
-                                    s['reason_codes'] or ['New vendor signal']),
+            'narrative': narrative,
         })
     return items
 

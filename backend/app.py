@@ -28,7 +28,7 @@ from admin_api import register_admin_routes, seed_admin_if_needed
 from auth_api import register_auth_routes
 from rental_api import register_rental_routes
 from legal_api import register_legal_routes
-from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel
+from scrape_runner import run_scrape, run_scrape_all, scrape_jobs, scrape_cancel, scrape_jobs_lock
 
 app = Flask(__name__)
 CORS(app, origins=[
@@ -401,9 +401,6 @@ def start_scrape(suburb_id):
                      "assigned list. Ask your admin to assign it to you."
         }), 403
 
-    if suburb_id in scrape_jobs and scrape_jobs[suburb_id].get('status') == 'running':
-        return jsonify({'error': 'Scrape already in progress for this suburb'}), 409
-
     conn = get_db()
     suburb = conn.execute("SELECT * FROM suburbs WHERE id = ?", (suburb_id,)).fetchone()
     conn.close()
@@ -411,11 +408,16 @@ def start_scrape(suburb_id):
     if not suburb:
         return jsonify({'error': 'Suburb not found'}), 404
 
-    scrape_jobs[suburb_id] = {
-        'status': 'running',
-        'progress': 'Starting...',
-        'started_at': datetime.utcnow().isoformat(),
-    }
+    # Atomic check-then-set: without the lock two concurrent requests can
+    # both pass the guard and launch duplicate Playwright threads.
+    with scrape_jobs_lock:
+        if suburb_id in scrape_jobs and scrape_jobs[suburb_id].get('status') == 'running':
+            return jsonify({'error': 'Scrape already in progress for this suburb'}), 409
+        scrape_jobs[suburb_id] = {
+            'status': 'running',
+            'progress': 'Starting...',
+            'started_at': datetime.utcnow().isoformat(),
+        }
 
     thread = threading.Thread(
         target=run_scrape,
@@ -440,9 +442,16 @@ def start_scrape_all():
     if not active_suburbs:
         return jsonify({'error': 'No active suburbs'}), 400
 
-    for s in active_suburbs:
-        if s['id'] in scrape_jobs and scrape_jobs[s['id']].get('status') == 'running':
-            return jsonify({'error': f'Scrape already running for {s["name"]}'}), 409
+    with scrape_jobs_lock:
+        for s in active_suburbs:
+            if s['id'] in scrape_jobs and scrape_jobs[s['id']].get('status') == 'running':
+                return jsonify({'error': f'Scrape already running for {s["name"]}'}), 409
+        for s in active_suburbs:
+            scrape_jobs[s['id']] = {
+                'status': 'running',
+                'progress': 'Queued...',
+                'started_at': datetime.utcnow().isoformat(),
+            }
 
     thread = threading.Thread(
         target=run_scrape_all,
@@ -471,12 +480,21 @@ def cancel_scrape():
 
 @app.route('/api/scrape/status', methods=['GET'])
 def scrape_status():
-    """Get status of all scrape jobs."""
-    return jsonify(scrape_jobs)
+    """Get status of scrape jobs — scoped to the caller's suburbs so one
+    tenant can't watch another agency's scrape activity/stats."""
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
+    if allowed is None:
+        return jsonify(scrape_jobs)
+    return jsonify({sid: job for sid, job in scrape_jobs.items() if sid in allowed})
 
 
 @app.route('/api/scrape/status/<int:suburb_id>', methods=['GET'])
 def scrape_status_single(suburb_id):
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
+    if allowed is not None and suburb_id not in allowed:
+        return jsonify({'error': 'Not authorised for that suburb'}), 403
     job = scrape_jobs.get(suburb_id, {'status': 'idle'})
     return jsonify(job)
 
@@ -1060,9 +1078,18 @@ def scrape_selected():
     if not suburbs_to_scrape:
         return jsonify({'error': 'No valid suburbs found'}), 400
 
-    for s in suburbs_to_scrape:
-        if s['id'] in scrape_jobs and scrape_jobs[s['id']].get('status') == 'running':
-            return jsonify({'error': f'Scrape already running for {s["name"]}'}), 409
+    # Atomic guard + pre-mark, so a concurrent request can't double-launch
+    # the same suburb while the worker thread is still spinning up.
+    with scrape_jobs_lock:
+        for s in suburbs_to_scrape:
+            if s['id'] in scrape_jobs and scrape_jobs[s['id']].get('status') == 'running':
+                return jsonify({'error': f'Scrape already running for {s["name"]}'}), 409
+        for s in suburbs_to_scrape:
+            scrape_jobs[s['id']] = {
+                'status': 'running',
+                'progress': 'Queued...',
+                'started_at': datetime.utcnow().isoformat(),
+            }
 
     thread = threading.Thread(
         target=run_scrape_all,

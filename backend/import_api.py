@@ -293,11 +293,35 @@ def import_rpdata():
     suburb_rows = conn.execute("SELECT id, name, slug FROM suburbs").fetchall()
     suburb_by_name = {r['name'].lower(): dict(r) for r in suburb_rows}
 
-    listing_rows = conn.execute(
-        "SELECT id, suburb_id, normalized_address, sold_date, sold_price, "
-        "status, first_seen "
-        "FROM listings"
-    ).fetchall()
+    # Bound the prefetch to the suburbs this CSV actually references —
+    # SELECTing the whole listings table grew with total DB size and
+    # pushed big imports toward timeout/OOM on the free tier.
+    def _suburb_cell(row):
+        idx = cols.get('suburb')
+        if idx is None or not row or idx >= len(row) or row[idx] is None:
+            return ''
+        s = str(row[idx]).strip()
+        return '' if s == '-' else s
+
+    csv_suburb_ids = set()
+    for _row in data_rows:
+        name = (_suburb_cell(_row) or fallback_suburb).strip().lower()
+        sr = suburb_by_name.get(name)
+        if sr:
+            csv_suburb_ids.add(sr['id'])
+    if allowed_ids is not None:
+        csv_suburb_ids &= set(allowed_ids)
+
+    if csv_suburb_ids:
+        _ph = ','.join(['?'] * len(csv_suburb_ids))
+        listing_rows = conn.execute(
+            f"SELECT id, suburb_id, normalized_address, sold_date, sold_price, "
+            f"status, first_seen "
+            f"FROM listings WHERE suburb_id IN ({_ph})",
+            tuple(csv_suburb_ids)
+        ).fetchall()
+    else:
+        listing_rows = []
     listings_by_key = {}
     for r in listing_rows:
         norm = (r['normalized_address'] or '').strip().lower()
@@ -313,7 +337,10 @@ def import_rpdata():
     price_updates = 0
     status_updates = 0
     errors = []
-    now_iso = perth_now().isoformat()
+    # last_seen is stored in UTC everywhere else (database.py utcnow) —
+    # writing Perth time here put imported rows 8h in the future and
+    # skewed the digest "status changes since" window.
+    now_iso = datetime.utcnow().isoformat()
 
     update_payloads = []
     start_offset = (header_idx + 2) if header_idx >= 0 else 1
