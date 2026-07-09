@@ -12,7 +12,26 @@ export const ACCESS_KEY_STORAGE = 'agentdeck_access_key'
 // free-tier cold-start, big CSV uploads, slow Excel builds). The
 // global fetch interceptor in main.jsx still injects X-Access-Key for
 // these calls, and CORS(app) in the backend allows the origin.
-export const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
+//
+// EXCEPT on Vercel PREVIEW deployments: their browser origin
+// (market-scraper-<branch|hash>-…vercel.app) is NOT in the backend's
+// CORS allow-list, so a direct cross-origin call is blocked and the app
+// looks "unreachable". On those hosts we fall back to '' → same-origin
+// '/api/...', which vercel.json rewrites to the backend server-side (no
+// CORS involved). Production hosts (suburbdesk.com, the prod
+// market-scraper.vercel.app alias) and localhost keep the direct URL, so
+// their behaviour — including the cold-start bypass — is unchanged.
+function resolveBackendDirect() {
+  const DIRECT = 'https://marketscraper-backend.onrender.com'
+  try {
+    const h = window.location.hostname
+    const isPreview = h.endsWith('.vercel.app') && h !== 'market-scraper.vercel.app'
+    return isPreview ? '' : DIRECT
+  } catch {
+    return DIRECT
+  }
+}
+export const BACKEND_DIRECT = resolveBackendDirect()
 
 export function getAccessKey() {
   try { return localStorage.getItem(ACCESS_KEY_STORAGE) || '' }
