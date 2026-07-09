@@ -269,3 +269,85 @@
   border-radius: 6px;
   padding: 5px 10px;
 }
+
+/* ---- Reusable desk-only KPI marquee -------------------------------
+   Mock 04/08 pattern: card with a coloured left bar, serif figure, mono
+   uppercase label. Rendered by screens as .desk-kpis > .desk-kpi[data-c].
+   Hidden in classic (display:none until [data-desk=on]). */
+.desk-kpis { display: none; }
+[data-desk="on"] .desk-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin: 0 0 18px;
+}
+[data-desk="on"] .desk-kpi {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  padding: 15px 17px;
+  box-shadow: var(--shadow-card);
+}
+[data-desk="on"] .desk-kpi-bar {
+  width: 9px;
+  height: 38px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  background: var(--status-off);
+}
+[data-desk="on"] .desk-kpi[data-c="good"] .desk-kpi-bar { background: var(--status-good); }
+[data-desk="on"] .desk-kpi[data-c="watch"] .desk-kpi-bar { background: var(--status-watch); }
+[data-desk="on"] .desk-kpi[data-c="info"] .desk-kpi-bar { background: var(--status-info); }
+[data-desk="on"] .desk-kpi[data-c="alert"] .desk-kpi-bar { background: var(--status-alert); }
+[data-desk="on"] .desk-kpi[data-c="rose"] .desk-kpi-bar { background: var(--score-hot); }
+[data-desk="on"] .desk-kpi-n {
+  font-family: var(--font-display);
+  font-size: 28px;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+[data-desk="on"] .desk-kpi-l {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* ---- Sales Fallen Through — amber hero (mock 10) ------------------
+   Desk-only banner above the table; classic keeps its plain intro. */
+.fallen-hero { display: none; }
+[data-desk="on"] .fallen-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--status-watch-bg);
+  border: 1px solid #F5C88A;
+  border-radius: 16px;
+  padding: 16px 22px;
+  margin: 0 0 18px;
+}
+[data-desk="on"] .fallen-hero-n {
+  font-family: var(--font-display);
+  font-size: 34px;
+  line-height: 1;
+  color: #7c2d12;
+}
+[data-desk="on"] .fallen-hero-l {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #92400E;
+}
+[data-desk="on"] .fallen-hero-sub {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: #92400E;
+  font-weight: 500;
+}

@@ -130,6 +130,22 @@ export default function AppraisalsView() {
         )}
       </div>
 
+      {/* Desk-mode KPI marquee (mock 08). Hidden in classic via CSS. */}
+      <div className="desk-kpis">
+        <div className="desk-kpi" data-c="info">
+          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{activeCount}</div><div className="desk-kpi-l">Open</div></div>
+        </div>
+        <div className="desk-kpi" data-c="good">
+          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{wonCount}</div><div className="desk-kpi-l">Won</div></div>
+        </div>
+        <div className="desk-kpi" data-c="alert">
+          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.filter(a => a.status === 'lost').length}</div><div className="desk-kpi-l">Lost</div></div>
+        </div>
+        <div className="desk-kpi" data-c="off">
+          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.length}</div><div className="desk-kpi-l">Total</div></div>
+        </div>
+      </div>
+
       <form onSubmit={submit} style={{ display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8,
         margin: '0 0 20px', padding: 12, background: 'var(--bg)',

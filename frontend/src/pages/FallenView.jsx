@@ -38,6 +38,19 @@ export default function FallenView({ bootApi }) {
         motivated vendors whose sale just collapsed. Best approached now.
       </div>
 
+      {/* Desk-mode amber hero (mock 10). Hidden in classic via CSS. */}
+      {Array.isArray(items) && items.length > 0 && (
+        <div className="fallen-hero">
+          <span className="fallen-hero-n">{items.length}</span>
+          <div>
+            <div className="fallen-hero-l">Motivated vendors · 14 days</div>
+            <div className="fallen-hero-sub">
+              sale{items.length !== 1 ? 's' : ''} fallen through — best approached now
+            </div>
+          </div>
+        </div>
+      )}
+
       {items === null ? (
         <div style={{ color: 'var(--text-muted)', padding: 24, display: 'flex', alignItems: 'center', gap: 10 }}>
           <Spinner size={16} muted inline /> Loading…
