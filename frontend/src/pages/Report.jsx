@@ -5,6 +5,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { getDeskMode } from '../lib/deskFlag'
 import { MultiSelect, Chip } from '../components/ui'
+import DeskMap from '../components/DeskMap'
 
 const PERTH_TZ = 'Australia/Perth'
 
@@ -160,7 +161,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
     ]
     const share = (report.market_share || []).slice(0, 9)
     const drops = (report.price_drops || []).slice(0, 12)
-    const medianSuburbs = (report.suburbs || []).slice(0, 6).map(x => Array.isArray(x) ? x[0] : x)
+    // Real map: geocode each covered suburb to its centroid (free, cached).
+    const mapSuburbs = (report.suburbs || []).slice(0, 12).map(x => Array.isArray(x)
+      ? { name: x[0], total: x[1] && x[1].total } : { name: x })
     const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-card)', display: 'flex', flexDirection: 'column', minHeight: 0 }
     const pTitle = { fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 14 }
     return (
@@ -222,14 +225,15 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           </div>
           {/* right */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
-            <div className="desk-map" style={{ flex: 1, minHeight: 160 }}>
-              <div className="desk-map-label">Median by suburb</div>
-              {medianSuburbs.map((name, i) => { const s = String(name || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff; return (
-                <div key={name} style={{ position: 'absolute', top: `${20 + (h % 58)}%`, left: `${16 + ((h >> 4) % 64)}%`, transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                  <span style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 7, padding: '2px 7px', fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, boxShadow: '0 2px 6px rgba(12,10,9,.12)', whiteSpace: 'nowrap' }}>{name}</span>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }} />
-                </div>
-              ) })}
+            <div style={{ flex: 1, minHeight: 160, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border)' }}>
+              <DeskMap
+                items={mapSuburbs}
+                label="Coverage by suburb"
+                addressOf={(x) => x.name}
+                suburbOf={() => ''}
+                colorOf={() => '#386350'}
+                popupOf={(x) => `${x.name}${x.total != null ? ` · ${x.total} listing${x.total !== 1 ? 's' : ''}` : ''}`}
+              />
             </div>
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
               <div style={pTitle}>Recent price changes</div>

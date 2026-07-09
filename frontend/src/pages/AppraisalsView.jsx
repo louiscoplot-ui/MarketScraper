@@ -8,6 +8,9 @@ import { BACKEND_DIRECT } from '../lib/api'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Chip, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
+import DeskMap from '../components/DeskMap'
+
+const APPRAISAL_HEX = (s) => s === 'won' ? '#16A34A' : s === 'lost' ? '#DC2626' : '#2563EB'
 
 function apPin(seed, i) {
   const s = String(seed || i); let h = 0
@@ -189,9 +192,14 @@ export default function AppraisalsView() {
                 ))}
             </div>
           </div>
-          <div className="desk-map" style={{ flex: 1, minHeight: 0 }}>
-            <div className="desk-map-label">Appraisal runs · batch nearby</div>
-            {items.slice(0, 24).map((a, i) => { const p = apPin(a.address, i); return <span key={a.id ?? i} style={{ position: 'absolute', top: p.top, left: p.left, width: 13, height: 13, borderRadius: '50%', background: stColor(a.status), border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} /> })}
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border)' }}>
+            <DeskMap
+              items={items}
+              label={`Appraisal runs · ${items.length}`}
+              addressOf={(a) => a.address}
+              suburbOf={(a) => a.suburb}
+              colorOf={(a) => APPRAISAL_HEX(a.status)}
+            />
           </div>
         </div>
       </div>

@@ -7,6 +7,9 @@ import { Check, X } from 'lucide-react'
 import { apiJson } from '../lib/api'
 import { Button, Chip, Select, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
+import DeskMap from '../components/DeskMap'
+
+const SIGNAL_HEX = { alert: '#DC2626', watch: '#D97706', off: '#9CA3AF' }
 
 // Deterministic pin position from a string — no Math.random so pins are
 // stable across renders. Keeps the placeholder map (mock 06) tidy.
@@ -212,13 +215,14 @@ export default function SignalsView() {
             })}
           </div>
           {/* map */}
-          <div className="desk-map" style={{ flex: 1, borderRadius: 0, border: 'none', minHeight: 0 }}>
-            <div className="desk-map-label">Signal locations · live</div>
-            {signals.slice(0, 24).map((s, i) => {
-              const st = scoreStatus(s.score)
-              const p = pinPos(s.address, i)
-              return <span key={s.id} style={{ position: 'absolute', top: p.top, left: p.left, width: 13, height: 13, borderRadius: '50%', background: scoreColorVar(st), border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} />
-            })}
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <DeskMap
+              items={signals}
+              label={`Signal locations · ${signals.length}`}
+              addressOf={(s) => s.address}
+              suburbOf={(s) => s.suburb}
+              colorOf={(s) => SIGNAL_HEX[scoreStatus(s.score)] || '#9CA3AF'}
+            />
           </div>
         </div>
       </div>

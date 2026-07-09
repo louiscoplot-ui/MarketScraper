@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
+import DeskMap from '../components/DeskMap'
 
 export default function FallenView({ bootApi }) {
   const [items, setItems] = useState(null)
@@ -72,9 +73,14 @@ export default function FallenView({ bootApi }) {
                 ))}
             </div>
           </div>
-          <div className="desk-map" style={{ flex: 1, minHeight: 0 }}>
-            <div className="desk-map-label">Doorknock run · same day</div>
-            {list.slice(0, 24).map((it, i) => { const s = String(it.address || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff; return <span key={it.id ?? i} style={{ position: 'absolute', top: `${18 + (h % 62)}%`, left: `${14 + ((h >> 4) % 70)}%`, width: 13, height: 13, borderRadius: '50%', background: 'var(--status-watch)', border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} /> })}
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border)' }}>
+            <DeskMap
+              items={list}
+              label={`Doorknock run · ${list.length}`}
+              addressOf={(it) => it.address}
+              suburbOf={(it) => it.suburb}
+              colorOf={() => '#D97706'}
+            />
           </div>
         </div>
       </div>

@@ -38,6 +38,7 @@ export default function DeskMap({
   suburbOf = (i) => i.suburb_name || i.suburb,
   statusOf = (i) => i.status,
   colorOf,
+  popupOf,
   max = 250,
 }) {
   const elRef = useRef(null)
@@ -82,7 +83,8 @@ export default function DeskMap({
         const el = document.createElement('div')
         const color = (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
         el.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer`
-        const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setText(`${addr}${suburbOf(it) ? ' · ' + suburbOf(it) : ''}`)
+        const popupText = popupOf ? popupOf(it) : `${addr}${suburbOf(it) ? ' · ' + suburbOf(it) : ''}`
+        const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setText(popupText)
         const mk = new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).setPopup(popup).addTo(map)
         markersRef.current.push(mk)
         bounds.extend([c.lng, c.lat])
