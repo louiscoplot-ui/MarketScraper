@@ -181,9 +181,9 @@ export default function Header({
           <button
             className="btn btn-ghost btn-sm"
             onClick={onEnterDesk}
-            title="Aperçu de la nouvelle interface « The Morning Desk » (réversible en un clic)"
+            title="Preview the new 'The Morning Desk' interface (one-click reversible)"
           >
-            ✦ Nouveau design
+            ✦ New design
           </button>
         )}
         <button
