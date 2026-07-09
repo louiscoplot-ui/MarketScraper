@@ -318,13 +318,26 @@ export default function ListingsView({
             </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {suburbs.filter(s => checkedSuburbs.has(s.id)).slice(0, 6).map(s => (
+            {suburbs.filter(s => checkedSuburbs.has(s.id)).slice(0, 8).map(s => (
               <span key={s.id} onClick={() => toggleCheckSuburb && toggleCheckSuburb(s.id)} title={`Remove ${s.name}`}
                 style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid #cdddd5', borderRadius: 999, padding: '6px 12px' }}>
                 {s.name} <span style={{ opacity: 0.6 }}>×</span>
               </span>
             ))}
-            {checkedSuburbs.size > 6 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px' }}>+ {checkedSuburbs.size - 6} suburbs</span>}
+            {checkedSuburbs.size > 8 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px' }}>+ {checkedSuburbs.size - 8} more</span>}
+            {suburbs.some(s => !checkedSuburbs.has(s.id)) && (
+              <select value="" onChange={e => { const id = Number(e.target.value); if (id && toggleCheckSuburb) toggleCheckSuburb(id) }} title="Add a suburb"
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px', background: 'var(--surface)', cursor: 'pointer' }}>
+                <option value="">+ suburb</option>
+                {suburbs.filter(s => !checkedSuburbs.has(s.id)).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+            {selectAllCheck && suburbs.length > 0 && (
+              <button type="button" onClick={checkedSuburbs.size === suburbs.length ? deselectAllCheck : selectAllCheck}
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--accent)', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                {checkedSuburbs.size === suburbs.length ? 'Clear all' : 'All suburbs'}
+              </button>
+            )}
             <span style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
             {STATUS_PILLS.map(p => {
               const on = selectedStatuses.has(p.k)
