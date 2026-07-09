@@ -678,7 +678,7 @@ export default function HotVendorScoring() {
       return out.slice(0, 3)
     }
     const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
-    const GRID = '64px 1.5fr 1fr 1.3fr 128px 132px'
+    const GRID = '52px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.05fr) 104px 120px'
     const noteFor = (a) => (notes[a] || '').trim()
     const catBadge = (cat) => cat === 'HOT' ? { bg: 'var(--score-hot-bg)', fg: 'var(--score-hot-text)' }
       : cat === 'WARM' ? { bg: 'var(--status-watch-bg)', fg: 'var(--status-watch-text)' }
@@ -693,14 +693,14 @@ export default function HotVendorScoring() {
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Hot Vendors</h2>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {fmtNum(avgScore)}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {Math.round(avgScore)}</div>
           </div>
         </div>
 
         {top && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, background: 'linear-gradient(100deg,rgba(219,39,119,.10),rgba(219,39,119,.02))', border: '1px solid rgba(219,39,119,.22)', borderRadius: 16, padding: '16px 22px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
-              <span style={{ fontFamily: 'var(--font-display)', fontSize: 32, width: 56, height: 56, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', color: 'var(--score-hot-text)', boxShadow: '0 2px 10px rgba(219,39,119,.22)', flexShrink: 0 }}>{fmtNum(top.final_score)}</span>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 32, width: 56, height: 56, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', color: 'var(--score-hot-text)', boxShadow: '0 2px 10px rgba(219,39,119,.22)', flexShrink: 0 }}>{Math.round(top.final_score)}</span>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--score-hot-text)', marginBottom: 5 }}>Hottest lead today · act first</div>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, letterSpacing: '-0.01em', color: 'var(--text)' }}>{top.address}{getSuburb(top) ? `, ${getSuburb(top)}` : ''}</div>
@@ -746,7 +746,7 @@ export default function HotVendorScoring() {
               const note = noteFor(p.address)
               return (
               <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{fmtNum(p.final_score)}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}</div>
@@ -755,9 +755,11 @@ export default function HotVendorScoring() {
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{s}</span>)}
                 </div>
-                <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                <div style={{ minWidth: 0 }}>
+                  <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                </div>
                 <button onClick={() => openNote(p)} title={note || 'Add a note'}
-                  style={{ textAlign: 'left', background: note ? 'var(--status-watch-bg)' : 'transparent', border: note ? '1px solid var(--status-watch)' : '1px dashed var(--border)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 11.5, color: note ? 'var(--status-watch-text)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  style={{ minWidth: 0, textAlign: 'left', background: note ? 'var(--status-watch-bg)' : 'transparent', border: note ? '1px solid var(--status-watch)' : '1px dashed var(--border)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 11.5, color: note ? 'var(--status-watch-text)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {note ? note : '+ note'}
                 </button>
               </div>

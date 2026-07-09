@@ -102,20 +102,6 @@ export default function Rail({
         </span>
       </div>
 
-      {/* quick search — visual affordance for now (⌘K wiring is a later
-          phase); kept so the rail reads as designed. */}
-      <div style={{ padding: '0 14px 14px' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 11px',
-          background: p.sbg, border: `1px solid ${p.sbd}`, borderRadius: 8,
-          boxSizing: 'border-box', width: '100%', overflow: 'hidden',
-        }}>
-          <span style={{ width: 12, height: 12, borderRadius: '50%', border: `1.5px solid ${p.stext}`, flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, color: p.stext, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>Search address, suburb…</span>
-          <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 10, color: p.stext, border: `1px solid ${p.sbd}`, borderRadius: 4, padding: '1px 5px' }}>⌘K</span>
-        </div>
-      </div>
-
       {/* nav */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }} aria-label="Primary">
         {GROUPS.map(g => (

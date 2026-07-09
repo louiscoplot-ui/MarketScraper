@@ -306,6 +306,17 @@ export default function ListingsView({
       { k: 'active', l: 'Active', c: '#16A34A' }, { k: 'under_offer', l: 'Under Offer', c: '#D97706' },
       { k: 'sold', l: 'Sold', c: '#2563EB' }, { k: 'withdrawn', l: 'Withdrawn', c: '#DC2626' },
     ]
+    // Per-status totals for the current suburb scope, summed from the
+    // suburb rows (active_count / under_offer_count / …) — same source as
+    // the classic sidebar counters. Independent of the status filter, so
+    // the operator always sees the full breakdown.
+    const scopeSubs = suburbs.filter(s => checkedSuburbs.size === 0 || checkedSuburbs.has(s.id))
+    const statusCounts = {
+      active: scopeSubs.reduce((n, s) => n + (s.active_count || 0), 0),
+      under_offer: scopeSubs.reduce((n, s) => n + (s.under_offer_count || 0), 0),
+      sold: scopeSubs.reduce((n, s) => n + (s.sold_count || 0), 0),
+      withdrawn: scopeSubs.reduce((n, s) => n + (s.withdrawn_count || 0), 0),
+    }
     // Compact density: tighter rows + font so more fit without scrolling.
     const rowPad = compact ? '5px 14px 5px 12px' : '9px 14px 9px 12px'
     const rowFs = compact ? 11.5 : 12
@@ -374,6 +385,7 @@ export default function ListingsView({
                 <span key={p.k} onClick={() => toggleStatus(p.k)}
                   style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', borderRadius: 999, padding: '6px 13px', background: on ? p.c + '1f' : 'transparent', color: on ? p.c : 'var(--text-muted)', border: `1px solid ${on ? p.c : 'var(--border)'}` }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.c }} />{p.l}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0, opacity: on ? 1 : 0.8 }}>{statusCounts[p.k]}</span>
                 </span>
               )
             })}
