@@ -887,7 +887,7 @@ export default function AdminUsers() {
               <td style={{ textAlign: 'center' }}>
                 {u.role === 'admin' ? (
                   <span title="Admins always have rental access" style={{
-                    fontSize: 11, color: '#6b7280',
+                    fontSize: 11, color: 'var(--text-muted)',
                   }}>auto</span>
                 ) : (
                   <button
@@ -897,8 +897,8 @@ export default function AdminUsers() {
                     style={{
                       cursor: 'pointer', border: 'none', padding: '3px 10px',
                       borderRadius: 10, fontSize: 11, fontWeight: 600,
-                      background: u.rental_access ? '#d1fae5' : '#f3f4f6',
-                      color: u.rental_access ? '#065f46' : '#9ca3af',
+                      background: u.rental_access ? 'var(--status-good-bg)' : 'var(--bg)',
+                      color: u.rental_access ? 'var(--status-good-text)' : 'var(--text-faint)',
                     }}
                   >
                     {u.rental_access ? 'ON' : 'OFF'}
@@ -916,8 +916,8 @@ export default function AdminUsers() {
                       style={{
                         cursor: 'pointer', border: 'none', padding: '3px 10px',
                         borderRadius: 10, fontSize: 11, fontWeight: 600,
-                        background: on ? '#d1fae5' : '#f3f4f6',
-                        color: on ? '#065f46' : '#9ca3af',
+                        background: on ? 'var(--status-good-bg)' : 'var(--bg)',
+                        color: on ? 'var(--status-good-text)' : 'var(--text-faint)',
                       }}
                     >
                       {on ? 'ON' : 'OFF'}
@@ -969,12 +969,12 @@ export default function AdminUsers() {
               own label so it can't be confused with a toolbar item. */}
           <div style={{
             border: '1px solid #d1d5db', borderRadius: 8,
-            padding: '10px 12px', marginBottom: 14, background: '#f9fafb',
+            padding: '10px 12px', marginBottom: 14, background: 'var(--bg)',
           }}>
             <label style={{
               display: 'block', fontSize: 11, fontWeight: 700,
               textTransform: 'uppercase', letterSpacing: 0.4,
-              color: '#475569', marginBottom: 6,
+              color: 'var(--text-muted)', marginBottom: 6,
             }}>
               Add a new rental suburb
             </label>
@@ -990,7 +990,7 @@ export default function AdminUsers() {
                 style={{
                   flex: 1, padding: '8px 12px', fontSize: 14,
                   border: '1px solid #cbd5e1', borderRadius: 6,
-                  background: 'white',
+                  background: 'var(--surface)',
                 }}
               />
               <button
@@ -1000,8 +1000,8 @@ export default function AdminUsers() {
                 style={{
                   padding: '8px 18px', fontSize: 14, fontWeight: 600,
                   background: (!newRentalSuburb.trim() || addingRentalSuburb)
-                    ? '#94a3b8' : 'var(--accent)',
-                  color: 'white', border: 'none', borderRadius: 6,
+                    ? 'var(--text-faint)' : 'var(--accent)',
+                  color: 'var(--surface)', border: 'none', borderRadius: 6,
                   cursor: (!newRentalSuburb.trim() || addingRentalSuburb)
                     ? 'not-allowed' : 'pointer',
                   whiteSpace: 'nowrap',
@@ -1020,13 +1020,13 @@ export default function AdminUsers() {
             <button type="button" className="btn-link" onClick={selectAllRental}>
               Select all
             </button>
-            <span style={{ color: '#cbd5e1' }}>·</span>
+            <span style={{ color: 'var(--border)' }}>·</span>
             <button type="button" className="btn-link" onClick={deselectAllRental}>
               Deselect all
             </button>
             <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
               {dirtyCount > 0 && (
-                <span style={{ fontSize: 12, color: '#b45309' }}>
+                <span style={{ fontSize: 12, color: 'var(--status-watch-text)' }}>
                   {dirtyCount} unsaved change{dirtyCount !== 1 ? 's' : ''}
                 </span>
               )}
@@ -1036,8 +1036,8 @@ export default function AdminUsers() {
                 disabled={dirtyCount === 0 || savingRentalBatch}
                 style={{
                   padding: '6px 16px', fontSize: 13, fontWeight: 600,
-                  background: dirtyCount === 0 ? '#cbd5e1' : '#0f766e',
-                  color: 'white', border: 'none', borderRadius: 6,
+                  background: dirtyCount === 0 ? 'var(--border)' : 'var(--accent)',
+                  color: 'var(--surface)', border: 'none', borderRadius: 6,
                   cursor: dirtyCount === 0 ? 'not-allowed' : 'pointer',
                 }}
               >
@@ -1049,9 +1049,9 @@ export default function AdminUsers() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
                         maxHeight: 360, overflowY: 'auto',
                         border: '1px solid #e5e7eb', borderRadius: 6,
-                        padding: 8, background: 'white' }}>
+                        padding: 8, background: 'var(--surface)' }}>
             {rentalSuburbs.length === 0 && (
-              <div style={{ padding: 12, color: '#9ca3af', fontSize: 13 }}>
+              <div style={{ padding: 12, color: 'var(--text-faint)', fontSize: 13 }}>
                 No rental suburbs yet. Add one above.
               </div>
             )}
@@ -1077,7 +1077,7 @@ export default function AdminUsers() {
                 </span>
                 {dirty && (
                   <span style={{
-                    fontSize: 10, fontWeight: 700, color: '#b45309',
+                    fontSize: 10, fontWeight: 700, color: 'var(--status-watch-text)',
                     textTransform: 'uppercase', letterSpacing: 0.4,
                   }}>
                     pending
@@ -1096,8 +1096,8 @@ export default function AdminUsers() {
           </div>
 
           <p style={{
-            fontSize: 12, color: '#0c4a6e',
-            background: '#f0f9ff', border: '1px solid #bae6fd',
+            fontSize: 12, color: 'var(--status-info-text)',
+            background: 'var(--status-info-bg)', border: '1px solid #bae6fd',
             borderRadius: 6, padding: '8px 12px', marginTop: 12,
           }}>
             ℹ️ Active suburbs are automatically scraped nightly at midnight Perth time.
@@ -1123,7 +1123,7 @@ export default function AdminUsers() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: '#fff', borderRadius: 8,
+              background: 'var(--surface)', borderRadius: 8,
               width: '100%', maxWidth: 640, maxHeight: '85vh',
               display: 'flex', flexDirection: 'column',
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
@@ -1137,7 +1137,7 @@ export default function AdminUsers() {
             }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 600 }}>Manage Access</div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                   {[managing.user.first_name, managing.user.last_name].filter(Boolean).join(' ') || managing.user.email}
                   {' — '}{managing.user.email}
                   {' · Role: '}{managing.user.role}
@@ -1149,7 +1149,7 @@ export default function AdminUsers() {
                 aria-label="Close"
                 style={{
                   background: 'none', border: 'none',
-                  fontSize: 24, lineHeight: 1, color: '#6b7280',
+                  fontSize: 24, lineHeight: 1, color: 'var(--text-muted)',
                   cursor: 'pointer', padding: 0, width: 32, height: 32,
                   flexShrink: 0,
                 }}
@@ -1310,7 +1310,7 @@ export default function AdminUsers() {
                 {managing.customSuggestions && managing.customSuggestions.length > 0 && (
                   <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0,
-                    background: '#fff', border: '1px solid #d1d5db',
+                    background: 'var(--surface)', border: '1px solid #d1d5db',
                     borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto',
                     zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                   }}>
@@ -1413,7 +1413,7 @@ export default function AdminUsers() {
                     {managing.rentalCustomSuggestions && managing.rentalCustomSuggestions.length > 0 && (
                       <div style={{
                         position: 'absolute', top: '100%', left: 0, right: 0,
-                        background: '#fff', border: '1px solid #d1d5db',
+                        background: 'var(--surface)', border: '1px solid #d1d5db',
                         borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto',
                         zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                       }}>
@@ -1452,12 +1452,12 @@ export default function AdminUsers() {
             </div>
 
             {managing.error && (
-              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: 12 }}>
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--status-alert-bg)', border: '1px solid #fca5a5', color: 'var(--status-alert-text)', fontSize: 12 }}>
                 {managing.error}
               </div>
             )}
             {managing.message && !managing.error && (
-              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: '#ecfdf5', border: '1px solid #6ee7b7', color: '#065f46', fontSize: 12 }}>
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--status-good-bg)', border: '1px solid #6ee7b7', color: 'var(--status-good-text)', fontSize: 12 }}>
                 {managing.message}
               </div>
             )}
@@ -1468,9 +1468,9 @@ export default function AdminUsers() {
               padding: '12px 20px', borderTop: '1px solid #e5e7eb',
               flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              gap: 12, background: '#fafafa',
+              gap: 12, background: 'var(--bg)',
             }}>
-              <span style={{ fontSize: 12, color: '#6b7280' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 {managing.all_suburbs ? 'all suburbs' : `${managing.sales_suburb_ids.size} sales`} · {managing.rental_access ? `${managing.rental_assigned.size} rental` : 'rental off'} · digest {managing.digest_enabled ? 'on' : 'off'}
               </span>
               <div style={{ display: 'flex', gap: 8 }}>

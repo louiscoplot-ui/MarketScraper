@@ -28,7 +28,7 @@ const RENTAL_CACHE_KEY = (suburb) =>
 const STATUS_STYLES = {
   New:    { bg: '#eff6ff', color: '#1e40af', label: 'New' },
   Active: { bg: '#f0fdfa', color: '#0f766e', label: 'Active' },
-  Leased: { bg: '#f8fafc', color: '#64748b', label: 'Leased', italic: true },
+  Leased: { bg: 'var(--bg)', color: 'var(--text-muted)', label: 'Leased', italic: true },
 }
 
 
@@ -99,7 +99,7 @@ function StatusBadge({ status }) {
 // DOM badge — green ≤14, orange ≤30, red >30. Empty / NaN → muted "—".
 function DomBadge({ days }) {
   const n = parseInt(days, 10)
-  if (!days || isNaN(n)) return <span style={{ color: '#9ca3af' }}>—</span>
+  if (!days || isNaN(n)) return <span style={{ color: 'var(--text-faint)' }}>—</span>
   let bg = '#dcfce7', color = '#166534'  // fresh
   if (n > 30)      { bg = '#fee2e2'; color = '#991b1b' }  // stale
   else if (n > 14) { bg = '#ffedd5'; color = '#9a3412' }  // warming up
@@ -161,7 +161,7 @@ function EditableCell({ value, onSave, compact }) {
         background: flash ? '#dcfce7' : 'transparent',
         borderRadius: 3,
         transition: 'background 0.4s, border-color 0.15s',
-        color: '#111827',
+        color: 'var(--text)',
       }}
       onMouseEnter={(e) => {
         if (!focusedRef.current) e.currentTarget.style.borderBottom = '1px dashed #9ca3af'
@@ -710,7 +710,7 @@ export default function RentalView({ selectedNames } = {}) {
       }}>
         <div>
           <h2 style={{
-            margin: 0, fontSize: 22, fontWeight: 700, color: '#0f172a',
+            margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)',
             letterSpacing: -0.3,
           }}>
             Rental{(() => {
@@ -719,24 +719,24 @@ export default function RentalView({ selectedNames } = {}) {
               //   N names → "Rental — N suburbs"
               //   0       → just "Rental"
               if (activeNames.length === 1) {
-                return <span style={{ color: '#64748b', fontWeight: 500 }}> — {activeNames[0]}</span>
+                return <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> — {activeNames[0]}</span>
               }
               if (activeNames.length > 1) {
-                return <span style={{ color: '#64748b', fontWeight: 500 }}> — {activeNames.length} suburbs</span>
+                return <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> — {activeNames.length} suburbs</span>
               }
               return ''
             })()}
           </h2>
           <div style={{
-            marginTop: 6, fontSize: 12, color: '#64748b',
+            marginTop: 6, fontSize: 12, color: 'var(--text-muted)',
             display: 'flex', gap: 14, flexWrap: 'wrap',
           }}>
-            <span><strong style={{ color: '#0f172a' }}>{counts.avail}</strong> for rent</span>
-            <span style={{ color: '#cbd5e1' }}>·</span>
-            <span><strong style={{ color: '#0f172a' }}>{counts.leased}</strong> leased</span>
-            <span style={{ color: '#cbd5e1' }}>·</span>
-            <span><strong style={{ color: '#0f172a' }}>{suburbs.length}</strong> suburb{suburbs.length !== 1 ? 's' : ''}</span>
-            <span style={{ color: '#cbd5e1' }}>·</span>
+            <span><strong style={{ color: 'var(--text)' }}>{counts.avail}</strong> for rent</span>
+            <span style={{ color: 'var(--border)' }}>·</span>
+            <span><strong style={{ color: 'var(--text)' }}>{counts.leased}</strong> leased</span>
+            <span style={{ color: 'var(--border)' }}>·</span>
+            <span><strong style={{ color: 'var(--text)' }}>{suburbs.length}</strong> suburb{suburbs.length !== 1 ? 's' : ''}</span>
+            <span style={{ color: 'var(--border)' }}>·</span>
             {/* Legend for the Days badge — its meaning was colour-only. */}
             <span title="Days on market">
               Days: <span style={{ color: '#166534', fontWeight: 600 }}>≤14 fresh</span>{' '}
@@ -748,11 +748,11 @@ export default function RentalView({ selectedNames } = {}) {
                 requested (partial-failure visibility). */}
             {loadProgress.total > 1 && (loading || loadProgress.loaded < loadProgress.total) && (
               <>
-                <span style={{ color: '#cbd5e1' }}>·</span>
+                <span style={{ color: 'var(--border)' }}>·</span>
                 <span style={{
-                  color: loadProgress.loaded < loadProgress.total && !loading ? '#b45309' : '#64748b',
+                  color: loadProgress.loaded < loadProgress.total && !loading ? '#b45309' : 'var(--text-muted)',
                 }}>
-                  Loaded <strong style={{ color: '#0f172a' }}>{loadProgress.loaded}</strong> / {loadProgress.total} suburbs
+                  Loaded <strong style={{ color: 'var(--text)' }}>{loadProgress.loaded}</strong> / {loadProgress.total} suburbs
                 </span>
               </>
             )}
@@ -768,7 +768,7 @@ export default function RentalView({ selectedNames } = {}) {
               onChange={(e) => setInternalSuburb(e.target.value)}
               style={{
                 padding: '7px 10px', fontSize: 13,
-                border: '1px solid #d1d5db', borderRadius: 6, background: 'white',
+                border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)',
               }}
             >
               {!suburbs.length && <option value="">No suburbs available</option>}
@@ -788,7 +788,7 @@ export default function RentalView({ selectedNames } = {}) {
             on={showLeased}
             onClick={() => setShowLeased(v => !v)}
             label={`Leased (${counts.leased})`}
-            colorOn="#475569" bgOn="#e2e8f0"
+            colorOn="var(--text-muted)" bgOn="var(--border)"
           />
           <select
             value={selectedAgency}
@@ -796,7 +796,7 @@ export default function RentalView({ selectedNames } = {}) {
             title={selectedAgency || 'Filter by agency'}
             style={{
               padding: '6px 8px', fontSize: 12, maxWidth: 160,
-              border: '1px solid #cbd5e1', borderRadius: 6, background: 'white',
+              border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)',
             }}
           >
             <option value="">All Agencies</option>
@@ -808,7 +808,7 @@ export default function RentalView({ selectedNames } = {}) {
             title={selectedAgent || 'Filter by agent'}
             style={{
               padding: '6px 8px', fontSize: 12, maxWidth: 160,
-              border: '1px solid #cbd5e1', borderRadius: 6, background: 'white',
+              border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)',
             }}
           >
             <option value="">All Agents</option>
@@ -820,9 +820,9 @@ export default function RentalView({ selectedNames } = {}) {
             title="Toggle compact density"
             style={{
               padding: '6px 12px', fontSize: 12, fontWeight: 600,
-              background: compact ? '#0f172a' : 'white',
-              color: compact ? 'white' : '#0f172a',
-              border: '1px solid #0f172a',
+              background: compact ? 'var(--text)' : 'var(--surface)',
+              color: compact ? 'white' : 'var(--text)',
+              border: '1px solid var(--text)',
               borderRadius: 6, cursor: 'pointer',
             }}
           >
@@ -847,8 +847,8 @@ export default function RentalView({ selectedNames } = {}) {
             style={{
               padding: '7px 14px', fontSize: 13, fontWeight: 600,
               background: (exporting || activeNames.length === 0)
-                ? '#94a3b8' : '#0f766e',
-              color: 'white', border: 'none', borderRadius: 6,
+                ? 'var(--text-faint)' : '#0f766e',
+              color: 'var(--surface)', border: 'none', borderRadius: 6,
               cursor: (exporting || activeNames.length === 0)
                 ? 'not-allowed' : 'pointer',
             }}
@@ -861,8 +861,8 @@ export default function RentalView({ selectedNames } = {}) {
             disabled={importing}
             style={{
               padding: '7px 14px', fontSize: 13, fontWeight: 600,
-              background: importing ? '#94a3b8' : 'var(--accent)',
-              color: 'white', border: 'none', borderRadius: 6,
+              background: importing ? 'var(--text-faint)' : 'var(--accent)',
+              color: 'var(--surface)', border: 'none', borderRadius: 6,
               cursor: importing ? 'progress' : 'pointer',
             }}
           >
@@ -888,13 +888,13 @@ export default function RentalView({ selectedNames } = {}) {
 
       {/* Table ----------------------------------------------------- */}
       <div style={{
-        border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden',
+        border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
       }}>
         <div style={{ overflowX: 'auto' }}>
           <table className="desk-rental" style={{
             width: '100%', borderCollapse: 'collapse', fontSize,
-            background: 'white', tableLayout: 'fixed',
+            background: 'var(--surface)', tableLayout: 'fixed',
           }}>
             {/* Explicit column widths so long agency / agent strings
                 truncate with ellipsis instead of pushing Notes off-
@@ -906,7 +906,7 @@ export default function RentalView({ selectedNames } = {}) {
               ))}
             </colgroup>
             <thead>
-              <tr style={{ background: '#1e293b' }}>
+              <tr style={{ background: 'var(--accent)' }}>
                 {COLS.map(c => {
                   const isSorted = c.sortable && sortField === c.key
                   return (
@@ -917,7 +917,7 @@ export default function RentalView({ selectedNames } = {}) {
                         textAlign: c.num ? 'center' : 'left',
                         padding: compact ? '5px 6px' : '10px 10px',
                         fontWeight: 600, fontSize: 10.5,
-                        color: isSorted ? '#fff' : '#cbd5e1',
+                        color: isSorted ? 'var(--accent-fg)' : 'rgba(255,255,255,.72)',
                         textTransform: 'uppercase', letterSpacing: 0.6,
                         whiteSpace: 'nowrap',
                         cursor: c.sortable ? 'pointer' : 'default',
@@ -929,7 +929,7 @@ export default function RentalView({ selectedNames } = {}) {
                       {c.sortable && (
                         <span style={{
                           marginLeft: 4,
-                          color: isSorted ? '#fff' : '#475569',
+                          color: isSorted ? 'var(--accent-fg)' : 'rgba(255,255,255,.5)',
                           opacity: isSorted ? 1 : 0.5,
                         }}>
                           {isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
@@ -946,10 +946,10 @@ export default function RentalView({ selectedNames } = {}) {
               ) : !filtered.length ? (
                 <tr>
                   <td colSpan={COLS.length} style={{
-                    padding: '48px 24px', textAlign: 'center', color: '#64748b',
+                    padding: '48px 24px', textAlign: 'center', color: 'var(--text-muted)',
                   }}>
                     <div style={{ fontSize: 36, marginBottom: 8, lineHeight: 1 }}>🏠</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
                       No rental listings for this suburb
                     </div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>
@@ -963,11 +963,11 @@ export default function RentalView({ selectedNames } = {}) {
                 </tr>
               ) : (
                 filtered.map((r, idx) => {
-                  const zebra = idx % 2 === 1 ? '#f8fafc' : 'white'
+                  const zebra = idx % 2 === 1 ? 'var(--bg)' : 'var(--surface)'
                   return (
                     <tr
                       key={`${r.suburb}|${r.address}`}
-                      style={{ borderBottom: '1px solid #f1f5f9', background: zebra }}
+                      style={{ borderBottom: '1px solid var(--border)', background: zebra }}
                     >
                       {COLS.map(c => {
                         const ownerTint = c.owner ? '#fefce8' : undefined
@@ -977,7 +977,7 @@ export default function RentalView({ selectedNames } = {}) {
                           verticalAlign: 'middle',
                           background: ownerTint,
                           textAlign: c.num ? 'center' : 'left',
-                          color: c.bold ? '#0f172a' : '#334155',
+                          color: c.bold ? 'var(--text)' : 'var(--text)',
                           fontWeight: c.bold ? 600 : 400,
                           whiteSpace: (c.key === 'address' || c.key === 'notes') ? 'normal' : 'nowrap',
                           overflow: truncate ? 'hidden' : 'visible',
@@ -1001,7 +1001,7 @@ export default function RentalView({ selectedNames } = {}) {
                           )
                         }
                         if (c.key === 'url') {
-                          if (!r.url) return <td key={c.key} style={{ ...cellStyle, color: '#cbd5e1' }}>—</td>
+                          if (!r.url) return <td key={c.key} style={{ ...cellStyle, color: 'var(--border)' }}>—</td>
                           return (
                             <td key={c.key} style={cellStyle}>
                               <a
@@ -1068,9 +1068,9 @@ function PillToggle({ on, onClick, label, colorOn = 'var(--accent)', bgOn = '#d1
       onClick={onClick}
       style={{
         padding: '6px 12px', fontSize: 12, fontWeight: 600,
-        border: `1px solid ${on ? colorOn : '#cbd5e1'}`,
-        background: on ? bgOn : 'white',
-        color: on ? colorOn : '#64748b',
+        border: `1px solid ${on ? colorOn : 'var(--border)'}`,
+        background: on ? bgOn : 'var(--surface)',
+        color: on ? colorOn : 'var(--text-muted)',
         borderRadius: 999, cursor: 'pointer',
         whiteSpace: 'nowrap',
       }}
