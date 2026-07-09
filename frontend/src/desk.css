@@ -44,6 +44,15 @@
   margin-left: auto;
 }
 
+/* The classic left "Suburbs" checkbox column is NOT part of the mock —
+   the design carries suburb scope as filter chips in the page header.
+   Hide it in desk mode so the content (table + lateral map) spans the
+   whole width, rail → edge. Suburb selection moves to chips (rendered in
+   ListingsView's desk page-head). Classic keeps the sidebar untouched. */
+.app.desk .layout > .sidebar {
+  display: none;
+}
+
 /* --- Editorial page titles across every screen --------------------
    Cheap, reversible win: page titles pick up the serif everywhere the
    moment desk mode is on, without touching any screen component yet. */

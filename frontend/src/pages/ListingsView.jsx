@@ -35,6 +35,7 @@ export default function ListingsView({
   selectedAgency, setSelectedAgency, uniqueAgencies,
   selectedAgent, setSelectedAgent, uniqueAgents,
   filteredListings, suburbs, checkedSuburbs,
+  toggleCheckSuburb, selectAllCheck, deselectAllCheck,
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing, mirrorListing,
   bootLoading,
@@ -277,6 +278,125 @@ export default function ListingsView({
   // back to the total when nothing is explicitly checked (= all shown).
   const scopeCount = checkedSuburbs.size > 0 ? checkedSuburbs.size : suburbs.length
 
+  // ── Desk redesign — full, clean render of mock #prospecting. Separate
+  // from classic (returned below) so nothing old bleeds through. ──
+  if (isDesk) {
+    const ST = { active: 'good', under_offer: 'watch', sold: 'info', withdrawn: 'alert' }
+    const stColor = (s) => `var(--status-${ST[s] || 'off'})`
+    const cfg = (l) => [l.bedrooms, l.bathrooms, l.parking].map(x => (x == null ? '–' : x)).join('·')
+    const GRID = '1.55fr 78px 92px 66px 58px 1fr 92px 74px 46px'
+    const HEADERS = [
+      { l: 'Address', f: 'address' }, { l: 'Suburb', f: 'suburb_name' },
+      { l: 'Price', f: 'price_text', a: 'right' }, { l: 'Bd·Ba·Cr', a: 'center' },
+      { l: 'Land', f: 'land_size', a: 'right' }, { l: 'Agency', f: 'agency' },
+      { l: 'Agent', f: 'agent' }, { l: 'Listed', f: 'listing_date' }, { l: 'DOM', f: 'dom', a: 'right' },
+    ]
+    const STATUS_PILLS = [
+      { k: 'active', l: 'Active', c: '#16A34A' }, { k: 'under_offer', l: 'Under Offer', c: '#D97706' },
+      { k: 'sold', l: 'Sold', c: '#2563EB' }, { k: 'withdrawn', l: 'Withdrawn', c: '#DC2626' },
+    ]
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        {/* header + filters */}
+        <div style={{ padding: '22px 30px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16, gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, marginBottom: 12 }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: '#fff', background: 'var(--accent)', borderRadius: 7, padding: '5px 18px' }}>Sales</span>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                  Rental <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.08em', background: 'var(--border)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px' }}>ACCOUNT</span>
+                </span>
+              </div>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Prospecting · Sales</h2>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>
+                {filteredListings.length} results · {scopeCount} suburbs{selectedAgency ? ` · ${selectedAgency}` : ''} · {compact ? 'compact' : 'comfortable'} view
+              </div>
+            </div>
+            <button onClick={() => setCompact(c => !c)} title="Toggle density"
+              style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 13px', background: 'var(--surface)', cursor: 'pointer' }}>
+              {compact ? 'Compact' : 'Comfortable'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {suburbs.filter(s => checkedSuburbs.has(s.id)).slice(0, 6).map(s => (
+              <span key={s.id} onClick={() => toggleCheckSuburb && toggleCheckSuburb(s.id)} title={`Remove ${s.name}`}
+                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid #cdddd5', borderRadius: 999, padding: '6px 12px' }}>
+                {s.name} <span style={{ opacity: 0.6 }}>×</span>
+              </span>
+            ))}
+            {checkedSuburbs.size > 6 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px' }}>+ {checkedSuburbs.size - 6} suburbs</span>}
+            <span style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+            {STATUS_PILLS.map(p => {
+              const on = selectedStatuses.has(p.k)
+              return (
+                <span key={p.k} onClick={() => toggleStatus(p.k)}
+                  style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', borderRadius: 999, padding: '6px 13px', background: on ? p.c + '1f' : 'transparent', color: on ? p.c : 'var(--text-muted)', border: `1px solid ${on ? p.c : 'var(--border)'}` }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.c }} />{p.l}
+                </span>
+              )
+            })}
+            <Select size="sm" value={selectedAgency} onChange={e => setSelectedAgency(e.target.value)}
+              options={[{ value: '', label: 'All Agencies' }, ...uniqueAgencies.map(a => ({ value: a, label: a }))]} />
+            <Select size="sm" value={selectedAgent} onChange={e => setSelectedAgent(e.target.value)}
+              options={[{ value: '', label: 'All Agents' }, ...uniqueAgents.map(a => ({ value: a, label: a }))]} />
+          </div>
+        </div>
+
+        {/* split: table | map */}
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={{ width: '60%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', minWidth: 0 }}>
+            {/* header row */}
+            <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+              {HEADERS.map(h => (
+                <span key={h.l} onClick={h.f ? () => toggleSort(h.f) : undefined}
+                  style={{ textAlign: h.a || 'left', cursor: h.f ? 'pointer' : 'default', userSelect: 'none' }}>
+                  {h.l}{h.f && sortField === h.f ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </span>
+              ))}
+            </div>
+            {/* rows */}
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {filteredListings.length === 0 && bootLoading && (
+                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <div className="loading-spinner" style={{ margin: '0 auto 12px' }} />
+                  Loading listings… First load can take 15–30s while the server warms up.
+                </div>
+              )}
+              {filteredListings.map(l => {
+                const d = calcDOM ? calcDOM(l) : null
+                return (
+                  <div key={l.id ?? `${l.address}-${l.suburb_name}`}
+                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(l.status)}` }}>
+                    <a href={l.reiwa_url || '#'} onClick={(e) => { e.preventDefault(); setDetail(l) }} title="Open property dossier"
+                      style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</a>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.suburb_name}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.price_text || '—'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{cfg(l)}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>{l.land_size || '–'}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.agency || '–'}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.agent || '–'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{formatIsoDate ? (formatIsoDate(l.listing_date) || l.listing_date || '–') : (l.listing_date || '–')}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'right', color: (d ?? 0) >= 60 ? 'var(--status-alert-text)' : 'var(--text-muted)', fontWeight: (d ?? 0) >= 60 ? 600 : 400 }}>{d != null ? d : '–'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          {/* map */}
+          <div className="desk-map" style={{ flex: 1, borderRadius: 0, border: 'none', minHeight: 0 }}>
+            <div className="desk-map-label">Map · Perth metro · {filteredListings.length} pins</div>
+            {filteredListings.slice(0, 48).map((l, i) => {
+              const s = String(l.address || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
+              return <span key={l.id ?? i} style={{ position: 'absolute', top: `${16 + (h % 66)}%`, left: `${12 + ((h >> 4) % 72)}%`, width: 11, height: 11, borderRadius: '50%', background: stColor(l.status), border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }} />
+            })}
+          </div>
+        </div>
+
+        {detail && <PropertyDetail listing={detail} calcDOM={calcDOM} formatIsoDate={formatIsoDate} onClose={() => setDetail(null)} />}
+      </div>
+    )
+  }
+
   return (
     <>
       {/* Desk-mode page header — serif title + mono context line. Hidden
@@ -290,6 +410,37 @@ export default function ListingsView({
           {selectedAgent && ` · ${selectedAgent}`}
           {compact ? ' · compact view' : ''}
         </div>
+
+        {/* Suburb scope as removable chips (mock 02) — replaces the classic
+            checkbox sidebar (hidden in desk). Functional: × toggles a
+            suburb off, the picker adds one back. */}
+        {suburbs && suburbs.length > 0 && toggleCheckSuburb && (
+          <div className="desk-suburb-chips">
+            {suburbs.filter(s => checkedSuburbs.has(s.id)).map(s => (
+              <span key={s.id} className="desk-chip" onClick={() => toggleCheckSuburb(s.id)} title={`Remove ${s.name}`}>
+                {s.name} <span className="desk-chip-x">×</span>
+              </span>
+            ))}
+            {suburbs.some(s => !checkedSuburbs.has(s.id)) && (
+              <select
+                className="desk-chip-add"
+                value=""
+                onChange={e => { const id = Number(e.target.value); if (id) toggleCheckSuburb(id) }}
+                title="Add a suburb to the view"
+              >
+                <option value="">+ add suburb</option>
+                {suburbs.filter(s => !checkedSuburbs.has(s.id)).map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+            {selectAllCheck && (
+              <button type="button" className="desk-chip-link" onClick={checkedSuburbs.size === suburbs.length ? deselectAllCheck : selectAllCheck}>
+                {checkedSuburbs.size === suburbs.length ? 'Clear all' : 'All suburbs'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="filters">
