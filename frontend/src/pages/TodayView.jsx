@@ -159,19 +159,24 @@ function buildLeads(report, items, fallenList, suburb) {
   const r = report || {}
   const inScope = (s) => !suburb || (s || '').toLowerCase() === suburb.toLowerCase()
   const out = []
-  const add = (address, sub, reason, tone, view, weight) => {
+  const add = (address, sub, reason, tone, view, weight, detail) => {
     if (!address || !inScope(sub)) return
-    out.push({ address, suburb: sub || '', reason, tone, view, weight })
+    out.push({ address, suburb: sub || '', reason, tone, view, weight, detail: detail || {} })
   }
-  ;(fallenList || []).forEach(f => add(f.address, f.suburb, 'Sale fell through', 'watch', 'fallen', 100))
+  ;(fallenList || []).forEach(f => add(f.address, f.suburb, 'Sale fell through', 'watch', 'fallen', 100,
+    { kind: 'Sale fell through', price: f.original_price, date: f.detected_at, dateLabel: 'Back on market', reiwa_url: f.reiwa_url }))
   ;(r.price_drops || []).filter(m => (m.delta_amount ?? 0) < 0).forEach(m => {
     const pct = m.delta_pct != null ? Math.abs(Math.round(m.delta_pct)) : null
-    add(m.address, m.suburb, `Price cut${pct != null && pct <= 200 ? ` ${pct}%` : ''}`, 'alert', 'report', 80)
+    add(m.address, m.suburb, `Price cut${pct != null && pct <= 200 ? ` ${pct}%` : ''}`, 'alert', 'report', 80,
+      { kind: 'Price cut', old_price: m.old_price, new_price: m.new_price, delta_pct: m.delta_pct })
   })
   ;(items || []).filter(s => (s.score || 0) >= 0.35).forEach(s =>
-    add(s.address, s.suburb, (s.reasons || [])[0] || 'Vendor signal', (s.score || 0) >= 0.6 ? 'alert' : 'watch', 'signals', 60 + (s.score || 0) * 20))
-  ;(r.withdrawn_listings || []).forEach(w => add(w.address, w.suburb, 'Withdrawn', 'watch', 'report', 50))
-  ;(r.stale_listings || []).forEach(s => add(s.address, s.suburb, `${s.dom || '60+'} days on market`, 'off', 'report', 40))
+    add(s.address, s.suburb, (s.reasons || [])[0] || 'Vendor signal', (s.score || 0) >= 0.6 ? 'alert' : 'watch', 'signals', 60 + (s.score || 0) * 20,
+      { kind: 'Vendor signal', score: s.score, reasons: s.reasons, narrative: s.narrative }))
+  ;(r.withdrawn_listings || []).forEach(w => add(w.address, w.suburb, 'Withdrawn', 'watch', 'report', 50,
+    { kind: 'Withdrawn', price: w.price, agent: w.agent, agency: w.agency, dom: w.dom, listing_date: w.listing_date, reiwa_url: w.reiwa_url }))
+  ;(r.stale_listings || []).forEach(s => add(s.address, s.suburb, `${s.dom || '60+'} days on market`, 'off', 'report', 40,
+    { kind: 'Stale listing', price: s.price, agent: s.agent, agency: s.agency, dom: s.dom, listing_date: s.listing_date, reiwa_url: s.reiwa_url }))
   const seen = new Map()
   for (const o of out) {
     const k = (o.address || '').toLowerCase()
@@ -197,6 +202,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     return new Set(DASH_WIDGETS.map(w => w.id))
   })
   const [customOpen, setCustomOpen] = useState(false)
+  const [leadDetail, setLeadDetail] = useState(null)   // clicked lead → popup
   const toggleWidget = (id) => setEnabled(prev => {
     const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id)
     try { localStorage.setItem(DASH_PREF_KEY, JSON.stringify([...n])) } catch { /* ignore */ }
@@ -429,7 +435,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                   {leads.length === 0 ? emptyLine('Nothing to action — the feed fills as the nightly scrapes run.') : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', minHeight: 0 }}>
                       {leads.map((l, i) => (
-                        <button key={`${l.view}-${l.address}-${i}`} onClick={() => go(l.view)}
+                        <button key={`${l.view}-${l.address}-${i}`} onClick={() => setLeadDetail(l)}
                           style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', cursor: 'pointer', minWidth: 0 }}>
                           <span style={{ width: 8, height: 8, borderRadius: '50%', background: TONE_TEXT[l.tone], flexShrink: 0 }} />
                           <div style={{ minWidth: 0, flex: 1 }}>
@@ -589,6 +595,66 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
 
           </div>
         )}
+
+        {/* Lead detail popup — clicking a "Contact today" row opens the
+            listing's info here instead of jumping to another screen. */}
+        {leadDetail && (() => {
+          const l = leadDetail
+          const d = l.detail || {}
+          const viewLabel = l.view === 'report' ? 'Market Report' : l.view === 'fallen' ? 'Fallen sales' : l.view === 'signals' ? 'Signals' : l.view
+          const rows = []
+          if (d.old_price || d.new_price) rows.push(['Price', `${d.old_price || '—'} → ${d.new_price || '—'}`])
+          if (d.price) rows.push([d.kind === 'Sale fell through' ? 'Was listed at' : 'Price', d.price])
+          if (d.delta_pct != null && Math.abs(d.delta_pct) <= 200) rows.push(['Change', `${Math.round(d.delta_pct)}%`])
+          if (d.dom != null) rows.push(['Days on market', String(d.dom)])
+          if (d.listing_date) rows.push(['Listed', formatIsoDate(d.listing_date) || d.listing_date])
+          if (d.date) rows.push([d.dateLabel || 'Date', formatIsoDate(d.date) || d.date])
+          if (d.agency) rows.push(['Agency', d.agency])
+          if (d.agent) rows.push(['Agent', d.agent])
+          if (d.score != null) rows.push(['Signal score', `${Math.round((d.score || 0) * 100)}/100`])
+          return (
+            <div className="note-modal-overlay" onClick={() => setLeadDetail(null)}>
+              <div className="note-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440, width: '92vw' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 19, letterSpacing: '-0.01em', color: 'var(--text)' }}>{l.address}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{l.suburb}</div>
+                  </div>
+                  <button className="btn-icon" onClick={() => setLeadDetail(null)} title="Close">×</button>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, background: TONE_BG[l.tone], color: TONE_TEXT[l.tone] }}>{l.reason}</span>
+                </div>
+
+                {rows.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 16, rowGap: 9, marginBottom: 14 }}>
+                    {rows.flatMap(([k, v]) => [
+                      <span key={k + '-k'} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-faint)', alignSelf: 'center' }}>{k}</span>,
+                      <span key={k + '-v'} style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{v}</span>,
+                    ])}
+                  </div>
+                )}
+
+                {Array.isArray(d.reasons) && d.reasons.length > 0 && (
+                  <ul style={{ margin: '0 0 14px', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                    {d.reasons.map((rr, i) => (
+                      <li key={i} style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', display: 'flex', gap: 8 }}>
+                        <span style={{ color: 'var(--text-faint)' }}>•</span>{rr}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {d.narrative && <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-muted)', marginBottom: 14 }}>{d.narrative}</div>}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  {d.reiwa_url && <a href={d.reiwa_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>Open on REIWA ↗</a>}
+                  <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => { setLeadDetail(null); go(l.view) }}>View in {viewLabel} →</button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
