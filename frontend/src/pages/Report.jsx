@@ -3,6 +3,7 @@
 // component is purely presentational.
 
 import { useRef, useEffect } from 'react'
+import { getDeskMode } from '../lib/deskFlag'
 import { MultiSelect, Chip } from '../components/ui'
 
 const PERTH_TZ = 'Australia/Perth'
@@ -116,6 +117,104 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
   useEffect(() => () => {
     if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current)
   }, [])
+
+  // ── Desk redesign — full render of mock #report. ──
+  if (getDeskMode() === 'desk' && report && !report.error) {
+    const sm = report.summary || {}, pr = report.price || {}, dm = report.dom || {}
+    const money = (n) => n ? `$${Number(n).toLocaleString()}` : '—'
+    const kpis = [
+      { l: 'Active', v: sm.active || 0, c: 'var(--status-good)' },
+      { l: 'Under Offer', v: sm.under_offer || 0, c: 'var(--status-watch)' },
+      { l: 'Sold', v: sm.sold || 0, c: 'var(--status-info)' },
+      { l: 'Median price', v: pr.median ? `$${(pr.median / 1e6).toFixed(2)}M` : '—', c: 'var(--accent)' },
+      { l: 'Avg DOM', v: dm.avg ?? '—', c: 'var(--text)' },
+      { l: 'Stale 60+', v: dm.stale_count || 0, c: 'var(--status-alert)' },
+    ]
+    const share = (report.market_share || []).slice(0, 9)
+    const drops = (report.price_drops || []).slice(0, 12)
+    const medianSuburbs = (report.suburbs || []).slice(0, 6).map(x => Array.isArray(x) ? x[0] : x)
+    const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-card)', display: 'flex', flexDirection: 'column', minHeight: 0 }
+    const pTitle = { fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 14 }
+    return (
+      <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
+        <div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 6px', color: 'var(--text)' }}>Market Report</h2>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>
+            {reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length ? `${reportSuburbs.size} suburbs` : `${suburbs.length} suburbs`} · rolling window{reportLoading ? ' · refreshing…' : ''}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12 }}>
+          {kpis.map(k => (
+            <div key={k.l} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 13, padding: '14px 15px', boxShadow: 'var(--shadow-card)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.l}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 27, letterSpacing: '-0.02em', lineHeight: 0.9, color: 'var(--text)' }}>{k.v}</span>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: k.c }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 16, minHeight: 0 }}>
+          {/* left */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
+            <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
+              <div style={pTitle}>Market share by agency <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>· active listings</span></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto' }}>
+                {share.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No data.</div> : share.map(a => (
+                  <div key={a.agency} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', width: 158, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.agency}</span>
+                    <div style={{ flex: 1, height: 9, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${a.pct}%`, background: 'linear-gradient(90deg,#4f8067,#386350)', borderRadius: 999 }} /></div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', width: 62, textAlign: 'right' }}>{a.count} · {a.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
+              <div style={pTitle}>Price movements <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>· motivated sellers</span></div>
+              <div style={{ overflowY: 'auto' }}>
+                {drops.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No recent price changes.</div> : drops.map((m, i) => {
+                  const cut = (m.delta_amount ?? 0) < 0
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · was {m.old_price || '—'}</div></div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{m.new_price || '—'}</span>
+                      {m.delta_pct != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, width: 60, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(m.delta_pct)}%</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+          {/* right */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
+            <div className="desk-map" style={{ flex: 1, minHeight: 160 }}>
+              <div className="desk-map-label">Median by suburb</div>
+              {medianSuburbs.map((name, i) => { const s = String(name || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff; return (
+                <div key={name} style={{ position: 'absolute', top: `${20 + (h % 58)}%`, left: `${16 + ((h >> 4) % 64)}%`, transform: 'translate(-50%,-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                  <span style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 7, padding: '2px 7px', fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, boxShadow: '0 2px 6px rgba(12,10,9,.12)', whiteSpace: 'nowrap' }}>{name}</span>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent)', border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }} />
+                </div>
+              ) })}
+            </div>
+            <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
+              <div style={pTitle}>Recent price changes</div>
+              <div style={{ overflowY: 'auto' }}>
+                {drops.slice(0, 8).map((m, i) => (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 88px', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ minWidth: 0 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{m.suburb}</div></div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)' }}>{m.new_price || '—'}</span>
+                  </div>
+                ))}
+                {drops.length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No recent changes.</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="report-view">
