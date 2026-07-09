@@ -14,9 +14,26 @@ const TONE_KEY = 'sd_desk_tone'   // one of DESK_TONES
 
 export const DESK_TONES = ['ink', 'forest', 'slate', 'bone']
 
+// Vercel PREVIEW deployments (branch / per-commit URLs) — NOT the prod
+// alias market-scraper.vercel.app, NOT suburbdesk.com, NOT localhost.
+// Used so a preview opens straight into the redesign (below).
+function isPreviewHost() {
+  try {
+    const h = window.location.hostname
+    return h.endsWith('.vercel.app') && h !== 'market-scraper.vercel.app'
+  } catch { return false }
+}
+
 export function getDeskMode() {
-  try { return localStorage.getItem(MODE_KEY) === 'desk' ? 'desk' : 'classic' }
-  catch { return 'classic' }
+  try {
+    const v = localStorage.getItem(MODE_KEY)
+    if (v === 'desk') return 'desk'
+    if (v === 'classic') return 'classic'
+    // No explicit choice yet → default. Preview deployments land straight
+    // in "The Morning Desk" so it's visible without hunting for the entry
+    // button; production stays classic (the redesign remains opt-in).
+    return isPreviewHost() ? 'desk' : 'classic'
+  } catch { return 'classic' }
 }
 
 export function setDeskMode(m) {
