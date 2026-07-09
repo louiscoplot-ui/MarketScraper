@@ -7,6 +7,13 @@ import { useState, useEffect, useCallback } from 'react'
 import { BACKEND_DIRECT } from '../lib/api'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Chip, Spinner } from '../components/ui'
+import { getDeskMode } from '../lib/deskFlag'
+
+function apPin(seed, i) {
+  const s = String(seed || i); let h = 0
+  for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
+  return { top: `${18 + (h % 62)}%`, left: `${14 + ((h >> 4) % 70)}%` }
+}
 
 const API = `${BACKEND_DIRECT}/api`
 
@@ -34,6 +41,7 @@ export default function AppraisalsView() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [roi, setRoi] = useState(null)  // PERF-2 ROI summary
+  const [deskForm, setDeskForm] = useState(false)  // desk: collapsible log form
 
   const loadRoi = useCallback(async () => {
     try {
@@ -114,6 +122,81 @@ export default function AppraisalsView() {
   const activeCount = items.filter(a => a.status === 'active').length
 
   const f = (k) => (e) => setForm({ ...form, [k]: e.target.value })
+
+  // ── Desk redesign — full render of mock #appraisals. ──
+  if (getDeskMode() === 'desk') {
+    const lostCount = items.filter(a => a.status === 'lost').length
+    const kpis = [
+      { v: activeCount, l: 'Open', c: 'var(--status-info)' },
+      { v: wonCount, l: 'Won', c: 'var(--status-good)' },
+      { v: lostCount, l: 'Lost', c: 'var(--status-alert)' },
+      { v: items.length, l: 'Total', c: 'var(--status-off)' },
+    ]
+    const stColor = (s) => s === 'won' ? 'var(--status-good)' : s === 'lost' ? 'var(--status-alert)' : 'var(--status-info)'
+    const GRID = '1.6fr 1.1fr 92px 108px 110px 92px'
+    return (
+      <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Appraisals</h2>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{activeCount} open · {wonCount} won{roi ? ` · $${Number(roi.total_commission_aud || 0).toLocaleString()} commissions` : ''}</div>
+          </div>
+          <Button variant="primary" size="sm" onClick={() => setDeskForm(v => !v)}>{deskForm ? 'Close' : '+ Log request'}</Button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+          {kpis.map(k => (
+            <div key={k.l} style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 13, padding: '15px 17px', boxShadow: 'var(--shadow-card)' }}>
+              <span style={{ width: 9, height: 38, borderRadius: 5, background: k.c, flexShrink: 0 }} />
+              <div><div style={{ fontFamily: 'var(--font-display)', fontSize: 28, lineHeight: 0.9, letterSpacing: '-0.02em', color: 'var(--text)' }}>{k.v}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 6 }}>{k.l}</div></div>
+            </div>
+          ))}
+        </div>
+
+        {deskForm && (
+          <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, padding: 14, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+            <input placeholder="Address *" value={form.address} onChange={f('address')} style={inputStyle} />
+            <input placeholder="Suburb" value={form.suburb} onChange={f('suburb')} style={inputStyle} />
+            <input placeholder="Vendor name" value={form.vendor_name} onChange={f('vendor_name')} style={inputStyle} />
+            <input type="date" value={form.appraisal_date} onChange={f('appraisal_date')} style={inputStyle} />
+            <input placeholder="Estimated price" value={form.estimated_price} onChange={f('estimated_price')} style={inputStyle} />
+            <div style={{ gridColumn: '1 / -1' }}><Button type="submit" variant="primary" loading={saving}>{saving ? 'Saving…' : 'Log appraisal'}</Button></div>
+            {error && <div style={{ gridColumn: '1 / -1', color: 'var(--status-alert-text)', fontSize: 13 }}>{error}</div>}
+          </form>
+        )}
+
+        <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
+          <div style={{ width: '64%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+              <span>Address</span><span>Owner</span><span>Date</span><span>Est. value</span><span>Follow-up</span><span>Status</span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {loading ? <div style={{ padding: 24, color: 'var(--text-muted)', display: 'flex', gap: 10, alignItems: 'center' }}><Spinner size={16} muted inline /> Loading…</div>
+                : items.length === 0 ? <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No appraisals logged yet.</div>
+                : items.map(a => (
+                  <div key={a.id} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center', padding: '11px 18px', borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(a.status)}` }}>
+                    <div style={{ minWidth: 0 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{a.suburb || ''}</div></div>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.vendor_name || '—'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{formatIsoDate(a.appraisal_date) || a.appraisal_date}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{a.estimated_price ? `$${Number(a.estimated_price).toLocaleString()}` : '—'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{formatIsoDate(a.next_followup) || '—'}</span>
+                    <span>
+                      {a.status === 'active'
+                        ? <span style={{ display: 'inline-flex', gap: 5 }}><Button variant="secondary" size="sm" onClick={() => markWon(a.id)}>Won</Button><Button variant="ghost" size="sm" onClick={() => setStatus(a.id, 'lost')}>Lost</Button></span>
+                        : <Chip status={a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'} size="sm">{a.status}</Chip>}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <div className="desk-map" style={{ flex: 1, minHeight: 0 }}>
+            <div className="desk-map-label">Appraisal runs · batch nearby</div>
+            {items.slice(0, 24).map((a, i) => { const p = apPin(a.address, i); return <span key={a.id ?? i} style={{ position: 'absolute', top: p.top, left: p.left, width: 13, height: 13, borderRadius: '50%', background: stColor(a.status), border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} /> })}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ padding: '8px 4px' }}>
