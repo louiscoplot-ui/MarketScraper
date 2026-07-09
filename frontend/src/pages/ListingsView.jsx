@@ -379,7 +379,7 @@ export default function ListingsView({
                 const d = calcDOM ? calcDOM(l) : null
                 return (
                   <div key={l.id ?? `${l.address}-${l.suburb_name}`}
-                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(l.status)}` }}>
+                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(l.status)}`, background: `color-mix(in srgb, ${stColor(l.status)} 9%, var(--surface))` }}>
                     <a href={l.reiwa_url || '#'} onClick={(e) => { e.preventDefault(); setDetail(l) }} title="Open property dossier"
                       style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</a>
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.suburb_name}</span>
