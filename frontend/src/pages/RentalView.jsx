@@ -8,6 +8,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { apiJson, BACKEND_DIRECT, getAccessKey, readCache, writeCache } from '../lib/api'
 import { formatIsoDate } from '../hooks/useListings'
+import { getDeskMode } from '../lib/deskFlag'
 
 
 // Suburb-scoped cache key. Stale-while-revalidate — hydrate the table
@@ -649,6 +650,51 @@ export default function RentalView({ selectedNames } = {}) {
   // ----------------------------------------------------------------
   const pad = compact ? '3px 6px' : '8px 10px'
   const fontSize = compact ? 11.5 : 13
+
+  // ── Desk redesign — full render of mock #rental (Prospecting twin). ──
+  if (getDeskMode() === 'desk') {
+    const rc = (s) => s === 'Active' ? 'var(--status-good)' : s === 'New' ? 'var(--status-info)' : s === 'Leased' ? 'var(--status-off)' : 'var(--status-watch)'
+    const cfg = (r) => [r.beds, r.baths, r.cars].map(x => (x == null ? '–' : x)).join('·')
+    const GRID = '1.5fr 120px 84px 66px 96px 1fr 46px'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        <div style={{ padding: '20px 30px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, marginBottom: 12 }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 18px' }}>Sales</span>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: '#fff', background: 'var(--accent)', borderRadius: 7, padding: '5px 18px' }}>Rental</span>
+          </div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 28, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Rental · lettings</h2>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{filtered.length} listings · {suburbs.length} suburbs</div>
+        </div>
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={{ width: '60%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', minWidth: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+              <span>Address</span><span>Suburb</span><span style={{ textAlign: 'right' }}>Rent</span><span style={{ textAlign: 'center' }}>Bd·Ba·Cr</span><span>Available</span><span>Agency</span><span style={{ textAlign: 'right' }}>DOM</span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {loading && filtered.length === 0 ? <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>Loading rentals…</div>
+                : filtered.length === 0 ? <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No rental listings.</div>
+                : filtered.map((r, i) => (
+                  <div key={r.id ?? i} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${rc(r.status)}` }}>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayAddress(r.address, r.suburb)}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.suburb || ''}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)' }}>{r.price_week ? `$${r.price_week}` : '—'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{cfg(r)}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{formatIsoDate(r.date_listed) || '–'}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.agency || '–'}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'right', color: 'var(--text-muted)' }}>{r.days_on_market ?? '–'}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+          <div className="desk-map" style={{ flex: 1, borderRadius: 0, border: 'none', minHeight: 0 }}>
+            <div className="desk-map-label">Rental map · {filtered.length} listings</div>
+            {filtered.slice(0, 40).map((r, i) => { const s = String(r.address || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff; return <span key={r.id ?? i} style={{ position: 'absolute', top: `${16 + (h % 66)}%`, left: `${12 + ((h >> 4) % 72)}%`, width: 11, height: 11, borderRadius: '50%', background: rc(r.status), border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }} /> })}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>
