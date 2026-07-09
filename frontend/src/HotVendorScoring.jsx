@@ -761,19 +761,46 @@ export default function HotVendorScoring() {
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Hot Vendors</h2>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {Math.round(avgScore)}</div>
           </div>
-          {/* Search — filters by address OR owner as you type (e.g. "beach"
-              → every Beach Street owner). Bound to the same `search` state
-              the classic view uses. */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search address or owner…"
-              style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px 9px 34px', width: 260, outline: 'none' }}
-            />
-            <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', fontSize: 13 }}>⌕</span>
-            {search && <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{sorted.length}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {/* Suburb picker — desk has no sidebar, so surface suburb
+                selection here. Empty selection = all. */}
+            {uniqueSuburbs.length > 1 && (
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setSuburbDropdownOpen(o => !o)}
+                  style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: selectedSuburbs.size ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--surface)', border: `1px solid ${selectedSuburbs.size ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '9px 14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {suburbBtnLabel} ▾
+                </button>
+                {suburbDropdownOpen && (
+                  <>
+                    <div onClick={() => setSuburbDropdownOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 20 }} />
+                    <div style={{ position: 'absolute', top: '110%', right: 0, zIndex: 21, width: 230, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 40px -8px rgba(15,23,42,.3)', padding: '10px 12px', maxHeight: 340, overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+                        <button className="btn-link" onClick={() => setSelectedSuburbs(new Set())} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>All</button>
+                        <button className="btn-link" onClick={() => setSelectedSuburbs(new Set(uniqueSuburbs))} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Select all</button>
+                      </div>
+                      {uniqueSuburbs.map(s => (
+                        <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 2px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)' }}>
+                          <input type="checkbox" checked={selectedSuburbs.has(s)} onChange={() => setSelectedSuburbs(prev => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n })} style={{ accentColor: 'var(--accent)', width: 15, height: 15 }} />
+                          {s}
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {/* Search — filters by address OR owner as you type. */}
+            <div style={{ position: 'relative' }}>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search address or owner…"
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px 9px 34px', width: 240, outline: 'none' }}
+              />
+              <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', fontSize: 13 }}>⌕</span>
+              {search && <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{sorted.length}</div>}
+            </div>
           </div>
         </div>
 

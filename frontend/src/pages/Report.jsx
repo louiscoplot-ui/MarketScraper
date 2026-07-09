@@ -168,11 +168,23 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
     const pTitle = { fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 14 }
     return (
       <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
-        <div>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 6px', color: 'var(--text)' }}>Market Report</h2>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>
-            {reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length ? `${reportSuburbs.size} suburbs` : `${suburbs.length} suburbs`} · rolling window{reportLoading ? ' · refreshing…' : ''}
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 6px', color: 'var(--text)' }}>Market Report</h2>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>
+              {reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length ? `${reportSuburbs.size} suburbs` : `${suburbs.length} suburbs`} · rolling window{reportLoading ? ' · refreshing…' : ''}
+            </div>
           </div>
+          {/* Suburb selector — desk has no sidebar, so surface it here.
+              Same fetch path as classic (debounced). Empty = all suburbs. */}
+          <MultiSelect
+            options={suburbs.map(s => ({ value: s.id, label: s.name }))}
+            selected={[...reportSuburbs]}
+            placeholder="All suburbs"
+            allLabel="All"
+            onChange={(arr) => { const next = new Set(arr); setReportSuburbs(next); if (next.size > 0) scheduleFetch(next) }}
+            style={{ maxWidth: 420 }}
+          />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12 }}>
