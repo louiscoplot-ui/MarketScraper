@@ -43,13 +43,13 @@ const COLS = [
   { key: 'address',        label: 'Address',     width: 200, bold: true, sortable: true },
   { key: 'price_week',     label: 'Price/wk',    width: 90, sortable: true },
   { key: 'property_type',  label: 'Type',        width: 80, sortable: true },
-  { key: 'beds',           label: 'Bd',          width: 42, num: true, sortable: true },
-  { key: 'baths',          label: 'Ba',          width: 42, num: true },
-  { key: 'cars',           label: 'Pk',          width: 42, num: true },
+  { key: 'beds',           label: 'Bed',         width: 42, num: true, sortable: true },
+  { key: 'baths',          label: 'Bath',        width: 42, num: true },
+  { key: 'cars',           label: 'Car',         width: 42, num: true },
   { key: 'agency',         label: 'Agency',      width: 130, truncate: true },
   { key: 'agent',          label: 'Agent',       width: 110, truncate: true },
   { key: 'date_listed',    label: 'Listed',      width: 90, sortable: true, date: true },
-  { key: 'days_on_market', label: 'DOM',         width: 56, num: true, sortable: true },
+  { key: 'days_on_market', label: 'Days',        width: 56, num: true, sortable: true },
   { key: 'owner_name',     label: 'Owner Name',  width: 130, owner: true },
   { key: 'owner_phone',    label: 'Owner Phone', width: 120, owner: true },
   { key: 'notes',          label: 'Notes',       width: 170, owner: true },
@@ -736,6 +736,13 @@ export default function RentalView({ selectedNames } = {}) {
             <span><strong style={{ color: '#0f172a' }}>{counts.leased}</strong> leased</span>
             <span style={{ color: '#cbd5e1' }}>·</span>
             <span><strong style={{ color: '#0f172a' }}>{suburbs.length}</strong> suburb{suburbs.length !== 1 ? 's' : ''}</span>
+            <span style={{ color: '#cbd5e1' }}>·</span>
+            {/* Legend for the Days badge — its meaning was colour-only. */}
+            <span title="Days on market">
+              Days: <span style={{ color: '#166534', fontWeight: 600 }}>≤14 fresh</span>{' '}
+              <span style={{ color: '#9a3412', fontWeight: 600 }}>≤30 warming</span>{' '}
+              <span style={{ color: '#991b1b', fontWeight: 600 }}>30+ stale</span>
+            </span>
             {/* Show "Loaded X / Y" only when a multi-suburb load is in
                 flight OR when fewer suburbs succeeded than were
                 requested (partial-failure visibility). */}

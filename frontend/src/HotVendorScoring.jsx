@@ -1060,10 +1060,10 @@ export default function HotVendorScoring() {
         <div>
           <h2>Hot Vendor Scoring</h2>
           <p className="hot-vendor-sub">
-            Drop an RP Data / CoreLogic / Landgate CSV (or xlsx). The backend
-            v4 pipeline auto-calibrates scoring weights against the suburb's
-            profile (mature/dynamic, premium/standard, high-gain) and returns
-            HOT / WARM / MEDIUM / LOW leads.
+            Drop an RP Data / CoreLogic / Landgate CSV (or xlsx). SuburbDesk
+            tunes the scoring to this suburb's profile (how long owners hold,
+            price level, typical gains) and returns HOT / WARM / MEDIUM / LOW
+            leads, ranked.
           </p>
         </div>
         {hasData && (
@@ -1176,9 +1176,8 @@ export default function HotVendorScoring() {
               </div>
             )}
             <div className="drop-hint">
-              RP Data exports detected automatically (20 / 21 / 22-column
-              layouts). Backend handles cleaning, latent profit, and
-              quantile-based segmentation.
+              RP Data exports are detected automatically (20 / 21 / 22-column
+              layouts) — no formatting needed on your side.
             </div>
             {error && <div className="drop-error">{error}</div>}
           </div>
@@ -1204,13 +1203,13 @@ export default function HotVendorScoring() {
               {profile.is_high_gain ? 'High-gain' : 'Moderate-gain'}
             </div>
             <div style={{ color: '#075985' }}>
-              <strong>Auto-calibrated weights:</strong>{' '}
-              Hold {Math.round((weights.hold || 0) * 100)}% ·{' '}
-              Type {Math.round((weights.type || 0) * 100)}% ·{' '}
-              Gain% {((weights.gain || 0) * 100).toFixed(1)}% ·{' '}
-              CAGR {((weights.cagr || 0) * 100).toFixed(1)}% ·{' '}
-              Freq {Math.round((weights.freq || 0) * 100)}% ·{' '}
-              Profit {Math.round((weights.profit || 0) * 100)}%
+              <strong>What drives the score in this suburb:</strong>{' '}
+              Hold length {Math.round((weights.hold || 0) * 100)}% ·{' '}
+              Property type {Math.round((weights.type || 0) * 100)}% ·{' '}
+              Owner gain {((weights.gain || 0) * 100).toFixed(1)}% ·{' '}
+              Yearly growth {((weights.cagr || 0) * 100).toFixed(1)}% ·{' '}
+              Sales history {Math.round((weights.freq || 0) * 100)}% ·{' '}
+              Untapped value {Math.round((weights.profit || 0) * 100)}%
             </div>
             {data.rationale?.length > 0 && (
               <div style={{ color: '#0369a1', marginTop: '4px', fontSize: '12px' }}>
@@ -1319,8 +1318,8 @@ export default function HotVendorScoring() {
                     ['last_sale_price', 'Last Sale'],
                     ['holding_years', 'Hold (yrs)'],
                     ['owner_gain_pct', 'Gain %'],
-                    ['cagr', 'CAGR'],
-                    ['potential_profit', 'Latent Profit'],
+                    ['cagr', 'Growth %/yr'],
+                    ['potential_profit', 'Untapped value'],
                     ['sales_count', '# Sales'],
                     ['final_score', 'Score'],
                   ].map(([f, label]) => (

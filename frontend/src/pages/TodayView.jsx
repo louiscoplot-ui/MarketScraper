@@ -466,7 +466,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
               ))}
               {W('hot', (
                 <div style={{ ...card, padding: 0, boxShadow: '0 4px 20px -6px rgba(219,39,119,.18),0 0 0 1px rgba(219,39,119,.14)', overflow: 'hidden' }}>
-                  <div onClick={() => go('hot-vendors')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'linear-gradient(180deg,rgba(219,39,119,.06),transparent)', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                  <div onClick={() => go('signals')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'linear-gradient(180deg,rgba(219,39,119,.06),transparent)', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--score-hot-text)' }}>Morning signals · {scoped.length}</span>
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: '#fff', background: 'var(--score-hot)', borderRadius: 8, padding: '5px 11px' }}>Open →</span>
                   </div>
@@ -583,7 +583,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 <div style={card}>
                   {titleRow(`Days on market${metroTag}`)}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
-                    {[{ l: 'Average', v: dm.avg ?? '—' }, { l: 'Median', v: dm.median ?? '—' }, { l: 'Stale 60+', v: dm.stale_count ?? 0, alert: true }].map(t => (
+                    {[{ l: 'Average', v: dm.avg ?? '—' }, { l: 'Median', v: dm.median ?? '—' }, { l: 'Stale (60+ days)', v: dm.stale_count ?? 0, alert: true }].map(t => (
                       <div key={t.l} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 11, padding: '12px 13px' }}>
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, letterSpacing: '-0.02em', color: t.alert && Number(t.v) > 0 ? 'var(--status-alert-text)' : 'var(--text)' }}>{t.v}</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 6 }}>{t.l}</div>
@@ -676,7 +676,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
 
   return (
     <div style={{ padding: '16px 24px', maxWidth: 760, margin: '0 auto' }}>
-      <h2 style={{ marginBottom: 2, color: 'var(--text)' }}>Today</h2>
+      <h2 style={{ marginBottom: 2, color: 'var(--text)' }}>Dashboard</h2>
       <div style={{ color: 'var(--text-muted)', marginBottom: 14, fontSize: 14 }}>
         {formatIsoDate(brief?.brief_date) || ''}{brief?.live ? ' · built live (tonight’s brief will be emailed)' : ''}
       </div>
@@ -824,9 +824,9 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
       {/* Dismissed signals don't vanish without a trace. */}
       {!loading && !error && cooldownCount > 0 && (
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-          {cooldownCount} signal{cooldownCount === 1 ? '' : 's'} on cooldown
-          (dismissed — hidden from Today, still tracked; they resurface if
-          still active after the cooldown).
+          {cooldownCount} dismissed signal{cooldownCount === 1 ? '' : 's'} snoozed
+          (hidden from this page, still tracked — they come back if the
+          opportunity is still live later).
         </div>
       )}
     </div>

@@ -53,7 +53,7 @@ export default function PropertyDetail({ listing, calcDOM, formatIsoDate, onClos
           <div style={{ position: 'absolute', top: 16, left: 20, display: 'inline-flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,.92)', borderRadius: 999, padding: '6px 14px' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: `var(--status-${meta.st})` }} />
             <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: `var(--status-${meta.st}-text)` }}>{meta.label}</span>
-            {dom != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: dom >= 60 ? 'var(--status-alert-text)' : 'var(--text-muted)', fontWeight: 600 }}>· {dom} DOM</span>}
+            {dom != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: dom >= 60 ? 'var(--status-alert-text)' : 'var(--text-muted)', fontWeight: 600 }}>· {dom} days on market</span>}
           </div>
           <div style={{ position: 'absolute', bottom: 18, left: 22, color: '#fff' }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '.1em', color: 'rgba(255,255,255,.75)', marginBottom: 6 }}>Prospecting / {suburb} / {l.address}</div>
@@ -114,7 +114,7 @@ export default function PropertyDetail({ listing, calcDOM, formatIsoDate, onClos
               <div style={{ display: 'flex', borderTop: '1px solid var(--border)' }}>
                 <div style={{ flex: 1, padding: '11px 14px', borderRight: '1px solid var(--border)' }}><div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>{l.land_size || '—'}</div><div style={{ fontFamily: 'var(--font-ui)', fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>land</div></div>
                 <div style={{ flex: 1, padding: '11px 14px', borderRight: '1px solid var(--border)' }}><div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>{l.internal_size || '—'}</div><div style={{ fontFamily: 'var(--font-ui)', fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>internal</div></div>
-                <div style={{ flex: 1, padding: '11px 14px' }}><div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>{dom != null ? dom : '—'}</div><div style={{ fontFamily: 'var(--font-ui)', fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>days on mkt</div></div>
+                <div style={{ flex: 1, padding: '11px 14px' }}><div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>{dom != null ? dom : '—'}</div><div style={{ fontFamily: 'var(--font-ui)', fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>days on market</div></div>
               </div>
             </div>
 

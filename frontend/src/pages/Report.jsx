@@ -163,8 +163,8 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       { l: 'Under Offer', v: sm.under_offer || 0, c: 'var(--status-watch)' },
       { l: 'Sold', v: sm.sold || 0, c: 'var(--status-info)' },
       { l: 'Median price', v: pr.median ? `$${(pr.median / 1e6).toFixed(2)}M` : '—', c: 'var(--accent)' },
-      { l: 'Avg DOM', v: dm.avg ?? '—', c: 'var(--text)' },
-      { l: 'Stale 60+', v: dm.stale_count || 0, c: 'var(--status-alert)' },
+      { l: 'Avg days on market', v: dm.avg ?? '—', c: 'var(--text)' },
+      { l: 'Stale (60+ days)', v: dm.stale_count || 0, c: 'var(--status-alert)' },
     ]
     const share = (report.market_share || []).slice(0, 9)
     const drops = (report.price_drops || []).slice(0, 12)
@@ -380,7 +380,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       <div className="report-tables">
         {report.withdrawn_listings?.length > 0 && (
           <div className="report-table-section">
-            <h3>Withdrawn Listings — Prospection Targets</h3>
+            <h3>Withdrawn Listings — Prospecting Targets</h3>
             <table>
               <thead><tr><th>Address</th><th>Suburb</th><th>Price</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
               <tbody>

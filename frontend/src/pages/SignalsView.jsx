@@ -62,26 +62,26 @@ function PrecisionCard() {
       background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
       marginBottom: 14, fontSize: 14, color: 'var(--text)', flexWrap: 'wrap',
     }}>
-      <strong>Prediction ledger</strong>
+      <strong title="Every strong signal is logged as a prediction that the owner will list within 6 months — this is how often we've been right so far.">Track record</strong>
       <span>{t.predictions} prediction{t.predictions > 1 ? 's' : ''}</span>
-      <span style={{ color: 'var(--status-good-text)' }}>{t.listed} listed</span>
-      <span style={{ color: 'var(--text-muted)' }}>{t.not_listed} expired</span>
-      <span style={{ color: 'var(--text-muted)' }}>{t.pending} pending</span>
-      <span style={{ fontWeight: 700 }}>
-        {t.hit_rate == null ? 'hit rate: —'
-          : `hit rate: ${(t.hit_rate * 100).toFixed(0)}%`}
+      <span style={{ color: 'var(--status-good-text)' }} title="Owner went on to list — prediction correct">{t.listed} listed</span>
+      <span style={{ color: 'var(--text-muted)' }} title="6 months passed without a listing — prediction wrong">{t.not_listed} didn't list</span>
+      <span style={{ color: 'var(--text-muted)' }} title="Still inside the 6-month window">{t.pending} pending</span>
+      <span style={{ fontWeight: 700 }} title="Correct predictions ÷ resolved predictions (pending excluded)">
+        {t.hit_rate == null ? 'accuracy: —'
+          : `accuracy: ${(t.hit_rate * 100).toFixed(0)}%`}
       </span>
     </div>
   )
 }
 
-// Score thresholds. long_hold_gain alone = 20; anything ≥ 35 means the
-// address triggered a SECOND signal (withdrawn, price drops, street
-// momentum…) — those are the leads worth doorknocking first.
+// Score thresholds. long_hold_gain is graduated by hold length × gain
+// (a 30y+/300% owner alone can reach ~60); 35+/50+ are simple strength
+// cut-offs, whatever the mix of triggers.
 const SCORE_FILTERS = [
   { value: '0', label: 'All scores' },
-  { value: '0.35', label: 'Multi-signal (35+)' },
-  { value: '0.5', label: 'Hot only (50+)' },
+  { value: '0.35', label: 'Score 35+' },
+  { value: '0.5', label: 'Score 50+' },
 ]
 
 export default function SignalsView() {
@@ -256,7 +256,7 @@ export default function SignalsView() {
   return (
     <div style={{ padding: '16px 24px', maxWidth: 980, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <h2 style={{ margin: 0, color: 'var(--text)' }}>Vendor Signals</h2>
+        <h2 style={{ margin: 0, color: 'var(--text)' }}>Signals</h2>
         <Select value={suburb} onChange={e => setSuburb(e.target.value)}
                 size="sm" title="Filter by suburb">
           <option value="">All my suburbs</option>

@@ -13,7 +13,7 @@ const SECTIONS = [
       ['What is SuburbDesk?',
         'SuburbDesk is a daily prospecting tool for Perth real estate agents. It tracks your suburb markets in real time, identifies likely sellers, and helps you send personalised prospecting letters — all before your competitors make their first call.'],
       ['When is data updated?',
-        'Market data is scraped from REIWA.com.au every night at midnight Perth time. Your morning digest email arrives shortly after.'],
+        'Market data is scraped from REIWA.com.au every night at midnight Perth time. Your Morning Brief email arrives shortly after.'],
       ['How do I get support?',
         'Email suburbdesk@gmail.com — we typically respond same business day.'],
     ],
@@ -63,7 +63,7 @@ const SECTIONS = [
       ['Why do scores expire after 60 days?',
         'Market conditions change. Re-importing keeps your prospecting targets current and accurate.'],
       ['What do HOT / WARM / MEDIUM / LOW mean?',
-        'HOT (75-100) = call today. WARM (50-74) = monitor closely. MEDIUM (25-49) = longer term watch. LOW (0-24) = low priority.'],
+        'HOT (top ~18% of the suburb, badge shows 70+) = call today. WARM = monitor closely. MEDIUM = longer-term watch. LOW = low priority. The 0-100 score ranks owners within the imported suburb.'],
     ],
   },
   {
@@ -109,7 +109,7 @@ const SECTIONS = [
     label: 'Appraisals',
     items: [
       ['What is the Appraisals tab?',
-        'Log an appraisal request and SuburbDesk auto-schedules J+30 / J+60 / J+90 follow-ups so nothing slips. Track open vs won / lost and your commission ROI.'],
+        'Log an appraisal request and SuburbDesk auto-schedules follow-ups at 30, 60 and 90 days so nothing slips. Track open vs won / lost and your commission ROI.'],
     ],
   },
   {

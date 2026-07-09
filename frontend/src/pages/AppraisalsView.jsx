@@ -207,7 +207,7 @@ export default function AppraisalsView() {
                     <span>
                       {a.status === 'active'
                         ? <span style={{ display: 'inline-flex', gap: 5 }}><Button variant="secondary" size="sm" onClick={() => markWon(a.id)}>Won</Button><Button variant="ghost" size="sm" onClick={() => setStatus(a.id, 'lost')}>Lost</Button></span>
-                        : <Chip status={a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'} size="sm">{a.status}</Chip>}
+                        : <Chip status={a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'} size="sm">{(a.status || '').charAt(0).toUpperCase() + (a.status || '').slice(1)}</Chip>}
                     </span>
                   </div>
                 ))}
@@ -272,7 +272,7 @@ export default function AppraisalsView() {
         <input placeholder="Notes" value={form.notes} onChange={f('notes')} style={inputStyle} />
         <div style={{ gridColumn: '1 / -1' }}>
           <Button type="submit" variant="primary" loading={saving}>
-            {saving ? 'Saving…' : 'Log appraisal (+ schedule J+30/60/90)'}
+            {saving ? 'Saving…' : 'Log appraisal (+ 30/60/90-day follow-ups)'}
           </Button>
         </div>
         {error && <div style={{ gridColumn: '1 / -1', color: 'var(--status-alert-text)', fontSize: 13 }}>{error}</div>}

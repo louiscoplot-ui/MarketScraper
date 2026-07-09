@@ -338,7 +338,7 @@ export default function ListingsView({
                   </button>
                 ) : (
                   <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                    Rental <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.08em', background: 'var(--border)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px' }}>ACCOUNT</span>
+                    Rental <span title="Rental is not enabled on your account — ask your admin to switch it on" style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.08em', background: 'var(--border)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px', cursor: 'help' }}>ASK ADMIN</span>
                   </span>
                 )}
               </div>

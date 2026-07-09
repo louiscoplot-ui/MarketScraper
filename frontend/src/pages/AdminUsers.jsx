@@ -826,7 +826,7 @@ export default function AdminUsers() {
         <thead>
           <tr>
             <th>Email</th><th>Name</th><th>Phone</th>
-            <th>Role</th><th>Suburbs</th><th>Rental</th><th>Digest</th>
+            <th>Role</th><th>Suburbs</th><th>Rental</th><th>Brief</th>
             <th>Last seen</th><th>Created</th><th></th>
           </tr>
         </thead>
@@ -1447,7 +1447,7 @@ export default function AdminUsers() {
                 checked={managing.digest_enabled}
                 onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
                 disabled={managing.saving}
-                label="Morning digest email"
+                label="Morning Brief email"
               />
             </div>
 
