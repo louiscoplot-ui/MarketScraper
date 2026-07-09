@@ -6,15 +6,20 @@ import PipelinePrint from './pages/PipelinePrint'
 import FaqPanel from './components/FaqPanel'
 import { getAccessKey } from './lib/api'
 import { applyTheme } from './lib/themeFlag'
+import { applyDesk } from './lib/deskFlag'
 import './tokens.css'
 import './index.css'
 import './theme-v2.css'
+import './desk.css'
 import './components/header.css'
 import './components/listings.css'
 
 // Apply the persisted theme flag synchronously on boot so the very
 // first paint is already correct (avoids a flash of the wrong palette).
 applyTheme()
+// Same for the "Morning Desk" redesign flag — sets data-desk / data-rail-tone
+// on <html> before React mounts so there's no flash of the classic shell.
+applyDesk()
 
 // Global fetch interceptor — every API call automatically carries the
 // user's access_key in the X-Access-Key header. Matches both the Vercel

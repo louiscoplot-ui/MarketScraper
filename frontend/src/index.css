@@ -33,6 +33,18 @@ body {
   overflow: hidden;
 }
 
+/* Single wrapper around header + layout + footer. In classic mode it's
+   the lone flex child of the column `.app` and simply fills it; in desk
+   mode it sits to the right of the fixed rail. Keeps the classic DOM one
+   div deeper without changing how the column distributes. */
+.app-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* Header */
 header {
   display: flex;

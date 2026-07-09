@@ -15,10 +15,12 @@ import PrivacyPage from './pages/PrivacyPage'
 import Footer from './components/Footer'
 import { ThemeModal, ScrapeModal, AccountModal } from './components/Modals'
 import Header from './components/Header'
+import Rail from './components/Rail'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
 import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from './lib/api'
 import { searchSuburbs } from './lib/waSuburbs'
+import { getDeskMode, setDeskMode, getDeskTone, setDeskTone } from './lib/deskFlag'
 const API = '/api'
 // Bootstrap fetches go direct to Render to bypass Vercel's 25s edge
 // timeout — without this, a cold Render dyno (30-60s wake) returns
@@ -165,6 +167,35 @@ function App() {
     const id = setTimeout(() => setWarmBackground(true), 1500)
     return () => clearTimeout(id)
   }, [])
+
+  // "The Morning Desk" redesign — an isolated visual mode behind its own
+  // flag (lib/deskFlag.js). State mirrors localStorage so React re-renders
+  // on toggle; the setters below persist + re-apply the <html> attributes.
+  // Classic stays the default and the one-click fallback.
+  const [deskMode, setDeskModeState] = useState(getDeskMode)          // 'desk' | 'classic'
+  const [deskTone, setDeskToneState] = useState(getDeskTone)          // ink|forest|slate|bone
+  const enterDesk = () => { setDeskMode('desk'); setDeskModeState('desk') }
+  const exitDesk = () => { setDeskMode('classic'); setDeskModeState('classic') }
+  const pickTone = (t) => { setDeskTone(t); setDeskToneState(t) }
+  const isDesk = deskMode === 'desk'
+
+  // Rail navigation — mirrors Header.handleTabClick's report special-case
+  // (the Market Report needs its data fetched/seeded on entry, not just a
+  // view switch). Every other view is a plain setView.
+  const handleNavigate = (v) => {
+    if (v === 'report') {
+      setView('report')
+      if (!report && (!reportSuburbs || reportSuburbs.size === 0)) {
+        const seed = new Set(checkedSuburbs)
+        setReportSuburbs(seed)
+        fetchReport(seed)
+      } else {
+        fetchReport(reportSuburbs)
+      }
+    } else {
+      setView(v)
+    }
+  }
 
   const {
     listings, fetchListings, filteredListings,
@@ -671,7 +702,19 @@ function App() {
   if (view === 'privacy') return <PrivacyPage />
 
   return (
-    <div className="app">
+    <div className={`app${isDesk ? ' desk' : ''}`}>
+      {isDesk && (
+        <Rail
+          view={view}
+          onNavigate={handleNavigate}
+          me={me}
+          counts={{ listings: filteredListings.length }}
+          tone={deskTone}
+          onTone={pickTone}
+          onExit={exitDesk}
+        />
+      )}
+      <div className="app-shell">
       {backendUnreachable && (
         <div style={{
           background: '#fef3c7', borderBottom: '1px solid #fcd34d',
@@ -705,6 +748,8 @@ function App() {
         reportSuburbs={reportSuburbs} hasReport={!!report}
         setShowThemeModal={setShowThemeModal}
         setShowAccountModal={setShowAccountModal}
+        railMode={isDesk}
+        onEnterDesk={enterDesk}
       />
 
       {showAccountModal && (
@@ -1084,6 +1129,7 @@ function App() {
         </main>
       </div>
       <Footer />
+      </div>
     </div>
   )
 }

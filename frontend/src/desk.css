@@ -1,0 +1,56 @@
+/* ====================================================================
+   "The Morning Desk" redesign — GLOBAL scaffolding only.
+
+   Everything here is scoped under [data-desk="on"] (set on <html> by
+   lib/deskFlag.js) so the classic UI is byte-for-byte untouched and the
+   whole redesign flips off with a single flag. Per-screen reskins land
+   in their own components; this file owns just the shell layout + the
+   editorial type layer that every screen shares.
+   ==================================================================== */
+
+:root {
+  /* Third family — the signature serif. Reserved for page titles and
+     hero/marquee numbers; never body or table data. */
+  --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+}
+
+/* --- App shell: fixed rail + scrollable body -----------------------
+   Classic `.app` is a full-height flex COLUMN. Desk mode turns it into a
+   ROW (rail | shell). `.app-shell` (the wrapper around header+layout+
+   footer, present in both modes — base rule in index.css) is the single
+   flex child that fills whatever direction the app is in. */
+.app.desk {
+  flex-direction: row;
+  align-items: stretch;
+}
+.app.desk .rail {
+  flex: 0 0 232px;
+  height: 100vh;
+}
+.app.desk .app-shell {
+  min-width: 0;
+}
+
+/* The classic header is reused inside the desk shell for its action
+   cluster only (Scrape / Export / Account) — shed its chrome and pin the
+   actions to the right so it reads as a slim top strip, not a nav bar. */
+.app.desk .app-header {
+  border: none;
+  box-shadow: none;
+  background: var(--surface);
+  min-height: 52px;
+}
+.app.desk .app-header .actions {
+  margin-left: auto;
+}
+
+/* --- Editorial page titles across every screen --------------------
+   Cheap, reversible win: page titles pick up the serif everywhere the
+   moment desk mode is on, without touching any screen component yet. */
+[data-desk="on"] .content h1,
+[data-desk="on"] .content h2,
+[data-desk="on"] .logs-view h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}

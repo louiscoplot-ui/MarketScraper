@@ -72,6 +72,12 @@ export default function Header({
   setShowThemeModal,
   setShowAccountModal,
   me,
+  // Desk redesign: in railMode the vertical Rail owns navigation, so the
+  // header collapses to just its action cluster (Scrape / Export /
+  // Account) as a slim top strip. onEnterDesk opens the redesign from the
+  // classic header.
+  railMode = false,
+  onEnterDesk,
 }) {
   // Insert "Rental" between Hot Vendors and History when the caller has
   // access. Admin (role) implicitly has access. rental_access is a 0/1
@@ -149,24 +155,37 @@ export default function Header({
 
   return (
     <header className="app-header">
-      <a href="/" className="brand brand-logo-mark">
-        <LogoMark size={22} />
-        <span className="brand-text">SuburbDesk</span>
-      </a>
+      {!railMode && (
+        <a href="/" className="brand brand-logo-mark">
+          <LogoMark size={22} />
+          <span className="brand-text">SuburbDesk</span>
+        </a>
+      )}
 
-      <nav className="tabs" aria-label="Primary">
-        {visibleTabs.map(t => (
-          <button
-            key={t.id}
-            className={`tab header-tab${view === t.id ? ' active' : ''}`}
-            onClick={() => handleTabClick(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {!railMode && (
+        <nav className="tabs" aria-label="Primary">
+          {visibleTabs.map(t => (
+            <button
+              key={t.id}
+              className={`tab header-tab${view === t.id ? ' active' : ''}`}
+              onClick={() => handleTabClick(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className="actions">
+        {!railMode && onEnterDesk && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onEnterDesk}
+            title="Aperçu de la nouvelle interface « The Morning Desk » (réversible en un clic)"
+          >
+            ✦ Nouveau design
+          </button>
+        )}
         <button
           className="btn btn-primary btn-sm"
           onClick={scrapeSelected}
