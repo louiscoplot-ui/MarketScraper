@@ -173,7 +173,8 @@ export default function AppraisalsView() {
       ) : items.length === 0 ? (
         <p style={{ color: 'var(--text-muted)' }}>No appraisals logged yet.</p>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <div className="desk-split-side">
+        <table className="desk-appraisals" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)' }}>
               {['Address', 'Suburb', 'Date', 'Est. price', 'Next follow-up', 'Status', ''].map((h, i) => (
@@ -208,6 +209,17 @@ export default function AppraisalsView() {
             ))}
           </tbody>
         </table>
+        {/* Desk-mode lateral map (mock 08). Hidden in classic via CSS. */}
+        <div className="desk-map desk-side-map">
+          <div className="desk-map-label">Appraisal runs · batch nearby</div>
+          {items.slice(0, 24).map((a, i) => {
+            const st = a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'
+            const s = String(a.address || i)
+            let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
+            return <span key={a.id ?? i} style={{ position: 'absolute', top: `${18 + (h % 62)}%`, left: `${14 + ((h >> 4) % 70)}%`, width: 13, height: 13, borderRadius: '50%', background: `var(--status-${st})`, border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} />
+          })}
+        </div>
+        </div>
       )}
     </div>
   )

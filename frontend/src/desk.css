@@ -147,6 +147,26 @@
   min-height: 0;
 }
 
+/* Generic table | side-map split (Appraisals mock 08, and reusable). */
+.desk-split-side { display: contents; }
+[data-desk="on"] .desk-split-side {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  min-height: 0;
+}
+[data-desk="on"] .desk-split-side > table {
+  flex: 0 0 64%;
+  align-self: flex-start;
+}
+.desk-side-map { display: none; }
+[data-desk="on"] .desk-side-map {
+  display: block;
+  flex: 1;
+  min-height: 300px;
+  border-radius: 14px;
+}
+
 /* Data columns in JetBrains Mono (prices, sizes, dates, DOM, counts);
    tabular figures so columns line up. */
 [data-desk="on"] .listings-table tbody td.num,
