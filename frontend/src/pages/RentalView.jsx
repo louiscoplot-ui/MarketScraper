@@ -834,7 +834,7 @@ export default function RentalView({ selectedNames } = {}) {
         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
       }}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{
+          <table className="desk-rental" style={{
             width: '100%', borderCollapse: 'collapse', fontSize,
             background: 'white', tableLayout: 'fixed',
           }}>

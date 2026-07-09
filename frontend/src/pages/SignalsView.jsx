@@ -156,7 +156,7 @@ export default function SignalsView() {
           rebuilt after every nightly scrape from the market-events ledger.
         </div>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="desk-signals" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)' }}>
               <th style={{ padding: '6px 8px', width: 70, color: 'var(--text-muted)' }}>Score</th>
