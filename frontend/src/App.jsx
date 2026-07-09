@@ -1014,7 +1014,7 @@ function App() {
             <HotVendorScoring />
           </div>
           {(view === 'today' || warmBackground) && (
-            <div style={{ display: view === 'today' ? 'block' : 'none' }}>
+            <div style={{ display: view === 'today' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
               <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} />
             </div>
           )}
