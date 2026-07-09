@@ -8,15 +8,10 @@ import { BACKEND_DIRECT } from '../lib/api'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Chip, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
-import DeskMap from '../components/DeskMap'
+import DeskMap, { STATUS_COLOR } from '../components/DeskMap'
 
-const APPRAISAL_HEX = (s) => s === 'won' ? '#16A34A' : s === 'lost' ? '#DC2626' : '#2563EB'
+const APPRAISAL_HEX = (s) => s === 'won' ? STATUS_COLOR.active : s === 'lost' ? STATUS_COLOR.withdrawn : STATUS_COLOR.sold
 
-function apPin(seed, i) {
-  const s = String(seed || i); let h = 0
-  for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
-  return { top: `${18 + (h % 62)}%`, left: `${14 + ((h >> 4) % 70)}%` }
-}
 
 const API = `${BACKEND_DIRECT}/api`
 
@@ -242,22 +237,6 @@ export default function AppraisalsView() {
         )}
       </div>
 
-      {/* Desk-mode KPI marquee (mock 08). Hidden in classic via CSS. */}
-      <div className="desk-kpis">
-        <div className="desk-kpi" data-c="info">
-          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{activeCount}</div><div className="desk-kpi-l">Open</div></div>
-        </div>
-        <div className="desk-kpi" data-c="good">
-          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{wonCount}</div><div className="desk-kpi-l">Won</div></div>
-        </div>
-        <div className="desk-kpi" data-c="alert">
-          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.filter(a => a.status === 'lost').length}</div><div className="desk-kpi-l">Lost</div></div>
-        </div>
-        <div className="desk-kpi" data-c="off">
-          <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.length}</div><div className="desk-kpi-l">Total</div></div>
-        </div>
-      </div>
-
       <form onSubmit={submit} style={{ display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8,
         margin: '0 0 20px', padding: 12, background: 'var(--bg)',
@@ -285,8 +264,7 @@ export default function AppraisalsView() {
       ) : items.length === 0 ? (
         <p style={{ color: 'var(--text-muted)' }}>No appraisals logged yet.</p>
       ) : (
-        <div className="desk-split-side">
-        <table className="desk-appraisals" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left', borderBottom: '2px solid var(--border)' }}>
               {['Address', 'Suburb', 'Date', 'Est. price', 'Next follow-up', 'Status', ''].map((h, i) => (
@@ -306,7 +284,7 @@ export default function AppraisalsView() {
                 <td style={{ padding: 6, color: 'var(--text)' }}>{formatIsoDate(a.next_followup) || '—'}</td>
                 <td style={{ padding: 6 }}>
                   <Chip status={a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'} size="sm">
-                    {a.status}
+                    {(a.status || '').charAt(0).toUpperCase() + (a.status || '').slice(1)}
                   </Chip>
                 </td>
                 <td style={{ padding: 6 }}>
@@ -321,17 +299,6 @@ export default function AppraisalsView() {
             ))}
           </tbody>
         </table>
-        {/* Desk-mode lateral map (mock 08). Hidden in classic via CSS. */}
-        <div className="desk-map desk-side-map">
-          <div className="desk-map-label">Appraisal runs · batch nearby</div>
-          {items.slice(0, 24).map((a, i) => {
-            const st = a.status === 'won' ? 'good' : a.status === 'lost' ? 'alert' : 'info'
-            const s = String(a.address || i)
-            let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
-            return <span key={a.id ?? i} style={{ position: 'absolute', top: `${18 + (h % 62)}%`, left: `${14 + ((h >> 4) % 70)}%`, width: 13, height: 13, borderRadius: '50%', background: `var(--status-${st})`, border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} />
-          })}
-        </div>
-        </div>
       )}
     </div>
   )

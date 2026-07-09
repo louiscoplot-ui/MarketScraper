@@ -1119,7 +1119,7 @@ function App() {
               <button
                 onClick={() => fetchReport(reportSuburbs)}
                 style={{
-                  padding: '10px 24px', background: '#386351', color: '#fff',
+                  padding: '10px 24px', background: 'var(--accent)', color: '#fff',
                   border: 'none', borderRadius: 6, fontWeight: 600,
                   cursor: 'pointer', fontSize: 14,
                 }}

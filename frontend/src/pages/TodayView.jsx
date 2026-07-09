@@ -465,10 +465,12 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 </div>
               ))}
               {W('hot', (
-                <div style={{ ...card, padding: 0, boxShadow: '0 4px 20px -6px rgba(219,39,119,.18),0 0 0 1px rgba(219,39,119,.14)', overflow: 'hidden' }}>
-                  <div onClick={() => go('signals')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'linear-gradient(180deg,rgba(219,39,119,.06),transparent)', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--score-hot-text)' }}>Morning signals · {scoped.length}</span>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: '#fff', background: 'var(--score-hot)', borderRadius: 8, padding: '5px 11px' }}>Open →</span>
+                // Accent-toned (NOT rose): the grammar reserves rose for the
+                // Hot Vendor score surface only — this is a signals feed.
+                <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+                  <div onClick={() => go('signals')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'var(--accent-soft)', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--accent)' }}>Morning signals · {scoped.length}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: 'var(--accent-fg)', background: 'var(--accent)', borderRadius: 8, padding: '5px 11px' }}>Open →</span>
                   </div>
                   <div style={{ padding: '2px 16px 6px', maxHeight: 260, overflowY: 'auto' }}>
                     {scoped.length === 0 ? emptyLine('No signals for this scope.') : scoped.slice(0, 10).map(s => {
@@ -535,15 +537,15 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
             {/* ── Column 3 — intel + follow-ups ── */}
             <div style={colStyle}>
               {W('fallen', (
-                <div onClick={() => go('fallen')} style={{ ...card, cursor: 'pointer', background: saleFallenCount > 0 ? 'var(--status-watch-bg)' : 'var(--surface)', border: saleFallenCount > 0 ? '1px solid #F5C88A' : '1px solid var(--border)' }}>
+                <div onClick={() => go('fallen')} style={{ ...card, cursor: 'pointer', background: saleFallenCount > 0 ? 'var(--status-watch-bg)' : 'var(--surface)', border: saleFallenCount > 0 ? '1px solid var(--status-watch)' : '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--status-watch)', boxShadow: '0 0 0 3px rgba(217,119,6,.16)' }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: '#92400E' }}>Motivated vendors · 14 days</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--status-watch-text)' }}>Motivated vendors · 14 days</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, color: saleFallenCount > 0 ? '#7c2d12' : 'var(--text-muted)' }}>{saleFallenCount}</span>
-                    <span style={{ fontSize: 13, color: '#92400E', fontWeight: 500 }}>sales fallen through</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: '#B45309' }}>Open →</span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, color: saleFallenCount > 0 ? 'var(--status-watch-text)' : 'var(--text-muted)' }}>{saleFallenCount}</span>
+                    <span style={{ fontSize: 13, color: 'var(--status-watch-text)', fontWeight: 500 }}>sales fallen through</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: 'var(--status-watch-text)' }}>Open →</span>
                   </div>
                 </div>
               ))}
@@ -681,23 +683,6 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         {formatIsoDate(brief?.brief_date) || ''}{brief?.live ? ' · built live (tonight’s brief will be emailed)' : ''}
       </div>
 
-      {/* Desk-mode KPI marquee (mock 01). Hidden in classic via CSS. */}
-      {!loading && !error && (
-        <div className="desk-kpis">
-          <div className="desk-kpi" data-c="rose">
-            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.length}</div><div className="desk-kpi-l">Fresh signals</div></div>
-          </div>
-          <div className="desk-kpi" data-c="alert">
-            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.filter(i => (i.score || 0) >= 0.6).length}</div><div className="desk-kpi-l">Hot ≥ 60</div></div>
-          </div>
-          <div className="desk-kpi" data-c="watch">
-            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{items.filter(i => (i.score || 0) >= 0.35 && (i.score || 0) < 0.6).length}</div><div className="desk-kpi-l">Watch 35–60</div></div>
-          </div>
-          <div className="desk-kpi" data-c="info">
-            <span className="desk-kpi-bar" /><div><div className="desk-kpi-n">{new Set(items.map(i => i.suburb).filter(Boolean)).size}</div><div className="desk-kpi-l">Suburbs</div></div>
-          </div>
-        </div>
-      )}
 
       {/* Signal colour key — explains the dot next to each "why" reason. */}
       {items.length > 0 && (

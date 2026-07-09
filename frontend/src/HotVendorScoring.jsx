@@ -1104,12 +1104,12 @@ export default function HotVendorScoring() {
             {isLoadingReport && (
               <span style={{
                 marginLeft: 10, fontSize: 12, fontWeight: 400,
-                color: '#1E40AF', display: 'inline-flex', alignItems: 'center', gap: 6,
+                color: 'var(--status-info-text)', display: 'inline-flex', alignItems: 'center', gap: 6,
               }}>
                 <span style={{
                   width: 11, height: 11, borderRadius: '50%',
                   border: '2px solid rgba(30, 64, 175, 0.25)',
-                  borderTopColor: '#1E40AF',
+                  borderTopColor: 'var(--status-info-text)',
                   animation: 'hv-spin 0.8s linear infinite',
                   display: 'inline-block',
                 }} />
@@ -1194,15 +1194,15 @@ export default function HotVendorScoring() {
           )}
           {/* Suburb profile + auto-calibrated weights banner */}
           <div style={{
-            background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '10px',
+            background: 'var(--status-info-bg)', border: '1px solid var(--status-info)', borderRadius: '10px',
             padding: '14px 18px', marginBottom: '14px', fontSize: '13px',
           }}>
-            <div style={{ fontWeight: '700', marginBottom: '6px', color: '#0c4a6e' }}>
+            <div style={{ fontWeight: '700', marginBottom: '6px', color: 'var(--status-info-text)' }}>
               {data.suburb} — {profile.is_mature ? 'Mature' : 'Dynamic'} ·{' '}
               {profile.is_premium ? 'Premium' : 'Standard'} ·{' '}
               {profile.is_high_gain ? 'High-gain' : 'Moderate-gain'}
             </div>
-            <div style={{ color: '#075985' }}>
+            <div style={{ color: 'var(--status-info-text)' }}>
               <strong>What drives the score in this suburb:</strong>{' '}
               Hold length {Math.round((weights.hold || 0) * 100)}% ·{' '}
               Property type {Math.round((weights.type || 0) * 100)}% ·{' '}
@@ -1212,7 +1212,7 @@ export default function HotVendorScoring() {
               Untapped value {Math.round((weights.profit || 0) * 100)}%
             </div>
             {data.rationale?.length > 0 && (
-              <div style={{ color: '#0369a1', marginTop: '4px', fontSize: '12px' }}>
+              <div style={{ color: 'var(--status-info-text)', marginTop: '4px', fontSize: '12px' }}>
                 Why: {data.rationale.join(', ')}
               </div>
             )}

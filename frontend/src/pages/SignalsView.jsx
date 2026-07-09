@@ -7,9 +7,10 @@ import { Check, X } from 'lucide-react'
 import { apiJson } from '../lib/api'
 import { Button, Chip, Select, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
-import DeskMap from '../components/DeskMap'
+import DeskMap, { STATUS_COLOR } from '../components/DeskMap'
 
-const SIGNAL_HEX = { alert: '#DC2626', watch: '#D97706', off: '#9CA3AF' }
+// Pin colours come from DeskMap's STATUS_COLOR — one place to retune.
+const SIGNAL_HEX = { alert: STATUS_COLOR.withdrawn, watch: STATUS_COLOR.under_offer, off: STATUS_COLOR.Leased }
 
 // Deterministic pin position from a string — no Math.random so pins are
 // stable across renders. Keeps the placeholder map (mock 06) tidy.
@@ -170,7 +171,7 @@ export default function SignalsView() {
             <div>
               <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Signals</h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: MONO, fontSize: 12, color: 'var(--text-muted)' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--status-good)', boxShadow: '0 0 0 3px rgba(22,163,74,.16)' }} />
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--status-good)', boxShadow: '0 0 0 3px var(--status-good-bg)' }} />
                 {signals.length} {STATUS_LABELS[status].toLowerCase()} signals · live
               </div>
             </div>
@@ -195,7 +196,7 @@ export default function SignalsView() {
                     textTransform: 'uppercase', borderRadius: 999, padding: '6px 13px',
                     background: on ? 'var(--accent-soft)' : 'transparent',
                     color: on ? 'var(--accent)' : 'var(--text-muted)',
-                    border: `1px solid ${on ? '#cdddd5' : 'var(--border)'}`,
+                    border: `1px solid ${on ? 'var(--accent-soft)' : 'var(--border)'}`,
                   }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: on ? 'var(--accent)' : 'var(--text-faint)' }} />
                   {l}

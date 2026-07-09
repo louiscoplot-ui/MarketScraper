@@ -84,7 +84,7 @@ const S = {
     borderRadius: 10, overflow: 'hidden',
     boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
   },
-  brandBand: { background: '#386351', padding: '24px 32px', color: '#fff' },
+  brandBand: { background: 'var(--accent)', padding: '24px 32px', color: '#fff' },
   brandTitle: { margin: 0, fontSize: 22, letterSpacing: 2, fontWeight: 700 },
   brandSub: { marginTop: 6, fontSize: 13, color: '#cfe0d6' },
   body: { padding: 32 },
@@ -97,7 +97,7 @@ const S = {
   },
   btn: {
     width: '100%', padding: '12px 16px',
-    background: '#386351', color: '#fff',
+    background: 'var(--accent)', color: '#fff',
     border: 'none', borderRadius: 6,
     fontSize: 15, fontWeight: 600, cursor: 'pointer',
   },

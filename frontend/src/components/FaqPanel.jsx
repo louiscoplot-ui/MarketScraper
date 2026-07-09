@@ -207,7 +207,7 @@ export default function FaqPanel() {
   )
 }
 
-const ACCENT = '#386350'
+const ACCENT = 'var(--accent)'
 
 const s = {
   btn: {
@@ -216,7 +216,7 @@ const s = {
     width: 40, height: 40,
     borderRadius: '50%',
     background: ACCENT,
-    color: '#fff',
+    color: 'var(--surface)',
     border: 'none',
     fontSize: 20,
     fontWeight: 600,
@@ -234,7 +234,7 @@ const s = {
   panel: {
     position: 'fixed', top: 0, right: 0, bottom: 0,
     width: 340,
-    background: '#fff',
+    background: 'var(--surface)',
     boxShadow: '-4px 0 16px rgba(0,0,0,0.12)',
     zIndex: 1101,
     display: 'flex', flexDirection: 'column',
@@ -244,27 +244,27 @@ const s = {
   head: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
     padding: '16px 18px',
-    borderBottom: '1px solid #e5e7eb',
+    borderBottom: '1px solid var(--border)',
   },
-  title: { fontSize: 15, fontWeight: 600, color: '#111827' },
+  title: { fontSize: 15, fontWeight: 600, color: 'var(--text)' },
   close: {
     background: 'none', border: 'none',
-    fontSize: 22, lineHeight: 1, color: '#6b7280',
+    fontSize: 22, lineHeight: 1, color: 'var(--text-muted)',
     cursor: 'pointer', padding: 0, width: 24, height: 24,
   },
   tabs: {
     display: 'flex', flexWrap: 'wrap', gap: 6,
     padding: '12px 14px',
-    borderBottom: '1px solid #f1f5f9',
+    borderBottom: '1px solid var(--bg)',
   },
   tab: {
-    background: '#f3f4f6', color: '#374151',
+    background: 'var(--bg)', color: 'var(--text)',
     border: '1px solid transparent',
     borderRadius: 999, padding: '4px 10px',
     fontSize: 12, cursor: 'pointer',
   },
   tabActive: {
-    background: ACCENT, color: '#fff',
+    background: ACCENT, color: 'var(--surface)',
     borderColor: ACCENT,
   },
   body: {
@@ -272,6 +272,6 @@ const s = {
     padding: '12px 18px 24px',
   },
   qa: { marginBottom: 18 },
-  q: { fontSize: 13, fontWeight: 600, color: '#111827', marginBottom: 4 },
-  a: { fontSize: 13, color: '#4b5563', lineHeight: 1.5 },
+  q: { fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 4 },
+  a: { fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 },
 }

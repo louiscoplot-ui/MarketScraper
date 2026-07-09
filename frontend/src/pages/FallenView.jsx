@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { formatIsoDate } from '../hooks/useListings'
 import { Button, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
-import DeskMap from '../components/DeskMap'
+import DeskMap, { STATUS_COLOR } from '../components/DeskMap'
 
 export default function FallenView({ bootApi }) {
   const [items, setItems] = useState(null)
@@ -46,11 +46,11 @@ export default function FallenView({ bootApi }) {
         </div>
 
         {list.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'var(--status-watch-bg)', border: '1px solid #F5C88A', borderRadius: 16, padding: '16px 22px' }}>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 34, lineHeight: 1, color: '#7c2d12' }}>{list.length}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 16, padding: '16px 22px' }}>
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 34, lineHeight: 1, color: 'var(--status-watch-text)' }}>{list.length}</span>
             <div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: '#92400E' }}>Motivated vendors · 14 days</div>
-              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: '#92400E', fontWeight: 500 }}>sale{list.length !== 1 ? 's' : ''} fallen through — best approached now</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--status-watch-text)' }}>Motivated vendors · 14 days</div>
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--status-watch-text)', fontWeight: 500 }}>sale{list.length !== 1 ? 's' : ''} fallen through — best approached now</div>
             </div>
           </div>
         )}
@@ -81,7 +81,7 @@ export default function FallenView({ bootApi }) {
               label={`Doorknock run · ${list.length}`}
               addressOf={(it) => it.address}
               suburbOf={(it) => it.suburb}
-              colorOf={() => '#D97706'}
+              colorOf={() => STATUS_COLOR.under_offer}
             />
           </div>
         </div>
@@ -100,18 +100,6 @@ export default function FallenView({ bootApi }) {
         motivated vendors whose sale just collapsed. Best approached now.
       </div>
 
-      {/* Desk-mode amber hero (mock 10). Hidden in classic via CSS. */}
-      {Array.isArray(items) && items.length > 0 && (
-        <div className="fallen-hero">
-          <span className="fallen-hero-n">{items.length}</span>
-          <div>
-            <div className="fallen-hero-l">Motivated vendors · 14 days</div>
-            <div className="fallen-hero-sub">
-              sale{items.length !== 1 ? 's' : ''} fallen through — best approached now
-            </div>
-          </div>
-        </div>
-      )}
 
       {items === null ? (
         <div style={{ color: 'var(--text-muted)', padding: 24, display: 'flex', alignItems: 'center', gap: 10 }}>

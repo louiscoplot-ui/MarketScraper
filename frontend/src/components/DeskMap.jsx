@@ -29,7 +29,9 @@ const CARTO_STYLE = {
   layers: [{ id: 'carto', type: 'raster', source: 'carto' }],
 }
 
-const STATUS_COLOR = {
+// Single source of truth for map-pin colours (MapLibre markers are raw
+// DOM, so CSS vars can't cascade into them). Values mirror --status-*.
+export const STATUS_COLOR = {
   active: '#16A34A', under_offer: '#D97706', sold: '#2563EB', withdrawn: '#DC2626',
   New: '#16A34A', Active: '#16A34A', Leased: '#9CA3AF',
 }
@@ -127,7 +129,7 @@ export default function DeskMap({
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 220 }}>
       <div ref={elRef} style={{ position: 'absolute', inset: 0 }} />
       {label && (
-        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#5b5b57', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px' }}>
+        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#9a978f', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px' }}>
           {label}
         </div>
       )}

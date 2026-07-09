@@ -301,16 +301,16 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           there's literally nothing to display (very first load). */}
       {report && reportLoading && (
         <div style={{
-          fontSize: 12, color: '#6B6C75',
+          fontSize: 12, color: 'var(--text-muted)',
           padding: '6px 10px', marginBottom: 12,
           display: 'inline-flex', alignItems: 'center', gap: 8,
-          background: '#EFF6FF', border: '1px solid #BFDBFE',
-          color: '#1E40AF', borderRadius: 6,
+          background: 'var(--status-info-bg)', border: '1px solid var(--status-info)',
+          color: 'var(--status-info-text)', borderRadius: 6,
         }}>
           <span style={{
             width: 12, height: 12, borderRadius: '50%',
             border: '2px solid rgba(30, 64, 175, 0.25)',
-            borderTopColor: '#1E40AF',
+            borderTopColor: 'var(--status-info-text)',
             animation: 'sd-spin 0.8s linear infinite',
             display: 'inline-block',
           }} />
@@ -324,10 +324,10 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           gap: 12, padding: '48px 24px', textAlign: 'center',
         }}>
           <div className="loading-spinner" />
-          <div style={{ fontWeight: 600, fontSize: 14, color: '#1C1D22' }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
             Loading market report…
           </div>
-          <div style={{ fontSize: 12, color: '#6B6C75', maxWidth: 380, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 380, lineHeight: 1.5 }}>
             Crunching listings, agency share, price changes and snapshots.
             First load can take 15–30 seconds while the server warms up.
           </div>

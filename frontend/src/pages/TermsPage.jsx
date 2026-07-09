@@ -42,7 +42,7 @@ const s = {
   },
   shell: { maxWidth: 800, margin: '0 auto', padding: '32px 24px', flex: 1, width: '100%', boxSizing: 'border-box' },
   back: {
-    background: 'none', border: 'none', color: '#386351',
+    background: 'none', border: 'none', color: 'var(--accent)',
     fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 16,
   },
   h1: { fontSize: 24, color: '#111827', margin: '0 0 24px' },

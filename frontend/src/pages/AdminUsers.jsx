@@ -1000,7 +1000,7 @@ export default function AdminUsers() {
                 style={{
                   padding: '8px 18px', fontSize: 14, fontWeight: 600,
                   background: (!newRentalSuburb.trim() || addingRentalSuburb)
-                    ? '#94a3b8' : '#386351',
+                    ? '#94a3b8' : 'var(--accent)',
                   color: 'white', border: 'none', borderRadius: 6,
                   cursor: (!newRentalSuburb.trim() || addingRentalSuburb)
                     ? 'not-allowed' : 'pointer',

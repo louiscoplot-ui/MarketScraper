@@ -861,7 +861,7 @@ export default function RentalView({ selectedNames } = {}) {
             disabled={importing}
             style={{
               padding: '7px 14px', fontSize: 13, fontWeight: 600,
-              background: importing ? '#94a3b8' : '#386351',
+              background: importing ? '#94a3b8' : 'var(--accent)',
               color: 'white', border: 'none', borderRadius: 6,
               cursor: importing ? 'progress' : 'pointer',
             }}
@@ -1011,7 +1011,7 @@ export default function RentalView({ selectedNames } = {}) {
                                 title="Open on REIWA"
                                 style={{
                                   display: 'inline-flex', alignItems: 'center', gap: 4,
-                                  color: '#386351', fontWeight: 600, textDecoration: 'none',
+                                  color: 'var(--accent)', fontWeight: 600, textDecoration: 'none',
                                   fontSize: 12,
                                 }}
                               >
@@ -1058,7 +1058,7 @@ export default function RentalView({ selectedNames } = {}) {
 }
 
 
-function PillToggle({ on, onClick, label, colorOn = '#386351', bgOn = '#d1fae5' }) {
+function PillToggle({ on, onClick, label, colorOn = 'var(--accent)', bgOn = '#d1fae5' }) {
   // Match the sales filter-btn look (rounded rect, soft fill when
   // active, outline when off) without pulling in the global CSS class —
   // keeps RentalView self-contained for now.

@@ -26,17 +26,17 @@ export default function Footer() {
 const s = {
   bar: {
     padding: '16px 24px',
-    borderTop: '1px solid #e5e7eb',
-    color: '#9ca3af',
+    borderTop: '1px solid var(--border)',
+    color: 'var(--text-faint)',
     fontSize: 12,
     textAlign: 'center',
     fontFamily: 'system-ui, -apple-system, Arial, sans-serif',
     background: 'transparent',
   },
-  dot: { margin: '0 8px', color: '#d1d5db' },
+  dot: { margin: '0 8px', color: 'var(--border)' },
   link: {
-    color: '#6b7280',
+    color: 'var(--text-muted)',
     textDecoration: 'none',
-    borderBottom: '1px dotted #cbd5e1',
+    borderBottom: '1px dotted var(--border)',
   },
 }
