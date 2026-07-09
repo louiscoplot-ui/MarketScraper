@@ -336,6 +336,7 @@ export default function ListingsView({
         </span>
       </div>
 
+      <div className="desk-split">
       <div className={`table-wrapper listings-table-wrapper ${compact ? 'compact' : ''}`} ref={wrapperRef}>
         <table className="listings-table">
           <thead>
@@ -391,6 +392,18 @@ export default function ListingsView({
             )}
           </tbody>
         </table>
+      </div>
+      {/* Desk-mode lateral map (mock 02). Striped placeholder + status
+          pins — matches the design; hidden in classic via CSS. */}
+      <div className="desk-map desk-prospect-map">
+        <div className="desk-map-label">Map · Perth metro · {filteredListings.length} pins</div>
+        {filteredListings.slice(0, 40).map((l, i) => {
+          const st = l.status === 'under_offer' ? 'watch' : l.status === 'sold' ? 'info' : l.status === 'withdrawn' ? 'alert' : 'good'
+          const s = String(l.address || i)
+          let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
+          return <span key={l.id ?? i} style={{ position: 'absolute', top: `${16 + (h % 66)}%`, left: `${12 + ((h >> 4) % 72)}%`, width: 11, height: 11, borderRadius: '50%', background: `var(--status-${st})`, border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }} />
+        })}
+      </div>
       </div>
       <StickyHScroll targetRef={wrapperRef} />
 

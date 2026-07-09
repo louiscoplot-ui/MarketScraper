@@ -132,14 +132,14 @@ export default function Login() {
         <div style={styles.brandBand}>
           <div style={styles.brandLogo}>
             <MapPin size={22} strokeWidth={2.5} aria-hidden="true" />
-            <h1 style={styles.brandTitle}>SuburbDesk</h1>
+            <h1 className="login-title" style={styles.brandTitle}>SuburbDesk</h1>
           </div>
           <div style={styles.brandSub}>Real-estate prospecting</div>
         </div>
         <div style={styles.body}>
           {submitted ? (
             <>
-              <h2 style={styles.h2}>Check your inbox</h2>
+              <h2 className="login-h2" style={styles.h2}>Check your inbox</h2>
               <p style={styles.p}>
                 If <strong>{email}</strong> matches a SuburbDesk account,
                 you'll receive a login link in the next minute. Click it
@@ -154,7 +154,7 @@ export default function Login() {
             </>
           ) : (
             <>
-              <h2 style={styles.h2}>Sign in</h2>
+              <h2 className="login-h2" style={styles.h2}>Sign in</h2>
               <p style={styles.p}>
                 Enter the email your administrator used to invite you.
                 We'll send you a one-click login link.
