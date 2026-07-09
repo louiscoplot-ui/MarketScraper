@@ -357,7 +357,8 @@
    inline font) — mono uppercase so the feed/table reads like the mock.
    Row data keeps its component styling (inline). */
 [data-desk="on"] .desk-signals thead th,
-[data-desk="on"] .desk-rental thead th {
+[data-desk="on"] .desk-rental thead th,
+[data-desk="on"] .desk-pipeline thead th {
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 600;
