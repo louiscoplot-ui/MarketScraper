@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { MapPin } from 'lucide-react'
 import { setAccessKey, BACKEND_DIRECT } from '../lib/api'
 import Footer from '../components/Footer'
+import { getDeskMode } from '../lib/deskFlag'
 
 const goLegal = (hash) => (e) => {
   e.preventDefault()
@@ -126,17 +127,34 @@ export default function Login() {
     }
   }
 
+  const desk = getDeskMode() === 'desk'
   return (
     <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={styles.brandBand}>
+      <div style={desk ? { ...styles.card, maxWidth: 940, display: 'flex', alignItems: 'stretch' } : styles.card}>
+        <div style={desk ? { ...styles.brandBand, flex: '0 0 44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 28, padding: '44px 38px', background: 'linear-gradient(178deg,#0E1A14 0%,#0C120E 55%,#0A0F0C 100%)' } : styles.brandBand}>
           <div style={styles.brandLogo}>
             <MapPin size={22} strokeWidth={2.5} aria-hidden="true" />
             <h1 className="login-title" style={styles.brandTitle}>SuburbDesk</h1>
           </div>
-          <div style={styles.brandSub}>Real-estate prospecting</div>
+          {desk ? (
+            <>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 400, fontSize: 30, lineHeight: 1.2, letterSpacing: '-0.02em', color: '#F5F5F4' }}>
+                The market's vendor signals, on your desk before 7am.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {['Every listing, price move & withdrawal — nightly', 'Owners scored by likelihood to sell', 'Letters & pipeline, one click away'].map((t, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#7fbfa1', fontWeight: 600, marginTop: 1 }}>0{i + 1}</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: '#8A938C', lineHeight: 1.5 }}>{t}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div style={styles.brandSub}>Real-estate prospecting</div>
+          )}
         </div>
-        <div style={styles.body}>
+        <div style={desk ? { ...styles.body, flex: 1, padding: '44px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'center' } : styles.body}>
           {submitted ? (
             <>
               <h2 className="login-h2" style={styles.h2}>Check your inbox</h2>
