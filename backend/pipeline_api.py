@@ -43,7 +43,11 @@ _UNIT_PREFIX_RE = re.compile(r'^\d+\s*/\s*')
 # all hit the same cache entry instead of three separate ones.
 _LETTER_SUFFIX_RE = re.compile(r'^(\d+)[A-Za-z]+(\s+)')
 INSERT_CHUNK = 50
-NEIGHBOUR_MAX_DISTANCE = 30
+# ±10 house numbers = ~5 dwellings on the same side — close enough that
+# "your neighbour at N just sold" rings true on the doorstep. The old
+# ±30 mailed houses up to ~15 doors down as "neighbours", which reads
+# false to the recipient and burns the letter's credibility.
+NEIGHBOUR_MAX_DISTANCE = 10
 NEIGHBOUR_COUNT = 4
 OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 # 8s is enough for Overpass to respond in the common case; 18s used to
@@ -1286,6 +1290,12 @@ def pipeline_recent_sales():
     cutoff_date = (perth_now() - timedelta(days=days)).date().isoformat()
 
     conn = get_db()
+    # Same recency window as the GENERATOR (COALESCE on first_seen when
+    # sold_date is NULL/corrupt): the old query dropped every sale whose
+    # sold_date was NULL or equal to first_seen — precisely the rows the
+    # extract_date corruption produces — so the panel said "No recent
+    # sales" while pipeline targets were quietly generated from them.
+    # Rows with an unconfirmed date are KEPT and flagged, not hidden.
     rows = conn.execute(
         """
         SELECT l.address, l.sold_price, l.price_text, l.sold_date,
@@ -1296,11 +1306,9 @@ def pipeline_recent_sales():
         JOIN suburbs s ON l.suburb_id = s.id
         WHERE l.status = 'sold'
           AND LOWER(s.name) = LOWER(?)
-          AND l.sold_date IS NOT NULL
-          AND l.sold_date != ''
-          AND l.sold_date != SUBSTR(l.first_seen, 1, 10)
-          AND l.sold_date >= ?
-        ORDER BY l.sold_date DESC, l.first_seen DESC
+          AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?
+        ORDER BY COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) DESC,
+                 l.first_seen DESC
         LIMIT 200
         """,
         (suburb, cutoff_date)
@@ -1326,6 +1334,11 @@ def pipeline_recent_sales():
             'source_suburb': d.get('suburb_name'),
             'source_price': _price_to_int(d.get('sold_price')),
             'source_sold_date': sold_date,
+            # False when REIWA never gave a real sold date (NULL or the
+            # extract_date corruption) — the row still shows, dated by
+            # when the scraper first saw it, flagged for the UI.
+            'date_confirmed': sold_date is not None,
+            'effective_date': (d.get('effective_date') or '')[:10] or None,
             'reiwa_url': d.get('reiwa_url'),
             'agent': d.get('agent'),
             'agency': d.get('agency'),

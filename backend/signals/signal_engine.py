@@ -10,7 +10,10 @@ plain-language reason_codes — a score without reasons must never exist
 Feature set v1 (weights are DB-seeded defaults):
   withdrawn_recent        0.35  withdrawn < 18 months, not re-listed since
   relisted_other_agency   0.30  relisted with an agency change
-  long_hold_gain          0.20  RP-Data hold > 10y with latent gain
+  long_hold_gain          0.20  RP-Data hold > 10y with latent gain —
+                                GRADUATED ×1.0..×3.0 by hold length and
+                                gain size (_long_hold_factor), so 32y/300%
+                                scores ~60, not the flat 20 it used to
   street_momentum         0.15  2+ sales in the same street < 6 months
   competitor_price_drops  0.25  2+ price drops on the same listing < 6 months
 
@@ -64,6 +67,34 @@ def _street_key(norm_addr):
 
 def _cutoff(days):
     return (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+
+def _long_hold_factor(years, gain_pct):
+    """Graduate the long_hold_gain weight by hold length × latent gain.
+
+    The old trigger was binary: any hold > 10y with any gain fired a flat
+    +0.20 — a 32-year owner with a 300% latent gain scored exactly like a
+    bare 11-year hold, and (0.20 being the weakest weight) the product's
+    flagship lead type was permanently buried under transient market
+    events. The factor scales the DB weight (still operator-tunable):
+
+      ×1.0 at 10y  → ×2.5 at 30y+ on hold length
+      +0.1..0.5 on the size of the latent gain
+
+    With the default 0.20 weight: 11y/50% ≈ 24, 20y/100% ≈ 39,
+    32y/300%+ ≈ 60 — long enough holds now cross the prediction
+    threshold (0.5) on their own, as the thesis says they should."""
+    hold_f = min(1.5, max(0.0, (float(years) - 10.0) / 10.0) * 0.75)
+    g = float(gain_pct or 0)
+    if g >= 300:
+        gain_f = 0.5
+    elif g >= 150:
+        gain_f = 0.35
+    elif g >= 75:
+        gain_f = 0.2
+    else:
+        gain_f = 0.1   # positive-but-small or dollars-only gain
+    return 1.0 + hold_f + gain_f
 
 
 def rebuild_signals(suburb_ids=None):
@@ -144,6 +175,10 @@ def rebuild_signals(suburb_ids=None):
             for key in candidates:
                 evs = by_addr.get(key, [])
                 feats, reasons, src_ids = [], [], []
+                # Per-feature score multipliers (default 1.0 = the plain DB
+                # weight). long_hold_gain graduates by hold×gain instead of
+                # firing flat — see _long_hold_factor.
+                feat_mult = {}
                 is_active = key in active_keys
 
                 # ---- withdrawn_recent -------------------------------
@@ -179,6 +214,8 @@ def rebuild_signals(suburb_ids=None):
                     gain_dol = h.get('owner_gain_dollars')
                     if years > 10 and ((gain_pct or 0) > 0 or (gain_dol or 0) > 0):
                         feats.append('long_hold_gain')
+                        feat_mult['long_hold_gain'] = _long_hold_factor(
+                            years, gain_pct)
                         gtxt = (f"{gain_pct:.0f}% latent gain" if gain_pct
                                 else "latent gain")
                         reasons.append(
@@ -209,7 +246,9 @@ def rebuild_signals(suburb_ids=None):
 
                 if not feats:
                     continue
-                score = round(min(1.0, sum(weights.get(f, 0) for f in feats)), 3)
+                score = round(min(1.0, sum(
+                    weights.get(f, 0) * feat_mult.get(f, 1.0)
+                    for f in feats)), 3)
                 if score <= 0:
                     continue
 

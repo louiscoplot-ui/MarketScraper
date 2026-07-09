@@ -926,7 +926,7 @@ export default function HotVendorScoring() {
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 700, width: 50, height: 50, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: cb.bg, color: cb.fg, flexShrink: 0 }}>{Math.round(p.final_score)}</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''}</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''} · rank within this suburb's list</div>
                   </div>
                   <button className="btn-icon" onClick={() => setPropDetail(null)} title="Close">×</button>
                 </div>
@@ -959,6 +959,34 @@ export default function HotVendorScoring() {
                     </div>
                   ))}
                 </div>
+
+                {/* Why this score — the per-property component scores the
+                    backend already computes (0-100 each). Answers "why is
+                    THIS one an 82?" instead of a black-box number. */}
+                {(() => {
+                  const comps = [
+                    ['Hold length', p.hold_score], ['Property type', p.type_score],
+                    ['Owner gain', p.gain_score], ['Yearly growth', p.cagr_score],
+                    ['Street activity', p.freq_score], ['Untapped value', p.prof_score],
+                  ].filter(([, v]) => v != null && !Number.isNaN(Number(v)))
+                  if (!comps.length) return null
+                  return (
+                    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px 14px', marginBottom: 14 }}>
+                      <div style={{ ...lblStyle, marginBottom: 10 }}>Why this score</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 18px' }}>
+                        {comps.map(([k, v]) => (
+                          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', width: 88, flexShrink: 0 }}>{k}</span>
+                            <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 999, overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, Number(v)))}%`, background: 'var(--accent)', borderRadius: 999 }} />
+                            </div>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, color: 'var(--text)', width: 24, textAlign: 'right' }}>{Math.round(Number(v))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {sigChips(p).length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>

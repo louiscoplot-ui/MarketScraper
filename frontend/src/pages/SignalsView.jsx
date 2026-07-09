@@ -192,7 +192,7 @@ export default function SignalsView() {
               <div style={{ color: 'var(--text-muted)', padding: 24 }}>No {STATUS_LABELS[status].toLowerCase()} signals yet.</div>
             ) : signals.map(s => {
               const st = scoreStatus(s.score)
-              const reason = (s.reason_codes || [])[0] || ''
+              const reason = ((s.reason_codes || [])[0] || '') + ((s.reason_codes || []).length > 1 ? ` +${s.reason_codes.length - 1} more` : '')
               return (
                 <div key={s.id} style={{ display: 'grid', gridTemplateColumns: '46px 1fr auto', gap: 12, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, width: 40, height: 40, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `var(--status-${st}-bg)`, color: `var(--status-${st}-text)` }}>

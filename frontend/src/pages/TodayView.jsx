@@ -171,7 +171,11 @@ function buildLeads(report, items, fallenList, suburb) {
       { kind: 'Price cut', old_price: m.old_price, new_price: m.new_price, delta_pct: m.delta_pct })
   })
   ;(items || []).filter(s => (s.score || 0) >= 0.35).forEach(s =>
-    add(s.address, s.suburb, (s.reasons || [])[0] || 'Vendor signal', (s.score || 0) >= 0.6 ? 'alert' : 'watch', 'signals', 60 + (s.score || 0) * 20,
+    // Multi-trigger leads are the strongest evidence — show "+N" instead
+    // of silently dropping every reason after the first.
+    add(s.address, s.suburb,
+      ((s.reasons || [])[0] || 'Vendor signal') + ((s.reasons || []).length > 1 ? ` +${s.reasons.length - 1}` : ''),
+      (s.score || 0) >= 0.6 ? 'alert' : 'watch', 'signals', 60 + (s.score || 0) * 20,
       { kind: 'Vendor signal', score: s.score, reasons: s.reasons, narrative: s.narrative }))
   ;(r.withdrawn_listings || []).forEach(w => add(w.address, w.suburb, 'Withdrawn', 'watch', 'report', 50,
     { kind: 'Withdrawn', price: w.price, agent: w.agent, agency: w.agency, dom: w.dom, listing_date: w.listing_date, reiwa_url: w.reiwa_url }))
@@ -458,7 +462,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                   <div style={{ padding: '2px 16px 6px', maxHeight: 260, overflowY: 'auto' }}>
                     {scoped.length === 0 ? emptyLine('No signals for this scope.') : scoped.slice(0, 10).map(s => {
                       const st = (s.score || 0) >= 0.6 ? 'alert' : (s.score || 0) >= 0.35 ? 'watch' : 'off'
-                      const reason = (s.reasons || [])[0] || ''
+                      const reason = ((s.reasons || [])[0] || '') + ((s.reasons || []).length > 1 ? ` +${s.reasons.length - 1} more` : '')
                       return (
                         <div key={s.signal_id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, width: 34, height: 34, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: `var(--status-${st}-bg)`, color: `var(--status-${st}-text)` }}>{Math.round((s.score || 0) * 100)}</span>

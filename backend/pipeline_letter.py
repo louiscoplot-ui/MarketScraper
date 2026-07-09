@@ -339,11 +339,15 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
     p = body_para()
     r = p.add_run(f'I wanted to reach out personally — {addr_phrase} {sale_phrase}')
     r.font.size = Pt(11); r.font.name = 'Arial'
+    # Facts only — no invented superlatives. The old copy asserted "one of
+    # {suburb}'s strongest results this season" about EVERY sale, with
+    # nothing in the data to back it; an informed owner can falsify that
+    # in one REIWA search and the letter loses all credibility.
     if source_suburb:
         if multi:
-            r2 = p.add_run(f", reflecting strong recent results across {source_suburb}.")
+            r2 = p.add_run(f", part of the recent sales activity in {source_suburb}.")
         else:
-            r2 = p.add_run(f", one of {source_suburb}'s strongest results this season.")
+            r2 = p.add_run(f", right in your part of {source_suburb}.")
         r2.font.size = Pt(11); r2.font.name = 'Arial'
     else:
         r2 = p.add_run('.')

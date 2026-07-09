@@ -329,11 +329,19 @@ def _holding_score(yrs, median):
 
 
 def _type_score_mult(t):
-    return (100, 1.3) if t == 'House' else (60, 0.9)
+    # Multiplier retired (was ×1.3 House / ×0.9 Apartment): type already
+    # contributes through type_score × w_type, and the hidden post-hoc
+    # multiplier double-counted it — a House got a compounding +44% vs an
+    # Apartment on top of the disclosed weight, so the "Type 15%" banner
+    # was not the actual maths. Houses still rank higher via type_score.
+    return (100, 1.0) if t == 'House' else (60, 1.0)
 
 
 def _gain_score(g):
-    if pd.isna(g): return 40
+    # Unknown gain = LOW confidence, not middling merit: the old 40 let
+    # data-poor rows (single-sale histories) drift into WARM/HOT purely
+    # on absent evidence.
+    if pd.isna(g): return 20
     if g < 0:     return 15
     if g < 15:    return 28
     if g < 30:    return 42
@@ -345,7 +353,7 @@ def _gain_score(g):
 
 
 def _cagr_score(c):
-    if pd.isna(c): return 40
+    if pd.isna(c): return 20
     if c < 0:     return 15
     if c < 3:     return 28
     if c < 6:     return 42
@@ -365,7 +373,7 @@ def _frequency_score(n):
 
 
 def _profit_score(p):
-    if pd.isna(p): return 40
+    if pd.isna(p): return 20
     if p < 0:     return 10
     if p < 20:    return 25
     if p < 50:    return 40
