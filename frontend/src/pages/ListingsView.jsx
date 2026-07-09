@@ -386,43 +386,43 @@ export default function ListingsView({
 
         {/* split: table | map */}
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <div style={{ width: '60%', display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border)', minWidth: 0 }}>
-            {/* header row */}
-            <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
-              {HEADERS.map(h => (
-                <span key={h.l} onClick={h.f ? () => toggleSort(h.f) : undefined}
-                  style={{ textAlign: h.a || 'left', cursor: h.f ? 'pointer' : 'default', userSelect: 'none' }}>
-                  {h.l}{h.f && sortField === h.f ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
-                </span>
-              ))}
+          <div style={{ width: '58%', minWidth: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+            {/* Full classic table — all columns + editable price/dates +
+                note + external link + delete — styled editorially by the
+                [data-desk] CSS. Horizontal scroll via StickyHScroll keeps
+                every column reachable. */}
+            <div className={`table-wrapper listings-table-wrapper ${compact ? 'compact' : ''}`} ref={wrapperRef}
+              style={{ flex: 1, minHeight: 0, maxHeight: 'none', border: 'none', borderRadius: 0 }}>
+              <table className="listings-table">
+                <thead>
+                  <tr>
+                    {columns.map(c => (
+                      <th key={c.field} onClick={c.sortable ? () => toggleSort(c.field) : undefined}
+                        className={c.sortable ? 'sortable' : undefined} style={c.style}>
+                        {c.label}{c.sortable && sortField === c.field && (sortDir === 'asc' ? ' ↑' : ' ↓')}{c.headerExtra}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredListings.map(l => (
+                    <tr key={l.id ?? `row-${l.address}-${l.suburb_name}`} className={`status-${l.status}`}>
+                      {columns.map(c => {
+                        const cls = c.cellClass ? c.cellClass(l) : c.className
+                        return <td key={c.field} className={cls} style={c.style}>{c.cell(l)}</td>
+                      })}
+                    </tr>
+                  ))}
+                  {filteredListings.length === 0 && bootLoading && (
+                    <tr><td colSpan={columns.length} className="loading-cell"><div className="loading-stack"><div className="loading-spinner" /><div className="loading-title">Loading listings…</div><div className="loading-sub">First load can take 15–30 seconds while the server warms up.</div></div></td></tr>
+                  )}
+                  {filteredListings.length === 0 && !bootLoading && (
+                    <tr><td colSpan={columns.length} className="empty">{suburbs.length === 0 ? 'Add a suburb to get started' : 'No listings match the current filters.'}</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-            {/* rows */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              {filteredListings.length === 0 && bootLoading && (
-                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                  <div className="loading-spinner" style={{ margin: '0 auto 12px' }} />
-                  Loading listings… First load can take 15–30s while the server warms up.
-                </div>
-              )}
-              {filteredListings.map(l => {
-                const d = calcDOM ? calcDOM(l) : null
-                return (
-                  <div key={l.id ?? `${l.address}-${l.suburb_name}`}
-                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: rowPad, borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(l.status)}`, background: `color-mix(in srgb, ${stColor(l.status)} 9%, var(--surface))` }}>
-                    <a href={l.reiwa_url || '#'} onClick={(e) => { e.preventDefault(); setDetail(l) }} title="Open property dossier"
-                      style={{ fontFamily: 'var(--font-ui)', fontSize: rowFs, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</a>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.suburb_name}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.price_text || '—'}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{cfg(l)}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>{l.land_size || '–'}</span>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.agency || '–'}</span>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.agent || '–'}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{formatIsoDate ? (formatIsoDate(l.listing_date) || l.listing_date || '–') : (l.listing_date || '–')}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'right', color: (d ?? 0) >= 60 ? 'var(--status-alert-text)' : 'var(--text-muted)', fontWeight: (d ?? 0) >= 60 ? 600 : 400 }}>{d != null ? d : '–'}</span>
-                  </div>
-                )
-              })}
-            </div>
+            <StickyHScroll targetRef={wrapperRef} />
           </div>
           {/* map */}
           <div className="desk-map" style={{ flex: 1, borderRadius: 0, border: 'none', minHeight: 0 }}>
@@ -435,6 +435,27 @@ export default function ListingsView({
         </div>
 
         {detail && <PropertyDetail listing={detail} calcDOM={calcDOM} formatIsoDate={formatIsoDate} onClose={() => setDetail(null)} />}
+
+        {noteEditing && (
+          <div className="note-modal-overlay" onClick={closeNote}>
+            <div className="note-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="note-modal-header">
+                <div><div className="note-modal-title">Note</div><div className="note-modal-sub">{noteEditing.address}</div></div>
+                <button className="btn-icon" onClick={closeNote} title="Close">×</button>
+              </div>
+              <textarea className="note-textarea" autoFocus value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="Spoke with the owner, considering selling next quarter…" rows={6}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote(); if (e.key === 'Escape') closeNote() }} />
+              <div className="note-modal-footer">
+                <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+                <div className="note-modal-actions">
+                  <button className="btn btn-ghost btn-sm" onClick={closeNote}>Cancel</button>
+                  <button className="btn btn-primary btn-sm" onClick={saveNote} disabled={noteSaving}>{noteSaving ? 'Saving…' : 'Save note'}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

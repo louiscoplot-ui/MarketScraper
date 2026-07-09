@@ -651,8 +651,13 @@ export default function RentalView({ selectedNames } = {}) {
   const pad = compact ? '3px 6px' : '8px 10px'
   const fontSize = compact ? 11.5 : 13
 
-  // ── Desk redesign — full render of mock #rental (Prospecting twin). ──
-  if (getDeskMode() === 'desk') {
+  // ── Desk redesign — the custom Rental grid mismapped fields (showed
+  // "Total, …" aggregate rows + owner names under Rent). Disabled: desk
+  // now falls through to the CLASSIC rental table below (correct data +
+  // its own renderCell), styled by the [data-desk] .desk-rental veneer,
+  // with the sidebar hidden. A faithful #rental rebuild will reuse that
+  // table, not a hand-mapped grid. ──
+  if (false && getDeskMode() === 'desk') {
     const rc = (s) => s === 'Active' ? 'var(--status-good)' : s === 'New' ? 'var(--status-info)' : s === 'Leased' ? 'var(--status-off)' : 'var(--status-watch)'
     const cfg = (r) => [r.beds, r.baths, r.cars].map(x => (x == null ? '–' : x)).join('·')
     const GRID = '1.5fr 120px 84px 66px 96px 1fr 46px'
