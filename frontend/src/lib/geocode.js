@@ -14,7 +14,7 @@
 // screen of ~40 addresses resolves in a few seconds on first load, then
 // instantly from cache afterwards.
 
-const CACHE_PREFIX = 'sd_geo_v2_'   // v2 — validated results, separate cache
+const CACHE_PREFIX = 'sd_geo_v3_'   // v3 — soft validation w/ Perth fallback
 const PERTH = { lat: -31.9505, lon: 115.8605 }
 const WORKERS = 3
 
@@ -63,20 +63,30 @@ function matches(props, suburb, postcode) {
   return true
 }
 
+// Perth metro rough bbox — a last-ditch guard so a fallback pin never lands
+// in another state.
+function inPerth(c) {
+  return Array.isArray(c) && c.length === 2 &&
+    c[0] > 115.4 && c[0] < 116.4 && c[1] > -32.6 && c[1] < -31.4
+}
+
 async function lookup(address, suburb, postcode) {
   const street = cleanStreet(address)
   const q = `${street}, ${suburb || ''} ${postcode || ''} Western Australia`.replace(/\s+/g, ' ').trim()
-  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5&lat=${PERTH.lat}&lon=${PERTH.lon}`
+  const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${PERTH.lat}&lon=${PERTH.lon}`
   const res = await fetch(url)
   if (!res.ok) return null
   const j = await res.json()
   const feats = (j && j.features) || []
-  // Prefer a house-number hit in the right suburb; then any hit in the right
-  // suburb; reject everything else.
+  const coordOf = f => f && f.geometry && f.geometry.coordinates
+  // Ranked preference: house-number hit in the right suburb → any hit in the
+  // right suburb → best AU/Perth result. Always show a pin if we have a
+  // sensible one; validation just reorders, it no longer empties the map.
   const houses = feats.filter(f => f.properties && f.properties.housenumber && matches(f.properties, suburb, postcode))
   const inSuburb = feats.filter(f => matches(f.properties, suburb, postcode))
-  const pick = houses[0] || inSuburb[0]
-  const c = pick && pick.geometry && pick.geometry.coordinates
+  const perthAny = feats.filter(f => inPerth(coordOf(f)))
+  const pick = houses[0] || inSuburb[0] || perthAny[0]
+  const c = coordOf(pick)
   if (Array.isArray(c) && c.length === 2) return { lng: c[0], lat: c[1] }
   return null
 }
