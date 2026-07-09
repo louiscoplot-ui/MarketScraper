@@ -8,6 +8,8 @@ import EditableDateCell from '../components/EditableDateCell'
 import EditableTextCell from '../components/EditableTextCell'
 import StickyHScroll from '../components/StickyHScroll'
 import { Chip, Select } from '../components/ui'
+import PropertyDetail from './PropertyDetail'
+import { getDeskMode } from '../lib/deskFlag'
 
 
 // HTML5 date input emits YYYY-MM-DD. listing_date in the DB is
@@ -44,6 +46,10 @@ export default function ListingsView({
   const [noteEditing, setNoteEditing] = useState(null)
   const [noteDraft, setNoteDraft] = useState('')
   const [noteSaving, setNoteSaving] = useState(false)
+  // Desk mode: clicking an address opens the internal property dossier
+  // (mock 03) instead of linking out to REIWA. Classic keeps the link.
+  const [detail, setDetail] = useState(null)
+  const isDesk = getDeskMode() === 'desk'
   const wrapperRef = useRef(null)
   // Compact mode defaults ON for first-time visitors (denser table fits
   // more on a laptop screen). User toggles persist after that.
@@ -158,9 +164,12 @@ export default function ListingsView({
   // here so the key + className stay in one place.
   const columns = [
     { field: 'address', label: 'Address', sortable: true, className: 'address-cell',
-      cell: (l) => l.reiwa_url
-        ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
-        : l.address },
+      cell: (l) => isDesk
+        ? <a href={l.reiwa_url || '#'} onClick={(e) => { e.preventDefault(); setDetail(l) }}
+             style={{ cursor: 'pointer' }} title="Open property dossier">{l.address}</a>
+        : (l.reiwa_url
+            ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
+            : l.address) },
     { field: '__note', label: 'Note', sortable: false, className: 'note-cell',
       cell: (l) => {
         const text = (l.note || '').trim()
@@ -406,6 +415,15 @@ export default function ListingsView({
       </div>
       </div>
       <StickyHScroll targetRef={wrapperRef} />
+
+      {detail && (
+        <PropertyDetail
+          listing={detail}
+          calcDOM={calcDOM}
+          formatIsoDate={formatIsoDate}
+          onClose={() => setDetail(null)}
+        />
+      )}
 
       {noteEditing && (
         <div className="note-modal-overlay" onClick={closeNote}>
