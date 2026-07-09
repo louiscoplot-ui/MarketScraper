@@ -7,6 +7,7 @@ import { StickyNote, Plus, X } from 'lucide-react'
 import EditableDateCell from '../components/EditableDateCell'
 import EditableTextCell from '../components/EditableTextCell'
 import StickyHScroll from '../components/StickyHScroll'
+import DeskMap from '../components/DeskMap'
 import { Chip, Select } from '../components/ui'
 import PropertyDetail from './PropertyDetail'
 import { getDeskMode } from '../lib/deskFlag'
@@ -436,13 +437,9 @@ export default function ListingsView({
             </div>
             <StickyHScroll targetRef={wrapperRef} />
           </div>
-          {/* map */}
-          <div className="desk-map" style={{ flex: 1, borderRadius: 0, border: 'none', minHeight: 0 }}>
-            <div className="desk-map-label">Map · Perth metro · {filteredListings.length} pins</div>
-            {filteredListings.slice(0, 48).map((l, i) => {
-              const s = String(l.address || i); let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
-              return <span key={l.id ?? i} style={{ position: 'absolute', top: `${16 + (h % 66)}%`, left: `${12 + ((h >> 4) % 72)}%`, width: 11, height: 11, borderRadius: '50%', background: stColor(l.status), border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,.2)' }} />
-            })}
+          {/* real map — MapLibre + free OSM tiles, exact per-address pins */}
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <DeskMap items={filteredListings} label={`Perth metro · ${filteredListings.length} listings`} />
           </div>
         </div>
 
