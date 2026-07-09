@@ -8,6 +8,7 @@ import { Download, MapPin, ChevronDown, StickyNote, Plus } from 'lucide-react'
 import StickyHScroll from './components/StickyHScroll'
 import { formatIsoDate } from './hooks/useListings'
 import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
+import { getDeskMode } from './lib/deskFlag'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -658,6 +659,123 @@ export default function HotVendorScoring() {
     : selectedSuburbs.size === 1
       ? Array.from(selectedSuburbs)[0]
       : `${selectedSuburbs.size} suburbs`
+
+  // ── Desk redesign — full render of mock #hotvendors (scored state only;
+  // the upload/empty flow keeps its classic UI below). ──
+  if (getDeskMode() === 'desk' && properties.length > 0) {
+    const top = sorted[0] || properties[0]
+    const kpis = [
+      { l: 'Hot', v: counts.HOT, c: 'var(--score-hot)' },
+      { l: 'Warm', v: counts.WARM, c: 'var(--score-warm)' },
+      { l: 'Medium', v: counts.MEDIUM, c: 'var(--score-medium)' },
+      { l: 'Total scored', v: properties.length, c: 'var(--status-off)' },
+    ]
+    const sigChips = (p) => {
+      const out = []
+      if (p.holding_years != null) out.push(`${Math.round(p.holding_years)}y hold`)
+      if (p.owner_gain_pct != null) out.push(`+${Math.round(p.owner_gain_pct)}% gain`)
+      if (p.sales_count) out.push(`${p.sales_count} st. sales`)
+      return out.slice(0, 3)
+    }
+    const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
+    const GRID = '54px 1.7fr 1.1fr 1.5fr 150px'
+    const noteFor = (a) => (notes[a] || '').trim()
+    return (
+      <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Hot Vendors</h2>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {fmtNum(avgScore)}</div>
+          </div>
+        </div>
+
+        {top && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, background: 'linear-gradient(100deg,rgba(219,39,119,.10),rgba(219,39,119,.02))', border: '1px solid rgba(219,39,119,.22)', borderRadius: 16, padding: '16px 22px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 32, width: 56, height: 56, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', color: 'var(--score-hot-text)', boxShadow: '0 2px 10px rgba(219,39,119,.22)', flexShrink: 0 }}>{fmtNum(top.final_score)}</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--score-hot-text)', marginBottom: 5 }}>Hottest lead today · act first</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, letterSpacing: '-0.01em', color: 'var(--text)' }}>{top.address}{getSuburb(top) ? `, ${getSuburb(top)}` : ''}</div>
+                <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{top.current_owner || '—'}{noteFor(top.address) ? ` · ${noteFor(top.address)}` : ''}</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button onClick={() => setStatus(top.address, 'CONTACTED')} style={{ background: 'var(--score-hot)', border: 'none', color: '#fff', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Log a call</button>
+              <button onClick={() => openNote(top)} style={{ background: 'var(--surface)', border: '1px solid rgba(219,39,119,.3)', color: 'var(--score-hot-text)', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Add note</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+          {kpis.map(k => (
+            <div key={k.l} style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 13, padding: '15px 17px', boxShadow: 'var(--shadow-card)' }}>
+              <span style={{ width: 9, height: 38, borderRadius: 5, background: k.c, flexShrink: 0 }} />
+              <div><div style={{ fontFamily: 'var(--font-display)', fontSize: 28, lineHeight: 0.9, letterSpacing: '-0.02em', color: 'var(--text)' }}>{k.v}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 6 }}>{k.l}</div></div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {CHIPS.map(c => {
+            const on = filter === c.key
+            return (
+              <span key={c.key} onClick={() => setFilter(c.key)} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, borderRadius: 999, padding: '6px 12px', border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent-soft)' : 'transparent', color: on ? 'var(--accent)' : 'var(--text-muted)' }}>
+                {c.dot && <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.dot }} />}{c.label}<span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7 }}>{c.n}</span>
+              </span>
+            )
+          })}
+        </div>
+
+        <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, padding: '13px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+            <span>Score</span><span>Address</span><span>Owner</span><span>Signals</span><span>Status</span>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {sorted.map(p => (
+              <div key={p.address} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 13, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
+                <ScoreBadge category={p.category} score={p.final_score} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}{noteFor(p.address) ? ' · 📝' : ''}</div>
+                </div>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.current_owner || '—'}</span>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{s}</span>)}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                  <button onClick={() => openNote(p)} title={noteFor(p.address) || 'Add a note'} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: noteFor(p.address) ? 'var(--status-watch-text)' : 'var(--text-faint)', display: 'flex' }}>
+                    <StickyNote size={15} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!sorted.length && <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No properties match the current filters.</div>}
+          </div>
+        </div>
+
+        {noteEditing && (
+          <div className="note-modal-overlay" onClick={closeNote}>
+            <div className="note-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="note-modal-header">
+                <div><div className="note-modal-title">Note</div><div className="note-modal-sub">{noteEditing.address}</div></div>
+                <button className="btn-icon" onClick={closeNote} title="Close">×</button>
+              </div>
+              <textarea className="note-textarea" autoFocus value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="Spoke with the owner…" rows={6}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote(); if (e.key === 'Escape') closeNote() }} />
+              <div className="note-modal-footer">
+                <span className="note-hint">Cmd/Ctrl+Enter to save · Esc to cancel</span>
+                <div className="note-modal-actions">
+                  <button className="btn btn-ghost btn-sm" onClick={closeNote}>Cancel</button>
+                  <button className="btn btn-primary btn-sm" onClick={saveNote} disabled={noteSaving}>{noteSaving ? 'Saving…' : 'Save note'}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={`hot-vendor ${compact ? 'compact' : ''}`}>
