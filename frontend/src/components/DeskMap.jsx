@@ -9,21 +9,24 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { geocode } from '../lib/geocode'
 
-const OSM_STYLE = {
+// Clean light basemap — CARTO "Positron" (the muted grey style realestate
+// portals use). Free, keyless raster tiles; retina @2x for a crisp look.
+const CARTO_STYLE = {
   version: 8,
   sources: {
-    osm: {
+    carto: {
       type: 'raster',
       tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
+        'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png',
       ],
       tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
+      attribution: '© OpenStreetMap contributors © CARTO',
     },
   },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+  layers: [{ id: 'carto', type: 'raster', source: 'carto' }],
 }
 
 const STATUS_COLOR = {
@@ -50,7 +53,7 @@ export default function DeskMap({
     if (!elRef.current || mapRef.current) return
     const map = new maplibregl.Map({
       container: elRef.current,
-      style: OSM_STYLE,
+      style: CARTO_STYLE,
       center: [115.8605, -31.9505],
       zoom: 10.5,
       attributionControl: true,
@@ -72,29 +75,33 @@ export default function DeskMap({
     const bounds = new maplibregl.LngLatBounds()
     let placed = 0
 
-    const run = async () => {
-      for (const it of list) {
-        if (cancelled) return
-        const addr = addressOf(it)
-        if (!addr) continue
-        const q = `${addr}, ${suburbOf(it) || ''} Western Australia`.replace(/\s+/g, ' ').trim()
-        const c = await geocode(q)
-        if (cancelled || !c) continue
-        const el = document.createElement('div')
-        const color = (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
-        el.style.cssText = `width:12px;height:12px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);cursor:pointer`
-        const popupText = popupOf ? popupOf(it) : `${addr}${suburbOf(it) ? ' · ' + suburbOf(it) : ''}`
-        const popup = new maplibregl.Popup({ offset: 12, closeButton: false }).setText(popupText)
-        const mk = new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).setPopup(popup).addTo(map)
-        markersRef.current.push(mk)
-        bounds.extend([c.lng, c.lat])
-        placed++
-        // Ease to the pins once we have a few, then only occasionally.
-        if (placed === 6 || (placed > 6 && placed % 40 === 0)) {
-          try { map.fitBounds(bounds, { padding: 44, maxZoom: 14, duration: 400 }) } catch {}
-        }
+    const place = (it, c) => {
+      if (cancelled || !c) return
+      const el = document.createElement('div')
+      const color = (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
+      el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.35);cursor:pointer`
+      const popupText = popupOf ? popupOf(it) : `${addressOf(it)}${suburbOf(it) ? ' · ' + suburbOf(it) : ''}`
+      const popup = new maplibregl.Popup({ offset: 13, closeButton: false }).setText(popupText)
+      const mk = new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).setPopup(popup).addTo(map)
+      markersRef.current.push(mk)
+      bounds.extend([c.lng, c.lat])
+      placed++
+      // Re-fit as pins land (debounced by count) so the view tracks results.
+      if (placed === 4 || (placed > 4 && placed % 12 === 0)) {
+        try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {}
       }
-      if (!cancelled && placed > 0) { try { map.fitBounds(bounds, { padding: 44, maxZoom: 14, duration: 400 }) } catch {} }
+    }
+
+    // Fire every lookup at once — the geocoder's own worker pool throttles
+    // fairly, and pins appear as each resolves (much faster than serial).
+    const run = async () => {
+      await Promise.all(list.map(async (it) => {
+        const addr = addressOf(it)
+        if (!addr) return
+        const c = await geocode({ address: addr, suburb: suburbOf(it) || '' })
+        place(it, c)
+      }))
+      if (!cancelled && placed > 0) { try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {} }
     }
     run()
     return () => { cancelled = true }
