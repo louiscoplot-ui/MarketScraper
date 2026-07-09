@@ -44,6 +44,93 @@ const SIGNAL_LEGEND = [
   { label: 'Neighbour sold', status: 'good' },
 ]
 
+// Interactive market-pulse chart — real metro median-asking series from the
+// nightly market_snapshots, with hover (crosshair + point + value/date),
+// a $ axis on the left, and a plain-language subtitle.
+const MP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function MarketPulse({ report, suburbCount }) {
+  const [hi, setHi] = useState(null)
+  const snaps = (report && report.snapshots) || []
+  const dates = [...new Set(snaps.map(s => s.snapshot_date))].sort()
+  const series = dates.map(dt => {
+    const ps = snaps.filter(s => s.snapshot_date === dt).map(s => s.median_price).filter(Boolean)
+    return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length } : null
+  }).filter(Boolean)
+
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-card)' }
+  const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
+  const monthOf = (iso) => MP_MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
+  const dmy = (iso) => { const p = String(iso).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}` }
+
+  const Head = (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontFamily: 'var(--font-ui)', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Market pulse</div>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{series.length >= 2 ? 'nightly snapshots' : 'building'}</span>
+      </div>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+        Median asking price across your {suburbCount || ''} tracked suburbs, over time
+      </div>
+    </div>
+  )
+
+  if (series.length < 2) {
+    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0' }}>The trend builds as nightly snapshots accumulate (need ≥ 2 days of data).</div></div>
+  }
+
+  const vals = series.map(p => p.v)
+  const min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1
+  const n = series.length
+  const X = (i) => (i / (n - 1)) * 640
+  const Y = (v) => 138 - ((v - min) / rng) * 122
+  const line = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')
+  const area = `M0,150 ${series.map((p, i) => `L${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')} L640,150 Z`
+  const cur = hi != null ? series[hi] : series[n - 1]
+  const first = series[0].v
+  const deltaPct = first ? ((cur.v - first) / first) * 100 : 0
+  const up = deltaPct >= 0
+  const labelIdx = n <= 6 ? series.map((_, i) => i) : [0, Math.floor(n / 3), Math.floor(2 * n / 3), n - 1]
+  const hx = hi != null ? (X(hi) / 640) * 100 : null
+  const hy = hi != null ? (Y(series[hi].v) / 150) * 100 : null
+  const onMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    if (!r.width) return
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+    setHi(Math.round(f * (n - 1)))
+  }
+
+  return (
+    <div style={card}>
+      {Head}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(cur.v)}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {monthOf(series[0].dt)}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>· {dmy(cur.dt)}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {/* $ axis */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 118, width: 46, flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', textAlign: 'right' }}>
+          <span>{fmtM(max)}</span><span>{fmtM((max + min) / 2)}</span><span>{fmtM(min)}</span>
+        </div>
+        {/* chart */}
+        <div style={{ position: 'relative', flex: 1, height: 118, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+          <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
+            <defs><linearGradient id="mp-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#386350" stopOpacity=".18" /><stop offset="1" stopColor="#386350" stopOpacity="0" /></linearGradient></defs>
+            <line x1="0" y1="40" x2="640" y2="40" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="90" x2="640" y2="90" stroke="var(--border)" strokeWidth="1" />
+            <path d={area} fill="url(#mp-fill)" />
+            <polyline points={line} fill="none" stroke="#386350" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          </svg>
+          {hi != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${hx}%`, width: 1, background: 'var(--accent)', opacity: 0.45 }} />}
+          {hi != null && <div style={{ position: 'absolute', left: `${hx}%`, top: `${hy}%`, width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: '50%', background: 'var(--accent)', border: '2px solid var(--surface)', boxShadow: '0 0 0 1px var(--accent)' }} />}
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 6, marginLeft: 54 }}>
+        {labelIdx.map(i => <span key={i}>{monthOf(series[i].dt)}</span>)}
+      </div>
+    </div>
+  )
+}
+
 export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], report }) {
   const [scope, setScope] = useState('all')   // desk dashboard scope selector
   const [brief, setBrief] = useState(null)
@@ -211,63 +298,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
             <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16 }}>
               {/* left */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {(() => {
-                  // Real median-asking trend from the nightly market_snapshots
-                  // (report.snapshots): per date, average of the per-suburb
-                  // median_price = a metro median-asking series.
-                  const snaps = (report && report.snapshots) || []
-                  const dates = [...new Set(snaps.map(s => s.snapshot_date))].sort()
-                  const series = dates.map(dt => {
-                    const ps = snaps.filter(s => s.snapshot_date === dt).map(s => s.median_price).filter(Boolean)
-                    return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length } : null
-                  }).filter(Boolean)
-                  const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
-                  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-                  const monthOf = (iso) => MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
-                  const hasChart = series.length >= 2
-                  let body
-                  if (hasChart) {
-                    const vals = series.map(p => p.v)
-                    const min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1
-                    const X = i => (i / (series.length - 1)) * 640
-                    const Y = v => 138 - ((v - min) / rng) * 122
-                    const line = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')
-                    const area = `M0,150 ${series.map((p, i) => `L${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')} L640,150 Z`
-                    const last = series[series.length - 1].v, first = series[0].v
-                    const deltaPct = first ? ((last - first) / first) * 100 : 0
-                    const up = deltaPct >= 0
-                    const labelIdx = series.length <= 6 ? series.map((_, i) => i) : [0, Math.floor(series.length / 3), Math.floor(2 * series.length / 3), series.length - 1]
-                    body = (
-                      <>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
-                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(last)}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% · {series.length} days</span>
-                        </div>
-                        <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: 118 }}>
-                          <defs><linearGradient id="tv-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#386350" stopOpacity=".18" /><stop offset="1" stopColor="#386350" stopOpacity="0" /></linearGradient></defs>
-                          <line x1="0" y1="40" x2="640" y2="40" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="90" x2="640" y2="90" stroke="var(--border)" strokeWidth="1" />
-                          <path d={area} fill="url(#tv-fill)" />
-                          <polyline points={line} fill="none" stroke="#386350" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-                          <circle cx="640" cy={Y(last).toFixed(1)} r="4" fill="#386350" />
-                        </svg>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 6 }}>
-                          {labelIdx.map(i => <span key={i}>{monthOf(series[i].dt)}</span>)}
-                        </div>
-                      </>
-                    )
-                  } else {
-                    body = <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '28px 0' }}>The trend builds as nightly snapshots accumulate (need ≥ 2 days of data).</div>
-                  }
-                  return (
-                    <div style={card}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                        <div style={panelTitle}>Market pulse — median asking, metro</div>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{hasChart ? 'from snapshots' : 'building'}</span>
-                      </div>
-                      {body}
-                    </div>
-                  )
-                })()}
+                <MarketPulse report={report} suburbCount={suburbs.length} />
                 <div style={card}>
                   <div style={{ ...panelTitle, marginBottom: 16 }}>Signals by suburb</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
