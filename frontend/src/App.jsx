@@ -604,6 +604,15 @@ function App() {
       .finally(() => setReportLoading(false))
   }
 
+  // Warm the Market Report in the background shortly after first paint —
+  // so the tab opens instantly AND the Dashboard's market-pulse chart has
+  // the all-suburbs snapshots to draw a real median-asking trend. Skipped
+  // if a report is already loaded (e.g. hydrated from cache).
+  useEffect(() => {
+    const id = setTimeout(() => { if (!report) fetchReport(new Set()) }, 1800)
+    return () => clearTimeout(id)
+  }, [])
+
   const cancelScrape = async () => {
     // Route through BOOT_API (= BACKEND_DIRECT) so the cancel POST
     // bypasses Vercel's 25s edge timeout. Previously the cancel hit
@@ -1006,7 +1015,7 @@ function App() {
           </div>
           {(view === 'today' || warmBackground) && (
             <div style={{ display: view === 'today' ? 'block' : 'none' }}>
-              <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} />
+              <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} />
             </div>
           )}
           {(view === 'signals' || warmBackground) && (

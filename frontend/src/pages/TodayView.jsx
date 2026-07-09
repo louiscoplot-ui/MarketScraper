@@ -44,7 +44,7 @@ const SIGNAL_LEGEND = [
   { label: 'Neighbour sold', status: 'good' },
 ]
 
-export default function TodayView({ setView, saleFallenCount = 0, suburbs = [] }) {
+export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], report }) {
   const [scope, setScope] = useState('all')   // desk dashboard scope selector
   const [brief, setBrief] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -211,20 +211,63 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [] }
             <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16 }}>
               {/* left */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div style={card}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <div style={panelTitle}>Market pulse — median asking, metro</div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>indicative</span>
-                  </div>
-                  <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: 130 }}>
-                    <defs><linearGradient id="tv-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#386350" stopOpacity=".18" /><stop offset="1" stopColor="#386350" stopOpacity="0" /></linearGradient></defs>
-                    <line x1="0" y1="38" x2="640" y2="38" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="75" x2="640" y2="75" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="112" x2="640" y2="112" stroke="var(--border)" strokeWidth="1" />
-                    <path d="M0,124 L91,114 L182,118 L274,100 L365,90 L457,72 L548,58 L640,44 L640,150 L0,150 Z" fill="url(#tv-fill)" />
-                    <polyline points="0,124 91,114 182,118 274,100 365,90 457,72 548,58 640,44" fill="none" stroke="#386350" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-                    <circle cx="640" cy="44" r="4" fill="#386350" />
-                  </svg>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 6 }}>Live series builds from nightly snapshots.</div>
-                </div>
+                {(() => {
+                  // Real median-asking trend from the nightly market_snapshots
+                  // (report.snapshots): per date, average of the per-suburb
+                  // median_price = a metro median-asking series.
+                  const snaps = (report && report.snapshots) || []
+                  const dates = [...new Set(snaps.map(s => s.snapshot_date))].sort()
+                  const series = dates.map(dt => {
+                    const ps = snaps.filter(s => s.snapshot_date === dt).map(s => s.median_price).filter(Boolean)
+                    return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length } : null
+                  }).filter(Boolean)
+                  const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
+                  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                  const monthOf = (iso) => MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
+                  const hasChart = series.length >= 2
+                  let body
+                  if (hasChart) {
+                    const vals = series.map(p => p.v)
+                    const min = Math.min(...vals), max = Math.max(...vals), rng = (max - min) || 1
+                    const X = i => (i / (series.length - 1)) * 640
+                    const Y = v => 138 - ((v - min) / rng) * 122
+                    const line = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')
+                    const area = `M0,150 ${series.map((p, i) => `L${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')} L640,150 Z`
+                    const last = series[series.length - 1].v, first = series[0].v
+                    const deltaPct = first ? ((last - first) / first) * 100 : 0
+                    const up = deltaPct >= 0
+                    const labelIdx = series.length <= 6 ? series.map((_, i) => i) : [0, Math.floor(series.length / 3), Math.floor(2 * series.length / 3), series.length - 1]
+                    body = (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
+                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(last)}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% · {series.length} days</span>
+                        </div>
+                        <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: 118 }}>
+                          <defs><linearGradient id="tv-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#386350" stopOpacity=".18" /><stop offset="1" stopColor="#386350" stopOpacity="0" /></linearGradient></defs>
+                          <line x1="0" y1="40" x2="640" y2="40" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="90" x2="640" y2="90" stroke="var(--border)" strokeWidth="1" />
+                          <path d={area} fill="url(#tv-fill)" />
+                          <polyline points={line} fill="none" stroke="#386350" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                          <circle cx="640" cy={Y(last).toFixed(1)} r="4" fill="#386350" />
+                        </svg>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 6 }}>
+                          {labelIdx.map(i => <span key={i}>{monthOf(series[i].dt)}</span>)}
+                        </div>
+                      </>
+                    )
+                  } else {
+                    body = <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '28px 0' }}>The trend builds as nightly snapshots accumulate (need ≥ 2 days of data).</div>
+                  }
+                  return (
+                    <div style={card}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={panelTitle}>Market pulse — median asking, metro</div>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{hasChart ? 'from snapshots' : 'building'}</span>
+                      </div>
+                      {body}
+                    </div>
+                  )
+                })()}
                 <div style={card}>
                   <div style={{ ...panelTitle, marginBottom: 16 }}>Signals by suburb</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
