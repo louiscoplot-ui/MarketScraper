@@ -6,6 +6,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { Check, X } from 'lucide-react'
 import { apiJson } from '../lib/api'
 import { Button, Chip, Select, Spinner } from '../components/ui'
+import { getDeskMode } from '../lib/deskFlag'
+
+// Deterministic pin position from a string — no Math.random so pins are
+// stable across renders. Keeps the placeholder map (mock 06) tidy.
+function pinPos(seed, i) {
+  const s = String(seed || i)
+  let h = 0
+  for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
+  const top = 18 + (h % 64)
+  const left = 14 + ((h >> 4) % 70)
+  return { top: `${top}%`, left: `${left}%` }
+}
 
 const STATUS_LABELS = { new: 'New', actioned: 'Actioned', dismissed: 'Dismissed' }
 
@@ -116,6 +128,101 @@ export default function SignalsView() {
     } finally {
       setBusyId(null)
     }
+  }
+
+  // ── Desk redesign (mock 06 · event stream + map). Separate render so
+  // classic stays byte-identical; all state/handlers above are shared. ──
+  if (getDeskMode() === 'desk') {
+    const MONO = "var(--font-mono)"
+    const scoreColorVar = (st) => `var(--status-${st})`
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        {/* header + filters */}
+        <div style={{ padding: '20px 30px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Signals</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: MONO, fontSize: 12, color: 'var(--text-muted)' }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--status-good)', boxShadow: '0 0 0 3px rgba(22,163,74,.16)' }} />
+                {signals.length} {STATUS_LABELS[status].toLowerCase()} signals · live
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Select value={suburb} onChange={e => setSuburb(e.target.value)} size="sm" title="Filter by suburb">
+                <option value="">All my suburbs</option>
+                {suburbs.map(s => <option key={s.id || s.name} value={s.name}>{s.name}</option>)}
+              </Select>
+              <Select value={String(minScore)} onChange={e => setMinScore(Number(e.target.value))} size="sm" options={SCORE_FILTERS} />
+              <Button variant="ghost" size="sm" onClick={fetchSignals}>Refresh</Button>
+            </div>
+          </div>
+          {/* status filter chips */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {Object.entries(STATUS_LABELS).map(([v, l]) => {
+              const on = status === v
+              return (
+                <span key={v} onClick={() => setStatus(v)}
+                  style={{
+                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7,
+                    fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, letterSpacing: '.04em',
+                    textTransform: 'uppercase', borderRadius: 999, padding: '6px 13px',
+                    background: on ? 'var(--accent-soft)' : 'transparent',
+                    color: on ? 'var(--accent)' : 'var(--text-muted)',
+                    border: `1px solid ${on ? '#cdddd5' : 'var(--border)'}`,
+                  }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: on ? 'var(--accent)' : 'var(--text-faint)' }} />
+                  {l}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* split: feed | map */}
+        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={{ width: '58%', overflowY: 'auto', borderRight: '1px solid var(--border)' }}>
+            {loading ? (
+              <div style={{ color: 'var(--text-muted)', padding: 24, display: 'flex', alignItems: 'center', gap: 10 }}><Spinner size={16} muted inline /> Loading signals…</div>
+            ) : error ? (
+              <div style={{ color: 'var(--status-alert-text)', padding: 24 }}>{error}</div>
+            ) : signals.length === 0 ? (
+              <div style={{ color: 'var(--text-muted)', padding: 24 }}>No {STATUS_LABELS[status].toLowerCase()} signals yet.</div>
+            ) : signals.map(s => {
+              const st = scoreStatus(s.score)
+              const reason = (s.reason_codes || [])[0] || ''
+              return (
+                <div key={s.id} style={{ display: 'grid', gridTemplateColumns: '46px 1fr auto', gap: 12, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, width: 40, height: 40, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `var(--status-${st}-bg)`, color: `var(--status-${st}-text)` }}>
+                    {(s.score * 100).toFixed(0)}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.address}</div>
+                    <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {s.suburb || ''}{reason ? ` · ${reason}` : ''}
+                    </div>
+                  </div>
+                  {status === 'new' && (
+                    <span style={{ display: 'inline-flex', gap: 6 }}>
+                      <Button variant="secondary" size="sm" icon={Check} onClick={() => setSignalStatus(s.id, 'actioned')} loading={busyId === s.id}>Actioned</Button>
+                      <Button variant="ghost" size="sm" icon={X} onClick={() => setSignalStatus(s.id, 'dismissed')} disabled={busyId === s.id}>Dismiss</Button>
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {/* map */}
+          <div className="desk-map" style={{ flex: 1, borderRadius: 0, border: 'none', minHeight: 0 }}>
+            <div className="desk-map-label">Signal locations · live</div>
+            {signals.slice(0, 24).map((s, i) => {
+              const st = scoreStatus(s.score)
+              const p = pinPos(s.address, i)
+              return <span key={s.id} style={{ position: 'absolute', top: p.top, left: p.left, width: 13, height: 13, borderRadius: '50%', background: scoreColorVar(st), border: '2px solid #fff', boxShadow: '0 1px 5px rgba(0,0,0,.22)' }} />
+            })}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
