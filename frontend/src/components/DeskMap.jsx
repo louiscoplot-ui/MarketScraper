@@ -47,6 +47,8 @@ export default function DeskMap({
   const elRef = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef([])
+  const lastSigRef = useRef(null)
+  const runIdRef = useRef(0)
 
   // Init map once.
   useEffect(() => {
@@ -63,20 +65,35 @@ export default function DeskMap({
     return () => { try { map.remove() } catch {} ; mapRef.current = null }
   }, [])
 
-  // Plot pins whenever the item set changes.
+  // Plot pins whenever the item set changes — by CONTENT, not array
+  // identity. Parents often pass a freshly-built array literal every
+  // render (e.g. Report during its divider drag); rebuilding + re-geocoding
+  // every pin on each of those renders made the map flicker and re-animate
+  // its zoom constantly. A signature of address+colour skips no-op runs.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    let cancelled = false
+    const list0 = (items || []).slice(0, max)
+    const sig = list0.map(it =>
+      `${addressOf(it) || ''}~${(colorOf && colorOf(it)) || statusOf(it) || ''}`
+    ).join('|')
+    if (sig === lastSigRef.current) return
+    lastSigRef.current = sig
+
+    // Cancellation via runId (NOT effect cleanup): a skipped re-run must
+    // not cancel the in-flight geocoding of the previous real run. A new
+    // real run — or unmount (mapRef nulled) — invalidates older runs.
+    const runId = ++runIdRef.current
+    const cancelled = () => runIdRef.current !== runId || !mapRef.current
     markersRef.current.forEach(m => { try { m.remove() } catch {} })
     markersRef.current = []
 
-    const list = (items || []).slice(0, max)
+    const list = list0
     const bounds = new maplibregl.LngLatBounds()
     let placed = 0
 
     const place = (it, c) => {
-      if (cancelled || !c) return
+      if (cancelled() || !c) return
       const el = document.createElement('div')
       const color = (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
       el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.35);cursor:pointer`
@@ -101,10 +118,9 @@ export default function DeskMap({
         const c = await geocode({ address: addr, suburb: suburbOf(it) || '' })
         place(it, c)
       }))
-      if (!cancelled && placed > 0) { try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {} }
+      if (!cancelled() && placed > 0) { try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {} }
     }
     run()
-    return () => { cancelled = true }
   }, [items, max])
 
   return (

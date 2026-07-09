@@ -2,7 +2,7 @@
 // the product, this is the working list): score + plain-language reasons +
 // Dismiss / Mark actioned. Reads /api/signals (scoped server-side),
 // status changes via PATCH /api/signals/<id>.
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Check, X } from 'lucide-react'
 import { apiJson } from '../lib/api'
 import { Button, Chip, Select, Spinner } from '../components/ui'
@@ -101,32 +101,56 @@ export default function SignalsView() {
       .catch(() => setSuburbs([]))
   }, [])
 
+  const fetchSeqRef = useRef(0)
   const fetchSignals = useCallback(async () => {
-    setLoading(true); setError('')
+    // Stale-while-revalidate on filter changes: keep the current rows on
+    // screen (dimmed via the small "refreshing" hint) instead of blanking
+    // the whole pane to a spinner for every suburb/score/status tweak.
+    // The full-pane spinner only shows when there is nothing to show yet.
+    const seq = ++fetchSeqRef.current
+    setSignals(prev => { if (prev.length === 0) setLoading(true); return prev })
+    setError('')
     try {
       const params = new URLSearchParams({ status, limit: '200' })
       if (suburb) params.set('suburb', suburb)
       if (minScore > 0) params.set('min_score', String(minScore))
-      const data = await apiJson(`/api/signals?${params.toString()}`)
+      const data = await apiJson(`/api/signals?${params.toString()}`,
+        { signal: AbortSignal.timeout(30000) })
+      if (seq !== fetchSeqRef.current) return   // a newer filter won
       setSignals(data.signals || [])
     } catch (e) {
+      if (seq !== fetchSeqRef.current) return
       setError(e.message || 'Could not load signals')
     } finally {
-      setLoading(false)
+      if (seq === fetchSeqRef.current) setLoading(false)
     }
   }, [status, suburb, minScore])
 
   useEffect(() => { fetchSignals() }, [fetchSignals])
 
   async function setSignalStatus(id, newStatus) {
+    // Optimistic: the row leaves the list instantly; it's restored (in
+    // place) if the PATCH fails. No more full round-trip wait per click.
     setBusyId(id)
+    let removed = null, removedIdx = -1
+    setSignals(prev => {
+      removedIdx = prev.findIndex(s => s.id === id)
+      removed = removedIdx >= 0 ? prev[removedIdx] : null
+      return prev.filter(s => s.id !== id)
+    })
     try {
       await apiJson(`/api/signals/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus }),
       })
-      setSignals(prev => prev.filter(s => s.id !== id))
     } catch (e) {
+      if (removed) {
+        setSignals(prev => {
+          const next = prev.slice()
+          next.splice(Math.min(removedIdx, next.length), 0, removed)
+          return next
+        })
+      }
       alert(`Could not update signal: ${e.message}`)
     } finally {
       setBusyId(null)

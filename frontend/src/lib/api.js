@@ -151,3 +151,29 @@ export function writeCache(suffix, value) {
     // still the source of truth.
   }
 }
+
+// Quota-aware write for BIG payloads (Hot Vendors reports run to several
+// MB on Ellenbrook/Mandurah): on QuotaExceeded, evict sibling entries
+// sharing `evictPrefix` (older reports) and retry once — those big
+// suburbs are exactly where the instant-cache matters most, so failing
+// silently defeated the cache where it was most needed. Returns whether
+// the value was stored.
+export function writeCacheEvicting(suffix, value, evictPrefix) {
+  let raw
+  try { raw = JSON.stringify(value) } catch { return false }
+  const key = _cacheKey(suffix)
+  try { localStorage.setItem(key, raw); return true } catch { /* quota */ }
+  try {
+    if (evictPrefix) {
+      const pfx = _cacheKey(evictPrefix)
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith(pfx) && k !== key) localStorage.removeItem(k)
+      }
+    }
+    localStorage.setItem(key, raw)
+    return true
+  } catch {
+    return false
+  }
+}

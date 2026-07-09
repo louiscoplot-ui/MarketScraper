@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from '../lib/api'
 
-const API = '/api'
 // GET /api/listings is the heaviest bootstrap call (full table for the
 // user's allowed suburbs). Go direct to Render so a cold start doesn't
 // 504 through Vercel's 25s edge proxy.
@@ -229,7 +228,8 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
     if (!listing?.id) return
     const label = listing.address || `#${listing.id}`
     if (!confirm(`Delete this ${listing.status || 'listing'}?\n\n${label}\n\nThis removes the row from the database. Cannot be undone (but a future scrape will re-add it if the URL reappears on REIWA).`)) return
-    const res = await fetch(`${API}/listings/${listing.id}`, { method: 'DELETE' })
+    // Direct to Render (Vercel's 25s edge cap 504'd cold-start deletes).
+    const res = await fetch(`${BACKEND_DIRECT}/api/listings/${listing.id}`, { method: 'DELETE' })
     if (res.ok) fetchListings()
     else alert('Delete failed')
   }, [fetchListings])
@@ -242,24 +242,40 @@ export function useListings({ checkedSuburbs, selectedStatuses, selectedAgent, s
   // other rows are preserved. Was triggering a full table reload
   // every time the user typed in a price cell.
   const updateListing = useCallback(async (id, fields) => {
-    const res = await fetch(`${API}/listings/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fields),
-    })
+    // OPTIMISTIC: mirror the edit into the row immediately (the cell
+    // used to sit unchanged for the whole round-trip — on a cold dyno it
+    // looked like typing did nothing), revert on failure. Also goes
+    // DIRECT to Render: the Vercel edge's 25s cap 504'd cold-start PATCHes.
+    let previous = null
+    setListings(prev => prev.map(l => {
+      if (l.id !== id) return l
+      previous = l
+      return { ...l, ...fields }
+    }))
+    const revert = () => { if (previous) setListings(prev => prev.map(l => (l.id === id ? previous : l))) }
+    let res
+    try {
+      res = await fetch(`${BACKEND_DIRECT}/api/listings/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+        signal: AbortSignal.timeout(30000),
+      })
+    } catch (e) {
+      revert()
+      alert(`Update failed: ${e.message}`)
+      return false
+    }
     if (res.ok) {
       try {
         const updated = await res.json()
         if (updated && typeof updated === 'object' && !updated.error) {
           setListings(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l))
         }
-      } catch {
-        // PATCH succeeded but body wasn't JSON — mirror what the user
-        // sent so the cell at least reflects the change locally.
-        setListings(prev => prev.map(l => l.id === id ? { ...l, ...fields } : l))
-      }
+      } catch { /* body wasn't JSON — the optimistic mirror stands */ }
       return true
     }
+    revert()
     const err = await res.json().catch(() => ({}))
     alert(err.error || `Update failed (${res.status})`)
     return false

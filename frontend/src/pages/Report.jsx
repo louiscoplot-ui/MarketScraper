@@ -129,18 +129,25 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
   useEffect(() => { splitRef.current = reportSplit }, [reportSplit])
   const startReportResize = (e) => {
     e.preventDefault()
+    // During the drag, write the column widths DIRECTLY to the grid node —
+    // setState per mousemove re-rendered the entire report (KPIs, lists,
+    // MapLibre map) dozens of times a second and made the drag stutter.
+    // React state (and localStorage) only commit once, on mouseup.
     const onMove = (ev) => {
-      const rect = gridRef.current && gridRef.current.getBoundingClientRect()
+      const node = gridRef.current
+      const rect = node && node.getBoundingClientRect()
       if (!rect || !rect.width) return
       let f = (ev.clientX - rect.left) / rect.width
       f = Math.max(0.3, Math.min(0.8, f))
-      setReportSplit(f)
+      splitRef.current = f
+      node.style.gridTemplateColumns = `${f}fr 10px ${(1 - f).toFixed(3)}fr`
     }
     const onUp = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
       document.body.style.userSelect = ''
-      try { localStorage.setItem('report_split', String(splitRef.current)) } catch {}
+      setReportSplit(splitRef.current)
+      try { localStorage.setItem('report_split', String(splitRef.current)) } catch { /* ignore */ }
     }
     document.body.style.userSelect = 'none'
     document.addEventListener('mousemove', onMove)

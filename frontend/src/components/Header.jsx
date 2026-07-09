@@ -111,11 +111,11 @@ export default function Header({
         const seed = new Set(checkedSuburbs)
         setReportSuburbs(seed)
         fetchReport(seed)
-      } else {
-        // Re-fetch in background only if needed; cache hit makes it
-        // instant for the same selection.
+      } else if (!hasReport) {
+        // Selection exists but no data yet — fetch it.
         fetchReport(reportSuburbs)
       }
+      // else: report already on screen — no redundant refetch per entry.
     } else {
       setView(id)
     }

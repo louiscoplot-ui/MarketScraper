@@ -9,7 +9,7 @@ import StickyHScroll from './components/StickyHScroll'
 import { formatIsoDate } from './hooks/useListings'
 import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
 import { getDeskMode } from './lib/deskFlag'
-import { readCache, writeCache } from './lib/api'
+import { readCache, writeCache, writeCacheEvicting } from './lib/api'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -237,14 +237,14 @@ export default function HotVendorScoring() {
     if (reportCache.current.has(uploadId)) {
       const hit = reportCache.current.get(uploadId)
       setData(hit)
-      writeCache('hv_last_report', hit)
+      writeCacheEvicting('hv_last_report', hit, 'hv_report_')
       return
     }
     const persisted = readCache(`hv_report_${uploadId}`)
     if (persisted) {
       reportCache.current.set(uploadId, persisted)
       setData(persisted)
-      writeCache('hv_last_report', persisted)
+      writeCacheEvicting('hv_last_report', persisted, 'hv_report_')
       return
     }
     setLoading(true)
@@ -259,8 +259,8 @@ export default function HotVendorScoring() {
       // Persist so this report is instant next visit. writeCache silently
       // no-ops if the payload blows the quota (big suburbs) — the network
       // stays the fallback, so correctness is unaffected.
-      writeCache(`hv_report_${uploadId}`, result)
-      writeCache('hv_last_report', result)
+      writeCacheEvicting(`hv_report_${uploadId}`, result, 'hv_report_')
+      writeCacheEvicting('hv_last_report', result, 'hv_report_')
     } catch (e) {
       if (seq !== loadSeqRef.current) return
       console.error(e)
@@ -290,8 +290,8 @@ export default function HotVendorScoring() {
     if (!result || result.error) return
     const id = result.upload_id ?? result.id ?? result.uploadId
     if (id != null) reportCache.current.set(id, result)
-    if (id != null) writeCache(`hv_report_${id}`, result)
-    writeCache('hv_last_report', result)
+    if (id != null) writeCacheEvicting(`hv_report_${id}`, result, 'hv_report_')
+    writeCacheEvicting('hv_last_report', result, 'hv_report_')
   }
 
   const [loadingStage, setLoadingStage] = useState('')
