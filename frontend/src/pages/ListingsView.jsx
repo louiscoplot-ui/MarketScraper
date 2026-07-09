@@ -264,8 +264,25 @@ export default function ListingsView({
       ) },
   ].filter(Boolean)
 
+  // Suburbs currently in scope (for the desk-mode context line). Falls
+  // back to the total when nothing is explicitly checked (= all shown).
+  const scopeCount = checkedSuburbs.size > 0 ? checkedSuburbs.size : suburbs.length
+
   return (
     <>
+      {/* Desk-mode page header — serif title + mono context line. Hidden
+          in classic via CSS ([data-desk] scope in desk.css). */}
+      <div className="desk-page-head">
+        <h2 className="desk-page-title">Prospecting</h2>
+        <div className="desk-page-sub">
+          {filteredListings.length} listing{filteredListings.length !== 1 ? 's' : ''}
+          {scopeCount > 0 && ` · ${scopeCount} suburb${scopeCount !== 1 ? 's' : ''}`}
+          {selectedAgency && ` · ${selectedAgency}`}
+          {selectedAgent && ` · ${selectedAgent}`}
+          {compact ? ' · compact view' : ''}
+        </div>
+      </div>
+
       <div className="filters">
         <button
           className={`filter-btn ${filterAll ? 'active' : ''}`}
