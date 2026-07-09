@@ -1006,7 +1006,7 @@ function App() {
           </div>
           {(view === 'today' || warmBackground) && (
             <div style={{ display: view === 'today' ? 'block' : 'none' }}>
-              <TodayView />
+              <TodayView setView={setView} saleFallenCount={saleFallenCount} />
             </div>
           )}
           {(view === 'signals' || warmBackground) && (
