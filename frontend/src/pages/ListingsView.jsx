@@ -306,10 +306,13 @@ export default function ListingsView({
       { k: 'active', l: 'Active', c: '#16A34A' }, { k: 'under_offer', l: 'Under Offer', c: '#D97706' },
       { k: 'sold', l: 'Sold', c: '#2563EB' }, { k: 'withdrawn', l: 'Withdrawn', c: '#DC2626' },
     ]
+    // Compact density: tighter rows + font so more fit without scrolling.
+    const rowPad = compact ? '5px 14px 5px 12px' : '9px 14px 9px 12px'
+    const rowFs = compact ? 11.5 : 12
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {/* header + filters */}
-        <div style={{ padding: '22px 30px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div style={{ padding: compact ? '16px 30px 12px' : '22px 30px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 16, gap: 16, flexWrap: 'wrap' }}>
             <div>
               <div style={{ display: 'inline-flex', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, marginBottom: 12 }}>
@@ -405,9 +408,9 @@ export default function ListingsView({
                 const d = calcDOM ? calcDOM(l) : null
                 return (
                   <div key={l.id ?? `${l.address}-${l.suburb_name}`}
-                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: '9px 14px 9px 12px', borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(l.status)}`, background: `color-mix(in srgb, ${stColor(l.status)} 9%, var(--surface))` }}>
+                    style={{ display: 'grid', gridTemplateColumns: GRID, gap: 10, alignItems: 'center', padding: rowPad, borderBottom: '1px solid var(--border)', borderLeft: `3px solid ${stColor(l.status)}`, background: `color-mix(in srgb, ${stColor(l.status)} 9%, var(--surface))` }}>
                     <a href={l.reiwa_url || '#'} onClick={(e) => { e.preventDefault(); setDetail(l) }} title="Open property dossier"
-                      style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</a>
+                      style={{ fontFamily: 'var(--font-ui)', fontSize: rowFs, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</a>
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.suburb_name}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.price_text || '—'}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>{cfg(l)}</span>
