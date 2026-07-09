@@ -2,7 +2,7 @@
 // the MCP push size limit. All state still lives in App.jsx; this
 // component is purely presentational.
 
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { getDeskMode } from '../lib/deskFlag'
 import { MultiSelect, Chip } from '../components/ui'
 
@@ -118,6 +118,34 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
     if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current)
   }, [])
 
+  // Desk: drag the divider to resize the left/right columns. Persisted so
+  // each operator keeps the layout they like.
+  const [reportSplit, setReportSplit] = useState(() => {
+    try { const v = parseFloat(localStorage.getItem('report_split')); return v >= 0.3 && v <= 0.8 ? v : 0.58 } catch { return 0.58 }
+  })
+  const gridRef = useRef(null)
+  const splitRef = useRef(reportSplit)
+  useEffect(() => { splitRef.current = reportSplit }, [reportSplit])
+  const startReportResize = (e) => {
+    e.preventDefault()
+    const onMove = (ev) => {
+      const rect = gridRef.current && gridRef.current.getBoundingClientRect()
+      if (!rect || !rect.width) return
+      let f = (ev.clientX - rect.left) / rect.width
+      f = Math.max(0.3, Math.min(0.8, f))
+      setReportSplit(f)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.userSelect = ''
+      try { localStorage.setItem('report_split', String(splitRef.current)) } catch {}
+    }
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
   // ── Desk redesign — full render of mock #report. ──
   if (getDeskMode() === 'desk' && report && !report.error) {
     const sm = report.summary || {}, pr = report.price || {}, dm = report.dom || {}
@@ -156,7 +184,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           ))}
         </div>
 
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 16, minHeight: 0 }}>
+        <div ref={gridRef} style={{ flex: 1, display: 'grid', gridTemplateColumns: `${reportSplit}fr 10px ${(1 - reportSplit).toFixed(3)}fr`, gap: 6, minHeight: 0 }}>
           {/* left */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
@@ -186,6 +214,11 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 })}
               </div>
             </div>
+          </div>
+          {/* drag to resize left / right */}
+          <div onMouseDown={startReportResize} title="Drag to resize"
+            style={{ cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 4, height: 46, borderRadius: 999, background: 'var(--border)' }} />
           </div>
           {/* right */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
