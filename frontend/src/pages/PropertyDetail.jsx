@@ -4,7 +4,7 @@
 // then three columns — agent & note · property story timeline · market
 // context (real mini-map + sold nearby). All data is local: the listing
 // row itself plus the in-memory listings set for comparables. No endpoint.
-import { X } from 'lucide-react'
+import { X, ExternalLink } from 'lucide-react'
 import DeskMap from '../components/DeskMap'
 
 const STATUS_META = {
@@ -46,11 +46,23 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
     l.land_size && `${l.land_size}`,
   ].filter(Boolean)
 
+  // A price string is only worth showing if it looks like money — REIWA
+  // fills the asking field with "Contact agent" / "Contact form" noise,
+  // and western-suburb sales rarely disclose. Sold events show the real
+  // sold_price, never the asking text.
+  const looksPrice = (s) => /\$|\d{4,}/.test(String(s || ''))
+  const soldPriceOf = (x) => { const sp = String(x.sold_price || '').trim(); return looksPrice(sp) ? sp : '' }
+
+  // Address already carries "Suburb WA 6018" — don't append the suburb
+  // again ("…Innaloo WA 6018, Innaloo"). Only add it when it's absent.
+  const addrHasSuburb = suburb && String(l.address || '').toLowerCase().includes(suburb.toLowerCase())
+  const fullAddress = addrHasSuburb ? l.address : `${l.address}${suburb ? `, ${suburb}` : ''}`
+
   // Property story — the dated events we actually store, oldest first.
   const story = [
-    l.listing_date && { c: 'var(--status-good)', date: fmtD(l.listing_date), event: 'Listed for sale', val: l.price_text || '' },
+    l.listing_date && { c: 'var(--status-good)', date: fmtD(l.listing_date), event: 'Listed for sale', val: looksPrice(l.price_text) ? l.price_text : '' },
     l.withdrawn_date && { c: 'var(--status-alert)', date: fmtD(l.withdrawn_date), event: 'Withdrawn from market', val: dom != null ? `after ${dom} days` : '' },
-    l.sold_date && { c: 'var(--status-info)', date: fmtD(l.sold_date), event: 'Sold', val: l.price_text || '' },
+    l.sold_date && { c: 'var(--status-info)', date: fmtD(l.sold_date), event: 'Sold', val: soldPriceOf(l) },
   ].filter(Boolean)
 
   // Sold nearby — real comparables from the listings already in memory:
@@ -78,7 +90,7 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 24px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {l.address}{suburb ? `, ${suburb}` : ''}
+              {fullAddress}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
               {chip(`var(--status-${meta.st}-bg)`, `var(--status-${meta.st}-text)`, meta.label, `var(--status-${meta.st})`)}
@@ -86,7 +98,14 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
               {facts.map((f, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 8px', whiteSpace: 'nowrap' }}>{f}</span>)}
             </div>
           </div>
-          <span style={{ fontFamily: 'var(--font-display)', fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text)', flex: 'none' }}>{l.price_text || '—'}</span>
+          {looksPrice(l.price_text) && <span style={{ fontFamily: 'var(--font-display)', fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text)', flex: 'none' }}>{l.price_text}</span>}
+          {/* Prominent REIWA link — no need to scroll the table right to
+              reach the external listing once the dossier is open. */}
+          {l.reiwa_url && (
+            <a href={l.reiwa_url} target="_blank" rel="noopener" style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--accent-fg)', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 8, padding: '8px 13px', textDecoration: 'none' }}>
+              View on REIWA <ExternalLink size={13} />
+            </a>
+          )}
           <button onClick={onClose} aria-label="Close" style={{ flex: 'none', width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <X size={15} />
           </button>
@@ -161,15 +180,19 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>
                   No confirmed sales in {suburb || 'this suburb'} in the current data. The Market Report has suburb medians.
                 </div>
-              ) : comparables.map((c, i) => (
+              ) : comparables.map((c, i) => {
+                const sp = soldPriceOf(c)
+                return (
                 <div key={c.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: i < comparables.length - 1 ? '1px solid var(--border)' : 'none' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.address}</div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)' }}>{c.sold_date ? `sold ${fmtD(c.sold_date)}` : 'sold'}</div>
                   </div>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text)', flex: 'none' }}>{c.price_text || '—'}</span>
+                  {/* Real sold price only; western-suburb sales rarely
+                      disclose, so blank reads honestly as "undisclosed". */}
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: sp ? 'var(--text)' : 'var(--text-faint)', flex: 'none' }}>{sp || 'undisclosed'}</span>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         </div>
