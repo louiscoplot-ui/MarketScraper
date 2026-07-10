@@ -1079,27 +1079,37 @@ def scrape_selected():
         return jsonify({'error': 'No valid suburbs found'}), 400
 
     # Atomic guard + pre-mark, so a concurrent request can't double-launch
-    # the same suburb while the worker thread is still spinning up.
+    # the same suburb while the worker thread is still spinning up. A suburb
+    # already running (e.g. an overlapping cron) is SKIPPED, not fatal — one
+    # busy suburb must not 409 the whole selected batch (the user would have
+    # to deselect it and retry). We launch the rest and report the skips.
+    launch, busy = [], []
     with scrape_jobs_lock:
         for s in suburbs_to_scrape:
             if s['id'] in scrape_jobs and scrape_jobs[s['id']].get('status') == 'running':
-                return jsonify({'error': f'Scrape already running for {s["name"]}'}), 409
-        for s in suburbs_to_scrape:
+                busy.append(s['name'])
+                continue
             scrape_jobs[s['id']] = {
                 'status': 'running',
                 'progress': 'Queued...',
                 'started_at': datetime.utcnow().isoformat(),
             }
+            launch.append(s)
+
+    if not launch:
+        return jsonify({'error': f'Already running for: {", ".join(busy)}', 'busy': busy}), 409
 
     thread = threading.Thread(
         target=run_scrape_all,
         args=([{'id': s['id'], 'slug': s['slug'], 'name': s['name']}
-               for s in suburbs_to_scrape],),
+               for s in launch],),
         daemon=True
     )
     thread.start()
 
-    return jsonify({'status': 'started', 'suburbs': [s['name'] for s in suburbs_to_scrape]})
+    return jsonify({'status': 'started',
+                    'suburbs': [s['name'] for s in launch],
+                    'skipped_busy': busy})
 
 
 @app.route('/api/scrape/logs', methods=['GET'])
@@ -1117,14 +1127,9 @@ def list_scrape_logs():
         return jsonify(get_scrape_logs())
     if not allowed_ids:
         return jsonify([])
-    # Non-admin without a specific suburb_id: return logs only for the
-    # caller's assigned suburbs. get_scrape_logs filters one suburb at a
-    # time, so we collect across allowed and re-cap to 20 most recent.
-    rows = []
-    for sid in allowed_ids:
-        rows.extend(get_scrape_logs(suburb_id=sid, limit=20))
-    rows.sort(key=lambda r: r.get('started_at') or '', reverse=True)
-    return jsonify(rows[:20])
+    # Non-admin without a specific suburb_id: logs for the caller's
+    # assigned suburbs in ONE query (was N+1 — one query per suburb).
+    return jsonify(get_scrape_logs(suburb_ids=list(allowed_ids), limit=20))
 
 
 @app.route('/api/admin/transitions', methods=['GET'])

@@ -656,13 +656,20 @@ def update_scrape_log(log_id, **kwargs):
     conn.close()
 
 
-def get_scrape_logs(suburb_id=None, limit=20):
+def get_scrape_logs(suburb_id=None, suburb_ids=None, limit=20):
+    """`suburb_ids` (a list) returns the most-recent `limit` logs ACROSS
+    those suburbs in ONE query — avoids the N+1 the /api/scrape/logs route
+    used to do (one query per assigned suburb) for non-admin callers."""
     conn = get_db()
     query = "SELECT sl.*, s.name as suburb_name FROM scrape_logs sl JOIN suburbs s ON sl.suburb_id = s.id"
     params = []
     if suburb_id:
         query += " WHERE sl.suburb_id = ?"
         params.append(suburb_id)
+    elif suburb_ids:
+        placeholders = ','.join('?' * len(suburb_ids))
+        query += f" WHERE sl.suburb_id IN ({placeholders})"
+        params.extend(suburb_ids)
     query += " ORDER BY sl.started_at DESC LIMIT ?"
     params.append(limit)
     rows = conn.execute(query, params).fetchall()
