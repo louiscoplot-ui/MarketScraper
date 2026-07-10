@@ -626,8 +626,13 @@ export default function RentalView({ selectedNames } = {}) {
         headers: { 'X-Access-Key': getAccessKey() },
         body: fd,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      // Read as text first: a 500 returns a plain/HTML body ("An error
+      // occurred…"), and a blind res.json() turned that into the useless
+      // "Unexpected token 'A'…is not valid JSON" instead of the real message.
+      const raw = await res.text()
+      let data = {}
+      try { data = raw ? JSON.parse(raw) : {} } catch { data = { error: raw.slice(0, 300) } }
+      if (!res.ok) throw new Error(data.error || `Import failed (HTTP ${res.status})`)
       // Prefer the backend's human summary — it distinguishes enriched
       // from out-of-scope suburbs skipped (a 26-sheet export imported into
       // 15 tracked suburbs should read as NORMAL, not an error). Fall back
