@@ -4,10 +4,14 @@
 // status changes via PATCH /api/signals/<id>.
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Check, X } from 'lucide-react'
-import { apiJson } from '../lib/api'
+import { apiJson, readCache, writeCache } from '../lib/api'
 import { Button, Chip, Select, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
 import DeskMap, { STATUS_COLOR } from '../components/DeskMap'
+
+// Per-filter cache key so switching suburb/score/status repaints instantly
+// from the last good rows while the network revalidates in the background.
+const sigKey = (status, suburb, minScore) => `signals_${status}_${suburb || 'all'}_${minScore}`
 
 // Pin colours come from DeskMap's STATUS_COLOR — one place to retune.
 const SIGNAL_HEX = { alert: STATUS_COLOR.withdrawn, watch: STATUS_COLOR.under_offer, off: STATUS_COLOR.Leased }
@@ -86,12 +90,14 @@ const SCORE_FILTERS = [
 ]
 
 export default function SignalsView() {
-  const [signals, setSignals] = useState([])
+  // Seed from the cached default query so the first paint shows real rows
+  // instead of a spinner (and never the bare "signal timed out" screen).
+  const [signals, setSignals] = useState(() => readCache(sigKey('new', '', 0)) || [])
   const [status, setStatus] = useState('new')
   const [suburb, setSuburb] = useState('')        // '' = all my suburbs
   const [minScore, setMinScore] = useState(0)
   const [suburbs, setSuburbs] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => (readCache(sigKey('new', '', 0)) || []).length === 0)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
 
@@ -104,26 +110,47 @@ export default function SignalsView() {
 
   const fetchSeqRef = useRef(0)
   const fetchSignals = useCallback(async () => {
-    // Stale-while-revalidate on filter changes: keep the current rows on
-    // screen (dimmed via the small "refreshing" hint) instead of blanking
-    // the whole pane to a spinner for every suburb/score/status tweak.
-    // The full-pane spinner only shows when there is nothing to show yet.
+    // Stale-while-revalidate on filter changes: repaint instantly from the
+    // per-filter cache, keep those rows on screen while revalidating. The
+    // full-pane spinner only shows when there is genuinely nothing cached.
     const seq = ++fetchSeqRef.current
-    setSignals(prev => { if (prev.length === 0) setLoading(true); return prev })
+    const key = sigKey(status, suburb, minScore)
+    const cached = readCache(key)
+    if (cached && cached.length) { setSignals(cached); setLoading(false) }
+    else setSignals(prev => { if (prev.length === 0) setLoading(true); return prev })
     setError('')
-    try {
-      const params = new URLSearchParams({ status, limit: '200' })
-      if (suburb) params.set('suburb', suburb)
-      if (minScore > 0) params.set('min_score', String(minScore))
-      const data = await apiJson(`/api/signals?${params.toString()}`,
-        { signal: AbortSignal.timeout(30000) })
-      if (seq !== fetchSeqRef.current) return   // a newer filter won
-      setSignals(data.signals || [])
-    } catch (e) {
-      if (seq !== fetchSeqRef.current) return
-      setError(e.message || 'Could not load signals')
-    } finally {
-      if (seq === fetchSeqRef.current) setLoading(false)
+    const params = new URLSearchParams({ status, limit: '200' })
+    if (suburb) params.set('suburb', suburb)
+    if (minScore > 0) params.set('min_score', String(minScore))
+    // Render free-tier cold starts can take 30–60s. Escalate the deadline
+    // instead of surfacing "signal timed out" on the first slow attempt.
+    for (const timeout of [20000, 45000]) {
+      try {
+        const data = await apiJson(`/api/signals?${params.toString()}`,
+          { signal: AbortSignal.timeout(timeout) })
+        if (seq !== fetchSeqRef.current) return   // a newer filter won
+        const rows = data.signals || []
+        setSignals(rows)
+        writeCache(key, rows)
+        setError('')
+        setLoading(false)
+        return
+      } catch (e) {
+        if (seq !== fetchSeqRef.current) return
+        if (timeout === 45000) {
+          const timedOut = e && /timed out|abort/i.test(String(e.message || e.name || ''))
+          // Only surface an error when there's nothing cached to show.
+          setSignals(prev => {
+            if (prev.length === 0) {
+              setError(timedOut
+                ? 'The server is still waking up — this can take a minute after a quiet spell.'
+                : (e.message || 'Could not load signals.'))
+            }
+            return prev
+          })
+          setLoading(false)
+        }
+      }
     }
   }, [status, suburb, minScore])
 
@@ -212,7 +239,10 @@ export default function SignalsView() {
             {loading ? (
               <div style={{ color: 'var(--text-muted)', padding: 24, display: 'flex', alignItems: 'center', gap: 10 }}><Spinner size={16} muted inline /> Loading signals…</div>
             ) : error ? (
-              <div style={{ color: 'var(--status-alert-text)', padding: 24 }}>{error}</div>
+              <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-ui)', fontSize: 13 }}>{error}</span>
+                <Button variant="secondary" size="sm" onClick={fetchSignals}>Retry</Button>
+              </div>
             ) : signals.length === 0 ? (
               <div style={{ color: 'var(--text-muted)', padding: 24 }}>No {STATUS_LABELS[status].toLowerCase()} signals yet.</div>
             ) : signals.map(s => {
@@ -285,7 +315,10 @@ export default function SignalsView() {
           <Spinner size={16} muted inline /> Loading signals…
         </div>
       ) : error ? (
-        <div style={{ color: 'var(--status-alert-text)', padding: 24 }}>{error}</div>
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+          <span style={{ color: 'var(--text-muted)' }}>{error}</span>
+          <Button variant="secondary" size="sm" onClick={fetchSignals}>Retry</Button>
+        </div>
       ) : signals.length === 0 ? (
         <div style={{ color: 'var(--text-muted)', padding: 24 }}>
           No {STATUS_LABELS[status].toLowerCase()} signals. Signals are
