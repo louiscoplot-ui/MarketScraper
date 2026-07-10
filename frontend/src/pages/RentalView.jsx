@@ -238,6 +238,9 @@ export default function RentalView({ selectedNames } = {}) {
   const [selectedAgency, setSelectedAgency] = useState('')
   const [selectedAgent,  setSelectedAgent]  = useState('')
   useEffect(() => { setSelectedAgent('') }, [selectedAgency])
+  // Local suburb filter for navigation — '' = all suburbs (grouped
+  // together in the table). Purely client-side on already-loaded rows.
+  const [viewSuburb, setViewSuburb] = useState('')
 
   // Persist compact preference so the operator's density choice
   // survives reloads — same key family as the other tables
@@ -469,17 +472,34 @@ export default function RentalView({ selectedNames } = {}) {
       : listings
     return [...new Set(pool.map(r => r.agent).filter(Boolean))].sort()
   }, [listings, selectedAgency])
+  // Suburbs actually present in the loaded rows — drives the navigation
+  // dropdown so the operator jumps straight to one suburb.
+  const uniqueSuburbs = useMemo(
+    () => [...new Set(listings.map(r => r.suburb).filter(Boolean))].sort(),
+    [listings]
+  )
 
+  const VALID_RENTAL_STATUS = new Set(['active', 'new', 'leased'])
   const filteredBase = useMemo(() => {
     return listings.filter(r => {
+      // Hide garbage rows the old import ingested from the Excel's agency
+      // recap tables (status = an agency name, address = "Total, <suburb>").
+      // Display-only — the data isn't touched; the import fix stops new
+      // ones and a clean re-import removes these. Real rows are Active/
+      // New/Leased with a street address.
+      const st = String(r.status || '').trim().toLowerCase()
+      if (st && !VALID_RENTAL_STATUS.has(st)) return false
+      if (/^total[,\s]/i.test(String(r.address || '').trim())) return false
+
       const isLeased = r.status === 'Leased'
       if (isLeased && !showLeased) return false
       if (!isLeased && !showAvailable) return false
       if (selectedAgency && r.agency !== selectedAgency) return false
       if (selectedAgent && r.agent !== selectedAgent) return false
+      if (viewSuburb && r.suburb !== viewSuburb) return false
       return true
     })
-  }, [listings, showAvailable, showLeased, selectedAgency, selectedAgent])
+  }, [listings, showAvailable, showLeased, selectedAgency, selectedAgent, viewSuburb])
 
   // Click-to-sort table headers. Mirrors the ListingsView pattern
   // (useListings.js:125): same field toggles direction, new field
@@ -510,6 +530,14 @@ export default function RentalView({ selectedNames } = {}) {
     const arr = [...filteredBase]
     const dir = sortDir === 'asc' ? 1 : -1
     arr.sort((a, b) => {
+      // When viewing ALL suburbs, group by suburb first so rows for the
+      // same suburb sit together (easy navigation); within a suburb the
+      // chosen column sort applies. A specific suburb view skips this.
+      if (!viewSuburb) {
+        const sa = (a.suburb || '').toLowerCase(), sb = (b.suburb || '').toLowerCase()
+        if (sa < sb) return -1
+        if (sa > sb) return 1
+      }
       let va, vb
       if (sortField === 'price_week') {
         va = _priceToInt(a.price_week); vb = _priceToInt(b.price_week)
@@ -529,7 +557,7 @@ export default function RentalView({ selectedNames } = {}) {
       return 0
     })
     return arr
-  }, [filteredBase, sortField, sortDir])
+  }, [filteredBase, sortField, sortDir, viewSuburb])
 
   // Export Excel — multi-sheet workbook served from the rental_api
   // export route. Goes through BACKEND_DIRECT (Vercel proxy would
@@ -795,6 +823,22 @@ export default function RentalView({ selectedNames } = {}) {
             label={`Leased (${counts.leased})`}
             colorOn="var(--text-muted)" bgOn="var(--border)"
           />
+          {/* Suburb navigation — jump straight to one suburb (or All).
+              Bordered accent so it reads as the primary way to navigate. */}
+          <select
+            value={viewSuburb}
+            onChange={(e) => setViewSuburb(e.target.value)}
+            title={viewSuburb || 'Jump to a suburb'}
+            style={{
+              padding: '6px 10px', fontSize: 12, fontWeight: 600, maxWidth: 190,
+              border: `1px solid ${viewSuburb ? 'var(--accent)' : 'var(--border)'}`,
+              color: viewSuburb ? 'var(--accent)' : 'var(--text)',
+              borderRadius: 6, background: 'var(--surface)',
+            }}
+          >
+            <option value="">All suburbs ({uniqueSuburbs.length})</option>
+            {uniqueSuburbs.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
           <select
             value={selectedAgency}
             onChange={(e) => setSelectedAgency(e.target.value)}
