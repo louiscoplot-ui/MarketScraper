@@ -1070,6 +1070,25 @@ export default function HotVendorScoring() {
                   <button className="btn-icon" onClick={() => setPropDetail(null)} title="Close">×</button>
                 </div>
 
+                {/* narrative — why this owner, in one plain sentence (from
+                    the fields we actually have; no invented claims). */}
+                {(() => {
+                  const cbSt = callbackState(callbacks[p.address])
+                  if (cbSt === 'due') {
+                    return <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 10, padding: '9px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--status-watch-text)' }}>Call-back due — you set a reminder for {formatIsoDate(callbacks[p.address])}.</div>
+                  }
+                  const bits = []
+                  if (p.holding_years != null) bits.push(`${Math.round(p.holding_years)}-year hold`)
+                  if (p.owner_gain_pct != null) bits.push(`an estimated +${Math.round(p.owner_gain_pct)}% untapped gain`)
+                  if (!bits.length) return null
+                  const street = p.sales_count ? ` ${p.sales_count} recent sale${p.sales_count !== 1 ? 's' : ''} in the street strengthen${p.sales_count === 1 ? 's' : ''} the conversation.` : ''
+                  return (
+                    <div style={{ background: 'var(--accent-soft)', borderRadius: 10, padding: '9px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--accent)' }}>
+                      {bits.join(' with ')} — owners in this bracket are the suburb's most likely listers.{street}
+                    </div>
+                  )
+                })()}
+
                 {/* contact — owner + editable phone */}
                 <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
                   <div style={lblStyle}>Owner</div>
