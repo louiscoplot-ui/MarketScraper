@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { MapPin } from 'lucide-react'
 import { setAccessKey, BACKEND_DIRECT } from '../lib/api'
 import Footer from '../components/Footer'
@@ -8,6 +8,17 @@ const goLegal = (hash) => (e) => {
   e.preventDefault()
   window.location.hash = hash
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+}
+
+// styles.input sets outline:'none', so without these the keyboard focus
+// position is invisible (WCAG 2.4.7). Same ring as Select.jsx.
+const focusInput = (e) => {
+  e.currentTarget.style.borderColor = 'var(--accent)'
+  e.currentTarget.style.boxShadow = 'var(--focus-ring)'
+}
+const blurInput = (e) => {
+  e.currentTarget.style.borderColor = 'var(--border)'
+  e.currentTarget.style.boxShadow = 'none'
 }
 
 // Magic-link login. The user types their email; we POST to
@@ -21,7 +32,11 @@ const goLegal = (hash) => (e) => {
 export default function Login() {
   const [email, setEmail] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const [busy, setBusy] = useState(false)
+  // Which action is in flight ('password' | 'link' | 'key' | null) —
+  // a single shared boolean made the magic-link button say "Sending…"
+  // while a password sign-in was the request actually running.
+  const [busyAction, setBusyAction] = useState(null)
+  const busy = busyAction !== null
   const [showKey, setShowKey] = useState(false)
   const [keyInput, setKeyInput] = useState('')
   const [keyError, setKeyError] = useState('')
@@ -35,7 +50,7 @@ export default function Login() {
     // pretending to be a form submission.
     if (e && typeof e.preventDefault === 'function') e.preventDefault()
     if (!email.trim() || busy) return
-    setBusy(true)
+    setBusyAction('link')
     setDirectError('')
     // Hit Render directly — via the Vercel proxy a cold-start 504 (25s)
     // was swallowed and we showed "Check your inbox" anyway, so a
@@ -49,19 +64,19 @@ export default function Login() {
       })
       if (!res.ok) {
         setDirectError('Could not send the link right now. Please try again in a moment.')
-        setBusy(false)
+        setBusyAction(null)
         return
       }
       setSubmitted(true)
     } catch {
       setDirectError('Could not reach the server. Try again in a moment.')
     }
-    setBusy(false)
+    setBusyAction(null)
   }
 
   const onSubmitDirect = async () => {
     if (!email.trim() || busy) return
-    setBusy(true)
+    setBusyAction('password')
     setDirectError('')
     try {
       const res = await fetch(`${BACKEND_DIRECT}/api/auth/login-by-email`, {
@@ -71,12 +86,12 @@ export default function Login() {
       })
       if (res.status === 404) {
         setDirectError('Email not found — use the magic link below')
-        setBusy(false)
+        setBusyAction(null)
         return
       }
       if (res.status === 401) {
         setDirectError('Incorrect password')
-        setBusy(false)
+        setBusyAction(null)
         return
       }
       if (res.status === 403) {
@@ -89,12 +104,12 @@ export default function Login() {
             ? 'First time here? Tap “Send login link” below — we’ll email you a one-click link.'
             : 'Server error. Please try again.'
         )
-        setBusy(false)
+        setBusyAction(null)
         return
       }
       if (!res.ok) {
         setDirectError('Server error. Please try again.')
-        setBusy(false)
+        setBusyAction(null)
         return
       }
       const data = await res.json()
@@ -102,7 +117,7 @@ export default function Login() {
       window.location.reload()
     } catch {
       setDirectError('Could not reach the server. Try again in a moment.')
-      setBusy(false)
+      setBusyAction(null)
     }
   }
 
@@ -110,28 +125,38 @@ export default function Login() {
     e.preventDefault()
     const k = keyInput.trim()
     if (!k || busy) return
-    setBusy(true)
+    setBusyAction('key')
     setKeyError('')
     try {
       const res = await fetch(`${BACKEND_DIRECT}/api/auth/me`, { headers: { 'X-Access-Key': k } })
       if (!res.ok) {
         setKeyError('Key not recognised. Double-check it or request a magic link instead.')
-        setBusy(false)
+        setBusyAction(null)
         return
       }
       setAccessKey(k)
       window.location.replace('/')
     } catch {
       setKeyError('Could not reach the server. Try again in a moment.')
-      setBusy(false)
+      setBusyAction(null)
     }
   }
 
   const desk = getDeskMode() === 'desk'
+  // Inline styles can't carry media queries, so track the breakpoint in
+  // JS: below ~720px the desk split stacks into a single column instead
+  // of squeezing the form beside a 44% brand band.
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 720px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)')
+    const onChange = (e) => setNarrow(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
   return (
     <div style={styles.page}>
-      <div style={desk ? { ...styles.card, maxWidth: 940, display: 'flex', alignItems: 'stretch' } : styles.card}>
-        <div style={desk ? { ...styles.brandBand, flex: '0 0 44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 28, padding: '44px 38px', background: 'linear-gradient(178deg,#0E1A14 0%,#0C120E 55%,#0A0F0C 100%)' } : styles.brandBand}>
+      <div style={desk ? { ...styles.card, maxWidth: narrow ? 440 : 940, display: 'flex', alignItems: 'stretch', flexDirection: narrow ? 'column' : 'row' } : styles.card}>
+        <div style={desk ? { ...styles.brandBand, flex: narrow ? '0 0 auto' : '0 0 44%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 28, padding: narrow ? '32px 28px' : '44px 38px', background: 'linear-gradient(178deg,#0E1A14 0%,#0C120E 55%,#0A0F0C 100%)' } : styles.brandBand}>
           <div style={styles.brandLogo}>
             <MapPin size={22} strokeWidth={2.5} aria-hidden="true" />
             <h1 className="login-title" style={styles.brandTitle}>SuburbDesk</h1>
@@ -154,7 +179,7 @@ export default function Login() {
             <div style={styles.brandSub}>Real-estate prospecting</div>
           )}
         </div>
-        <div style={desk ? { ...styles.body, flex: 1, padding: '44px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'center' } : styles.body}>
+        <div style={desk ? { ...styles.body, flex: 1, padding: narrow ? '32px 28px' : '44px 40px', display: 'flex', flexDirection: 'column', justifyContent: 'center' } : styles.body}>
           {submitted ? (
             <>
               <h2 className="login-h2" style={styles.h2}>Check your inbox</h2>
@@ -174,8 +199,8 @@ export default function Login() {
             <>
               <h2 className="login-h2" style={styles.h2}>Sign in</h2>
               <p style={styles.p}>
-                Enter the email your administrator used to invite you.
-                We'll send you a one-click login link.
+                Sign in with your email and password. First time here?
+                We'll email you a one-click login link instead.
               </p>
               <form onSubmit={(e) => { e.preventDefault(); onSubmitDirect() }}>
                 <input
@@ -185,6 +210,8 @@ export default function Login() {
                   placeholder="you@agency.com.au"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onFocus={focusInput}
+                  onBlur={blurInput}
                   style={styles.input}
                 />
                 <input
@@ -192,11 +219,17 @@ export default function Login() {
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onFocus={focusInput}
+                  onBlur={blurInput}
                   style={styles.input}
                 />
                 {/* Primary action — Enter on either input hits this one. */}
-                <button type="submit" disabled={busy} style={styles.btn}>
-                  Sign in with my email
+                <button
+                  type="submit"
+                  disabled={busy}
+                  style={{ ...styles.btn, opacity: busy ? 0.6 : 1, cursor: busy ? 'not-allowed' : 'pointer' }}
+                >
+                  {busyAction === 'password' ? 'Signing in…' : 'Sign in with my email'}
                 </button>
                 <p style={styles.helperText}>
                   Instant access if you already have an account
@@ -208,9 +241,9 @@ export default function Login() {
                   type="button"
                   disabled={busy}
                   onClick={() => onSubmit()}
-                  style={styles.btnSecondary}
+                  style={{ ...styles.btnSecondary, opacity: busy ? 0.6 : 1, cursor: busy ? 'not-allowed' : 'pointer' }}
                 >
-                  {busy ? 'Sending…' : 'Send login link'}
+                  {busyAction === 'link' ? 'Sending…' : 'Send login link'}
                 </button>
                 <p style={styles.helperText}>
                   Email a one-click link (first time signing in)
@@ -240,11 +273,17 @@ export default function Login() {
                       placeholder="Paste your 32-character key"
                       value={keyInput}
                       onChange={(e) => setKeyInput(e.target.value)}
+                      onFocus={focusInput}
+                      onBlur={blurInput}
                       style={{ ...styles.input, fontFamily: 'monospace' }}
                     />
                     {keyError && <div style={styles.err}>{keyError}</div>}
-                    <button type="submit" disabled={busy} style={styles.btnSecondary}>
-                      Sign in with key
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      style={{ ...styles.btnSecondary, opacity: busy ? 0.6 : 1, cursor: busy ? 'not-allowed' : 'pointer' }}
+                    >
+                      {busyAction === 'key' ? 'Signing in…' : 'Sign in with key'}
                     </button>
                   </form>
                 )}

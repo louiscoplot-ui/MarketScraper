@@ -28,8 +28,10 @@ def _quarter_start_iso():
     return datetime(now.year, q_first_month, 1).strftime('%Y-%m-%d')
 
 
-def _roi_for(conn, user_id):
-    """ROI aggregates for one user (user_id None → all users / admin)."""
+def _roi_for(conn, user_id, suburb_names=None):
+    """ROI aggregates for one user (user_id None → all users / admin).
+    suburb_names (list) scopes the signals count — without it a regular
+    user received a GLOBAL cross-tenant signals_detected_30d."""
     where, params = "status = 'won'", []
     if user_id is not None:
         where += " AND user_id = ?"
@@ -54,11 +56,23 @@ def _roi_for(conn, user_id):
         b['commission'] += int(r['c'] or 0)
 
     since30 = (datetime.utcnow() - timedelta(days=30)).isoformat()
-    sig = conn.execute(
-        "SELECT COUNT(*) AS n FROM listing_transitions WHERE detected_at >= ?",
-        (since30,)
-    ).fetchone()
-    signals_30d = dict(sig)['n'] if sig else 0
+    if suburb_names is not None and not suburb_names:
+        # user with zero assigned suburbs — nothing visible, count 0
+        signals_30d = 0
+    elif suburb_names:
+        ph = ','.join(['?'] * len(suburb_names))
+        sig = conn.execute(
+            f"SELECT COUNT(*) AS n FROM listing_transitions "
+            f"WHERE detected_at >= ? AND LOWER(suburb) IN ({ph})",
+            tuple([since30] + [s.lower() for s in suburb_names])
+        ).fetchone()
+        signals_30d = dict(sig)['n'] if sig else 0
+    else:
+        sig = conn.execute(
+            "SELECT COUNT(*) AS n FROM listing_transitions WHERE detected_at >= ?",
+            (since30,)
+        ).fetchone()
+        signals_30d = dict(sig)['n'] if sig else 0
 
     return {
         'total_mandates_won': len(won),
@@ -120,7 +134,10 @@ def register_roi_routes(app):
         user, allowed_ids = resolve_request_scope()
         if not user:
             return jsonify({'error': 'unauthenticated'}), 401
-        is_admin = allowed_ids is None
+        # role check, NOT allowed_ids is None: the all_suburbs flag also
+        # yields None (full READ scope) but must not grant write/global
+        # rights here.
+        is_admin = (user.get('role') or '').lower() == 'admin'
         body = request.get_json(silent=True) or {}
         commission = body.get('commission_value')
         source = (body.get('mandate_source') or 'manual').strip().lower()
@@ -159,10 +176,19 @@ def register_roi_routes(app):
         user, allowed_ids = resolve_request_scope()
         if not user:
             return jsonify({'error': 'unauthenticated'}), 401
-        is_admin = allowed_ids is None
+        # role check, NOT allowed_ids is None (all_suburbs ≠ admin).
+        is_admin = (user.get('role') or '').lower() == 'admin'
         conn = get_db()
         try:
-            data = _roi_for(conn, None if is_admin else user['id'])
+            suburb_names = None
+            if not is_admin:
+                from admin_api import get_user_allowed_suburb_names
+                _u2, names = get_user_allowed_suburb_names()
+                # None = all_suburbs read scope → global count is correct;
+                # empty set = zero assigned suburbs → count 0.
+                suburb_names = None if names is None else list(names)
+            data = _roi_for(conn, None if is_admin else user['id'],
+                            suburb_names=suburb_names)
         finally:
             conn.close()
         return jsonify(data)

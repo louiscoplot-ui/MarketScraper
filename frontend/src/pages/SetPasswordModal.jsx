@@ -44,7 +44,7 @@ export default function SetPasswordModal() {
     <div style={S.backdrop}>
       <div style={S.card}>
         <div style={S.brandBand}>
-          <h1 style={S.brandTitle}>SUBURBDESK</h1>
+          <h1 className="login-title" style={S.brandTitle}>SuburbDesk</h1>
           <div style={S.brandSub}>Set your password</div>
         </div>
         <div style={S.body}>
@@ -56,10 +56,12 @@ export default function SetPasswordModal() {
             <input type="password" autoFocus required
                    placeholder="New password (min 8 chars)"
                    value={pw} onChange={(e) => setPw(e.target.value)}
+                   onFocus={focusInput} onBlur={blurInput}
                    style={S.input} />
             <input type="password" required
                    placeholder="Confirm password"
                    value={pw2} onChange={(e) => setPw2(e.target.value)}
+                   onFocus={focusInput} onBlur={blurInput}
                    style={S.input} />
             {err && <div style={S.err}>{err}</div>}
             <button type="submit" disabled={busy} style={S.btn}>
@@ -72,34 +74,46 @@ export default function SetPasswordModal() {
   )
 }
 
+// S.input sets outline:'none', so without these the keyboard focus
+// position is invisible (WCAG 2.4.7). Same ring as Select.jsx / Login.
+const focusInput = (e) => {
+  e.currentTarget.style.borderColor = 'var(--accent)'
+  e.currentTarget.style.boxShadow = 'var(--focus-ring)'
+}
+const blurInput = (e) => {
+  e.currentTarget.style.borderColor = 'var(--border)'
+  e.currentTarget.style.boxShadow = 'none'
+}
+
 const S = {
   backdrop: {
     position: 'fixed', inset: 0,
-    background: 'rgba(0,0,0,0.55)', zIndex: 9999,
+    background: 'var(--overlay)', zIndex: 9999,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: 24, fontFamily: 'system-ui, -apple-system, Arial, sans-serif',
+    padding: 24, fontFamily: 'var(--font-ui)',
   },
   card: {
-    width: '100%', maxWidth: 440, background: '#fff',
-    borderRadius: 10, overflow: 'hidden',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+    width: '100%', maxWidth: 440, background: 'var(--surface)',
+    borderRadius: 'var(--radius-card)', overflow: 'hidden',
+    boxShadow: 'var(--shadow-pop)',
+    border: '1px solid var(--border)',
   },
-  brandBand: { background: 'var(--accent)', padding: '24px 32px', color: '#fff' },
-  brandTitle: { margin: 0, fontSize: 22, letterSpacing: 2, fontWeight: 700 },
-  brandSub: { marginTop: 6, fontSize: 13, color: '#cfe0d6' },
+  brandBand: { background: 'var(--accent)', padding: '24px 32px', color: 'var(--accent-fg)' },
+  brandTitle: { margin: 0, fontSize: 22, letterSpacing: '-0.02em', fontWeight: 700 },
+  brandSub: { marginTop: 6, fontSize: 13, color: 'color-mix(in srgb, var(--accent-fg) 78%, var(--accent))' },
   body: { padding: 32 },
-  p: { margin: '0 0 20px', color: '#444', fontSize: 14, lineHeight: 1.55 },
+  p: { margin: '0 0 20px', color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.55 },
   input: {
     width: '100%', boxSizing: 'border-box',
     padding: '12px 14px', fontSize: 15,
-    border: '1px solid #d4d4d4', borderRadius: 6,
+    border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
     marginBottom: 12, outline: 'none',
   },
   btn: {
     width: '100%', padding: '12px 16px',
-    background: 'var(--accent)', color: '#fff',
-    border: 'none', borderRadius: 6,
+    background: 'var(--accent)', color: 'var(--accent-fg)',
+    border: 'none', borderRadius: 'var(--radius-sm)',
     fontSize: 15, fontWeight: 600, cursor: 'pointer',
   },
-  err: { color: '#b91c1c', fontSize: 13, marginBottom: 12, textAlign: 'left' },
+  err: { color: 'var(--status-alert-text)', fontSize: 13, marginBottom: 12, textAlign: 'left' },
 }

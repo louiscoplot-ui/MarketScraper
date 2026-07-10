@@ -18,7 +18,7 @@ import Header from './components/Header'
 import Rail from './components/Rail'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
 import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
-import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from './lib/api'
+import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache, writeCacheEvicting } from './lib/api'
 import { searchSuburbs } from './lib/waSuburbs'
 import { getDeskMode, setDeskMode, getDeskTone, setDeskTone } from './lib/deskFlag'
 // Status filter-button colours — a true constant, hoisted to module scope
@@ -346,9 +346,16 @@ function App() {
     // relaunch a scrape, only reattach to the existing one.
     setShowScrapeModal(true)
     if (!pollRef.current) {
+      // in-flight guard + per-attempt deadline: on a slow backend the 2s
+      // ticks piled identical requests on top of each other, worsening
+      // the very slowness being polled.
+      let inFlight = false
       pollRef.current = setInterval(async () => {
+        if (inFlight) return
+        inFlight = true
         try {
-          const r = await fetch(`${BOOT_API}/scrape/status`)
+          const r = await fetch(`${BOOT_API}/scrape/status`,
+            { signal: AbortSignal.timeout(8000) })
           if (!r.ok) return
           const d = await r.json() || {}
           setScrapeStatus(d)
@@ -361,6 +368,8 @@ function App() {
           }
         } catch (e) {
           console.warn('scrape status poll failed:', e)
+        } finally {
+          inFlight = false
         }
       }, 2000)
     }
@@ -641,7 +650,11 @@ function App() {
       .then(r => r.json())
       .then(data => {
         setReport(data)
-        if (data && !data.error) writeCache(cacheKey, data)
+        // Evicting write: every suburb combination minted a new
+        // `report_<ids>` key (hundreds of KB each) that was never
+        // cleaned, eventually blowing the localStorage quota for the
+        // caches that matter.
+        if (data && !data.error) writeCacheEvicting(cacheKey, data, 'report_')
       })
       .catch(() => {
         if (!cached) setReport(null)
@@ -925,7 +938,7 @@ function App() {
                 type="text" value={newSuburb}
                 onChange={e => handleSuburbInput(e.target.value)}
                 onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                placeholder="Type suburb name..." autoComplete="off"
+                placeholder="Type suburb name…" autoComplete="off"
               />
               {showSuggestions && (
                 <div className="suggestions-dropdown">
@@ -1023,7 +1036,7 @@ function App() {
                   </div>
                   <div className="suburb-actions">
                     <button className="btn btn-icon" onClick={() => scrapeSuburb(s.id)} disabled={isRunning} title="Scrape this suburb">
-                      {isRunning ? '...' : '↻'}
+                      {isRunning ? '…' : '↻'}
                     </button>
                     <button className="btn btn-icon btn-danger" onClick={() => deleteSuburb(s.id, s.name)} title="Delete suburb">
                       ×
@@ -1047,9 +1060,14 @@ function App() {
               filters survive). Report / Rental / Admin / History stay lazy
               in the ternary below — they hang off a selection or a role, so
               there is nothing useful to prefetch blindly. */}
-          <div style={{ display: view === 'hot-vendors' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
-            <HotVendorScoring />
-          </div>
+          {/* Wave-2 gated like the other heavy tabs: mounting at render 0
+              fired the uploads-list + multi-MB report auto-load in the
+              same instant as the landing tab's critical fetches. */}
+          {(view === 'hot-vendors' || warmStage >= 2) && (
+            <div style={{ display: view === 'hot-vendors' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
+              <HotVendorScoring />
+            </div>
+          )}
           {(view === 'today' || warmBackground) && (
             <div style={{ display: view === 'today' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
               <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} />
@@ -1169,7 +1187,7 @@ function App() {
                     <tr key={log.id}>
                       <td>{log.suburb_name}</td>
                       <td>{log.started_at ? new Date(log.started_at).toLocaleString('en-AU') : '-'}</td>
-                      <td>{log.completed_at ? new Date(log.completed_at).toLocaleString('en-AU') : 'Running...'}</td>
+                      <td>{log.completed_at ? new Date(log.completed_at).toLocaleString('en-AU') : 'Running…'}</td>
                       <td>{log.forsale_count}</td>
                       <td>{log.sold_count}</td>
                       <td className="new-count">{log.new_count}</td>

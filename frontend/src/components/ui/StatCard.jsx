@@ -29,6 +29,14 @@ export default function StatCard({
   let deltaNode = null
   if (delta != null && delta !== '' && delta !== '=') {
     const n = typeof delta === 'number' ? delta : parseFloat(String(delta))
+    // A zero delta is a stable metric — neutral, never good/bad colour.
+    if (Number.isFinite(n) && n === 0) {
+      deltaNode = (
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+          {delta}{deltaSuffix}
+        </span>
+      )
+    } else {
     const positive = Number.isFinite(n) ? n > 0 : String(delta).startsWith('+')
     const good = invertDelta ? !positive : positive
     deltaNode = (
@@ -43,6 +51,7 @@ export default function StatCard({
         {typeof delta === 'number' && delta > 0 ? '+' : ''}{delta}{deltaSuffix}
       </span>
     )
+    }
   } else if (delta === '=') {
     deltaNode = <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>=</span>
   }

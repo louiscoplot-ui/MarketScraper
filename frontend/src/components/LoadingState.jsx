@@ -17,10 +17,10 @@ export default function LoadingState({
       textAlign: 'center',
     }}>
       <div className="loading-spinner" />
-      <div style={{ fontWeight: 600, fontSize: 14, color: '#1C1D22' }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
         {title}
       </div>
-      <div style={{ fontSize: 12, color: '#6B6C75', maxWidth: 380, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 380, lineHeight: 1.5 }}>
         {subtext}
       </div>
     </div>

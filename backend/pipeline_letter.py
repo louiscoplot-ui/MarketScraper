@@ -13,6 +13,10 @@ Layout matches the standard Acton | Belle Property Cottesloe template:
 import os
 from datetime import datetime
 
+# Letter header dates are end-user-visible: Perth time, not UTC — a
+# letter generated before 8am Perth was dated yesterday.
+from time_utils import perth_now
+
 from docx import Document
 from docx.shared import Pt, RGBColor, Cm, Inches, Emu
 from docx.oxml.ns import qn
@@ -313,7 +317,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
     _green_header(doc)
     _agency_footer(doc, agency_name, line_1, line_2, line_3)
 
-    today = datetime.utcnow().strftime('%d/%m/%Y')
+    today = perth_now().strftime("%d/%m/%Y")
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = p.add_run(today)
@@ -426,7 +430,7 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
     _green_header(doc)
     _agency_footer(doc, agency_name, line_1, line_2, line_3)
 
-    today = datetime.utcnow().strftime('%d/%m/%Y')
+    today = perth_now().strftime("%d/%m/%Y")
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = p.add_run(today); r.font.size = Pt(11); r.font.name = 'Arial'
@@ -519,7 +523,7 @@ def render_sold_reveal_letter_docx(neighbour_address, sold_address, sold_price,
     _green_header(doc)
     _agency_footer(doc, agency_name, line_1, line_2, line_3)
 
-    today = datetime.utcnow().strftime('%d/%m/%Y')
+    today = perth_now().strftime("%d/%m/%Y")
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = p.add_run(today); r.font.size = Pt(11); r.font.name = 'Arial'
@@ -603,7 +607,7 @@ def render_strata_letter_docx(unit_address, sold_unit_address, sold_price,
     _green_header(doc)
     _agency_footer(doc, agency_name, line_1, line_2, line_3)
 
-    today = datetime.utcnow().strftime('%d/%m/%Y')
+    today = perth_now().strftime("%d/%m/%Y")
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = p.add_run(today); r.font.size = Pt(11); r.font.name = 'Arial'

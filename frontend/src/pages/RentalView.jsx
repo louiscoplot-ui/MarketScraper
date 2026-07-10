@@ -36,23 +36,26 @@ const STATUS_STYLES = {
 // tagged so we can render the cream tint without an extra prop drill.
 // `width` is the target column width in px — assigned through a <col>
 // element so the table can shrink long agency/agent strings (ellipsis)
-// while keeping the numeric columns tight. Total target: ~1240 px,
-// fits a 1366-wide viewport with the sidebar open.
+// while keeping the numeric columns tight. Total: ~1310 px — only the
+// wrapping (address/notes), ellipsised (agency/agent) and input
+// (owner_*) columns can be trimmed; the nowrap/overflow-visible ones
+// would overlap. The wrapper scrolls horizontally for what's left on
+// a 1366 viewport with the sidebar open.
 const COLS = [
   { key: 'status',         label: 'Status',      width: 80, sortable: true },
-  { key: 'address',        label: 'Address',     width: 200, bold: true, sortable: true },
+  { key: 'address',        label: 'Address',     width: 170, bold: true, sortable: true },
   { key: 'price_week',     label: 'Price/wk',    width: 90, sortable: true },
   { key: 'property_type',  label: 'Type',        width: 80, sortable: true },
   { key: 'beds',           label: 'Bed',         width: 42, num: true, sortable: true },
   { key: 'baths',          label: 'Bath',        width: 42, num: true },
   { key: 'cars',           label: 'Car',         width: 42, num: true },
-  { key: 'agency',         label: 'Agency',      width: 130, truncate: true },
-  { key: 'agent',          label: 'Agent',       width: 110, truncate: true },
+  { key: 'agency',         label: 'Agency',      width: 110, truncate: true },
+  { key: 'agent',          label: 'Agent',       width: 95, truncate: true },
   { key: 'date_listed',    label: 'Listed',      width: 90, sortable: true, date: true },
   { key: 'days_on_market', label: 'Days',        width: 56, num: true, sortable: true },
-  { key: 'owner_name',     label: 'Owner Name',  width: 130, owner: true },
-  { key: 'owner_phone',    label: 'Owner Phone', width: 120, owner: true },
-  { key: 'notes',          label: 'Notes',       width: 170, owner: true },
+  { key: 'owner_name',     label: 'Owner Name',  width: 110, owner: true },
+  { key: 'owner_phone',    label: 'Owner Phone', width: 105, owner: true },
+  { key: 'notes',          label: 'Notes',       width: 140, owner: true },
   { key: 'url',            label: 'Link',        width: 60 },
 ]
 
@@ -99,7 +102,11 @@ function StatusBadge({ status }) {
 // DOM badge — green ≤14, orange ≤30, red >30. Empty / NaN → muted "—".
 function DomBadge({ days }) {
   const n = parseInt(days, 10)
-  if (!days || isNaN(n)) return <span style={{ color: 'var(--text-faint)' }}>—</span>
+  // 0 is a VALUE (listed today — the freshest badge), not an absence:
+  // don't let a numeric 0 from an Excel import fall into the "—" path.
+  if (days == null || days === '' || isNaN(n)) {
+    return <span style={{ color: 'var(--text-faint)' }}>—</span>
+  }
   let bg = '#dcfce7', color = '#166534'  // fresh
   if (n > 30)      { bg = '#fee2e2'; color = '#991b1b' }  // stale
   else if (n > 14) { bg = '#ffedd5'; color = '#9a3412' }  // warming up
@@ -161,7 +168,10 @@ function EditableCell({ value, onSave, compact }) {
         background: flash ? '#dcfce7' : 'transparent',
         borderRadius: 3,
         transition: 'background 0.4s, border-color 0.15s',
-        color: 'var(--text)',
+        // Hardcoded dark, NOT var(--text): the cell behind is always the
+        // hardcoded cream tint (#fefce8), so a dark theme preset (Nocturnal
+        // text #E4EAF1) would render near-white text on cream otherwise.
+        color: '#0C0A09',
       }}
       onMouseEnter={(e) => {
         if (!focusedRef.current) e.currentTarget.style.borderBottom = '1px dashed #9ca3af'
@@ -174,17 +184,17 @@ function EditableCell({ value, onSave, compact }) {
 }
 
 
-function SkeletonRows({ count = 5, cols = COLS.length + 1 }) {
+function SkeletonRows({ count = 5, cols = COLS.length }) {
   // Placeholder rows during the initial fetch — keeps the table
   // skeleton in place so the header / filters don't jump.
   return (
     <>
       {Array.from({ length: count }).map((_, i) => (
-        <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+        <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
           {Array.from({ length: cols }).map((_, j) => (
             <td key={j} style={{ padding: '10px' }}>
               <div style={{
-                height: 12, background: '#e5e7eb', borderRadius: 4,
+                height: 12, background: 'var(--border)', borderRadius: 4,
                 animation: 'rental-pulse 1.4s ease-in-out infinite',
                 width: j === 1 ? '85%' : `${40 + ((i + j) % 4) * 12}%`,
               }} />
@@ -210,12 +220,27 @@ export default function RentalView({ selectedNames } = {}) {
   // dropdown so standalone mounts (e.g. a future direct route) still
   // work without props.
   const controlled = Array.isArray(selectedNames)
+  const isDesk = getDeskMode() === 'desk'
   const [suburbs, setSuburbs] = useState([])
   const [internalSuburb, setInternalSuburb] = useState('')
+  // Desk-mode local override of the App-driven selection. The desk shell
+  // hides the classic checkbox sidebar (desk.css .layout>.sidebar) and
+  // App.jsx passes no setter, so RentalView renders its own suburb chips
+  // in desk mode. null = follow the prop selection untouched; a Set once
+  // the operator interacts with the chips.
+  const [deskSelected, setDeskSelected] = useState(null)
+  const toggleDeskSuburb = (name) => {
+    setDeskSelected(prev => {
+      const next = new Set(prev || selectedNames || [])
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
   // Canonical list of suburb names this view is rendering data for.
   // Empty array = nothing to fetch / nothing to show.
   const activeNames = controlled
-    ? selectedNames
+    ? (isDesk && deskSelected ? [...deskSelected] : selectedNames)
     : (internalSuburb ? [internalSuburb] : [])
 
   const [listings, setListings] = useState([])
@@ -223,6 +248,11 @@ export default function RentalView({ selectedNames } = {}) {
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState('')
+  // True when the import response carried sheet_errors — the summary
+  // then renders as an amber warning (and sticks) instead of the green
+  // auto-dismissing success toast, so a rolled-back sheet is never
+  // silently swallowed.
+  const [importWarn, setImportWarn] = useState(false)
   const fileInputRef = useRef(null)
 
   // Status filter toggles — both ON by default = show everything.
@@ -255,9 +285,10 @@ export default function RentalView({ selectedNames } = {}) {
     try { localStorage.setItem('rentals_compact', compact ? '1' : '0') } catch {}
   }, [compact])
 
-  // Internal suburb list — only used to populate the standalone-mode
-  // dropdown. Controlled mode reads the list from App.jsx via the
-  // sidebar so this effect is a no-op cost for that path.
+  // Internal suburb list — populates the standalone-mode dropdown and
+  // the desk-mode suburb chips (the desk shell hides the App.jsx
+  // sidebar). Classic controlled mode reads the list from App.jsx via
+  // the sidebar so this effect is a no-op cost for that path.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -507,8 +538,14 @@ export default function RentalView({ selectedNames } = {}) {
   // price so the freshest / highest rows lead, "asc" for strings).
   const [sortField, setSortField] = useState('date_listed')
   const [sortDir, setSortDir] = useState('desc')
+  // Flips true on the first header click — suburb-grouping (below) only
+  // applies to the DEFAULT order. Once the operator explicitly sorts a
+  // column, the header arrow must describe the whole table, so the
+  // group-first comparison is dropped.
+  const [userSorted, setUserSorted] = useState(false)
   const DESC_DEFAULT = new Set(['date_listed', 'days_on_market', 'price_week'])
   const toggleSort = useCallback((field) => {
+    setUserSorted(true)
     setSortField(prev => {
       if (prev === field) {
         setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -530,10 +567,12 @@ export default function RentalView({ selectedNames } = {}) {
     const arr = [...filteredBase]
     const dir = sortDir === 'asc' ? 1 : -1
     arr.sort((a, b) => {
-      // When viewing ALL suburbs, group by suburb first so rows for the
-      // same suburb sit together (easy navigation); within a suburb the
-      // chosen column sort applies. A specific suburb view skips this.
-      if (!viewSuburb) {
+      // When viewing ALL suburbs in the DEFAULT order, group by suburb
+      // first so rows for the same suburb sit together (easy
+      // navigation). Once the operator clicks a column header the
+      // grouping is dropped — a global "Price ↓" that was silently
+      // regrouped by suburb read as a broken sort.
+      if (!viewSuburb && !userSorted) {
         const sa = (a.suburb || '').toLowerCase(), sb = (b.suburb || '').toLowerCase()
         if (sa < sb) return -1
         if (sa > sb) return 1
@@ -557,7 +596,7 @@ export default function RentalView({ selectedNames } = {}) {
       return 0
     })
     return arr
-  }, [filteredBase, sortField, sortDir, viewSuburb])
+  }, [filteredBase, sortField, sortDir, viewSuburb, userSorted])
 
   // Export Excel — multi-sheet workbook served from the rental_api
   // export route. Goes through BACKEND_DIRECT (Vercel proxy would
@@ -569,13 +608,16 @@ export default function RentalView({ selectedNames } = {}) {
     setExporting(true)
     setError('')
     try {
-      // When exactly one suburb is selected we narrow the export to
-      // that suburb; otherwise we export everything the user can see
-      // (the backend re-resolves scope anyway, so this is just a UX
-      // convenience, not an authz boundary).
+      // Narrow the export to the exact on-screen selection so the
+      // workbook matches the table (a 3-of-15 selection must NOT ship
+      // a 15-tab file the operator didn't mean to share). The backend
+      // intersects with the caller's allowed suburbs, so this is a UX
+      // convenience, not an authz boundary.
       const qs = activeNames.length === 1
         ? `?suburb=${encodeURIComponent(activeNames[0])}`
-        : ''
+        : (activeNames.length > 1
+            ? `?suburbs=${encodeURIComponent(activeNames.join(','))}`
+            : '')
       const res = await fetch(`${BACKEND_DIRECT}/api/rentals/export${qs}`, {
         headers: { 'X-Access-Key': getAccessKey() || '' },
       })
@@ -616,6 +658,7 @@ export default function RentalView({ selectedNames } = {}) {
     if (!f) return
     setImporting(true)
     setImportMsg('')
+    setImportWarn(false)
     setError('')
     try {
       const fd = new FormData()
@@ -633,6 +676,8 @@ export default function RentalView({ selectedNames } = {}) {
       let data = {}
       try { data = raw ? JSON.parse(raw) : {} } catch { data = { error: raw.slice(0, 300) } }
       if (!res.ok) throw new Error(data.error || `Import failed (HTTP ${res.status})`)
+      const hasSheetErrors = Array.isArray(data.sheet_errors) && data.sheet_errors.length > 0
+      setImportWarn(hasSheetErrors)
       // Prefer the backend's human summary — it distinguishes enriched
       // from out-of-scope suburbs skipped (a 26-sheet export imported into
       // 15 tracked suburbs should read as NORMAL, not an error). Fall back
@@ -670,7 +715,9 @@ export default function RentalView({ selectedNames } = {}) {
           setError(`Refresh failed after import: ${e.message}`)
         }
       }
-      setTimeout(() => setImportMsg(''), 8000)
+      // Warnings stay on screen until the next import — auto-dismiss
+      // only the all-good summary.
+      if (!hasSheetErrors) setTimeout(() => setImportMsg(''), 8000)
     } catch (err) {
       setError(`Import failed: ${err.message}`)
     } finally {
@@ -822,11 +869,13 @@ export default function RentalView({ selectedNames } = {}) {
             label={`For Rent (${counts.avail})`}
             colorOn="#0f766e" bgOn="#ccfbf1"
           />
+          {/* status-off pair: #4B5563 on #F3F4F6 ≈ 6.8:1 (AA). The old
+              text-muted-on-border pair sat at 3.8:1. */}
           <PillToggle
             on={showLeased}
             onClick={() => setShowLeased(v => !v)}
             label={`Leased (${counts.leased})`}
-            colorOn="var(--text-muted)" bgOn="var(--border)"
+            colorOn="var(--status-off-text)" bgOn="var(--status-off-bg)"
           />
           {/* Suburb navigation — jump straight to one suburb (or All).
               Bordered accent so it reads as the primary way to navigate. */}
@@ -872,6 +921,10 @@ export default function RentalView({ selectedNames } = {}) {
             type="button"
             onClick={() => setCompact(c => !c)}
             title="Toggle compact density"
+            // Inline styles can't express :hover — the brightness dip is
+            // the same affordance the global .btn hover gives elsewhere.
+            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.92)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
             style={{
               padding: '6px 12px', fontSize: 12, fontWeight: 600,
               background: compact ? 'var(--text)' : 'var(--surface)',
@@ -892,17 +945,23 @@ export default function RentalView({ selectedNames } = {}) {
           <button
             type="button"
             onClick={onExportExcel}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.92)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
             disabled={exporting || activeNames.length === 0}
             title={activeNames.length === 0
-              ? 'Select at least one suburb in the sidebar'
+              ? (isDesk
+                  ? 'Select at least one suburb above'
+                  : 'Select at least one suburb in the sidebar')
               : (activeNames.length === 1
                   ? `Export ${activeNames[0]} as .xlsx`
-                  : `Export all ${activeNames.length} selected suburbs`)}
+                  : `Export the ${activeNames.length} selected suburbs as .xlsx`)}
             style={{
               padding: '7px 14px', fontSize: 13, fontWeight: 600,
               background: (exporting || activeNames.length === 0)
                 ? 'var(--text-faint)' : '#0f766e',
-              color: 'var(--surface)', border: 'none', borderRadius: 6,
+              // NOT var(--surface): dark presets flip surface to navy,
+              // giving navy-on-teal. White stays AA on both backgrounds.
+              color: '#fff', border: 'none', borderRadius: 6,
               cursor: (exporting || activeNames.length === 0)
                 ? 'not-allowed' : 'pointer',
             }}
@@ -912,11 +971,13 @@ export default function RentalView({ selectedNames } = {}) {
           <button
             type="button"
             onClick={onImportClick}
+            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.92)' }}
+            onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
             disabled={importing}
             style={{
               padding: '7px 14px', fontSize: 13, fontWeight: 600,
               background: importing ? 'var(--text-faint)' : 'var(--accent)',
-              color: 'var(--surface)', border: 'none', borderRadius: 6,
+              color: 'var(--accent-fg)', border: 'none', borderRadius: 6,
               cursor: importing ? 'progress' : 'pointer',
             }}
           >
@@ -925,11 +986,79 @@ export default function RentalView({ selectedNames } = {}) {
         </div>
       </div>
 
+      {/* Desk-mode suburb scope — the classic checkbox sidebar is hidden
+          by the desk shell, so the selection controls live here. Native
+          <button>s keep the default keyboard focus outline. */}
+      {isDesk && controlled && suburbs.length > 0 && (
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+          gap: 8, margin: '0 0 14px',
+        }}>
+          {suburbs.filter(s => activeNames.includes(s.name)).map(s => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => toggleDeskSuburb(s.name)}
+              title={`Remove ${s.name}`}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                color: 'var(--text)', background: 'var(--surface)',
+                border: '1px solid var(--border)', borderRadius: 999,
+                padding: '5px 12px', cursor: 'pointer',
+              }}
+            >
+              {s.name} <span style={{ color: 'var(--text-muted)' }} aria-hidden="true">×</span>
+            </button>
+          ))}
+          {suburbs.some(s => !activeNames.includes(s.name)) && (
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) toggleDeskSuburb(e.target.value) }}
+              title="Add a suburb to the view"
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                color: 'var(--text-muted)', background: 'var(--surface)',
+                border: '1px dashed var(--border)', borderRadius: 999,
+                padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              <option value="">+ add suburb</option>
+              {suburbs.filter(s => !activeNames.includes(s.name)).map(s => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => setDeskSelected(
+              activeNames.length === suburbs.length
+                ? new Set()
+                : new Set(suburbs.map(s => s.name))
+            )}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 11.5,
+              color: 'var(--accent)', background: 'none', border: 'none',
+              cursor: 'pointer', padding: '5px 4px', fontWeight: 600,
+            }}
+          >
+            {activeNames.length === suburbs.length ? 'Clear all' : 'All suburbs'}
+          </button>
+        </div>
+      )}
+
       {importMsg && (
         <div style={{
           padding: '10px 14px', marginBottom: 12,
-          background: '#dcfce7', color: '#065f46',
-          border: '1px solid #86efac', borderRadius: 6, fontSize: 13,
+          ...(importWarn
+            ? {
+                background: 'var(--status-watch-bg)', color: 'var(--status-watch-text)',
+                border: '1px solid var(--status-watch)',
+              }
+            : {
+                background: '#dcfce7', color: '#065f46',
+                border: '1px solid #86efac',
+              }),
+          borderRadius: 6, fontSize: 13,
         }}>{importMsg}</div>
       )}
       {error && (
@@ -945,7 +1074,11 @@ export default function RentalView({ selectedNames } = {}) {
         border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
       }}>
-        <div style={{ overflowX: 'auto' }}>
+        {/* overflow BOTH ways + max-height so the global th{position:
+            sticky} (index.css) pins against THIS container — with only
+            overflowX the vertical scroll lived in .content and the
+            header scrolled away on long multi-suburb lists. */}
+        <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
           <table className="desk-rental" style={{
             width: '100%', borderCollapse: 'collapse', fontSize,
             background: 'var(--surface)', tableLayout: 'fixed',
@@ -971,7 +1104,16 @@ export default function RentalView({ selectedNames } = {}) {
                         textAlign: c.num ? 'center' : 'left',
                         padding: compact ? '5px 6px' : '10px 10px',
                         fontWeight: 600, fontSize: 10.5,
-                        color: isSorted ? 'var(--accent-fg)' : 'rgba(255,255,255,.72)',
+                        // The green MUST live on the <th>, not only the
+                        // <tr>: the global th{background:var(--surface)}
+                        // (index.css) paints the cell over the row and
+                        // left the white labels on a white strip. Desk
+                        // keeps its light header (desk.css recolours the
+                        // th text via !important).
+                        background: isDesk ? 'var(--surface)' : 'var(--accent)',
+                        color: isDesk
+                          ? 'var(--text-muted)'
+                          : (isSorted ? 'var(--accent-fg)' : 'rgba(255,255,255,.85)'),
                         textTransform: 'uppercase', letterSpacing: 0.6,
                         whiteSpace: 'nowrap',
                         cursor: c.sortable ? 'pointer' : 'default',
@@ -983,8 +1125,9 @@ export default function RentalView({ selectedNames } = {}) {
                       {c.sortable && (
                         <span style={{
                           marginLeft: 4,
-                          color: isSorted ? 'var(--accent-fg)' : 'rgba(255,255,255,.5)',
-                          opacity: isSorted ? 1 : 0.5,
+                          color: isDesk
+                            ? 'var(--text-muted)'
+                            : (isSorted ? 'var(--accent-fg)' : 'rgba(255,255,255,.65)'),
                         }}>
                           {isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
                         </span>
@@ -1004,11 +1147,15 @@ export default function RentalView({ selectedNames } = {}) {
                   }}>
                     <div style={{ fontSize: 36, marginBottom: 8, lineHeight: 1 }}>🏠</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
-                      No rental listings for this suburb
+                      {activeNames.length > 1
+                        ? 'No rental listings for the selected suburbs'
+                        : 'No rental listings for this suburb'}
                     </div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>
                       {listings.length > 0
-                        ? 'Adjust the status filters above to see the other rows.'
+                        ? ((selectedAgency || selectedAgent || viewSuburb)
+                            ? 'Adjust the status, agency, agent or suburb filters above to see the other rows.'
+                            : 'Adjust the status filters above to see the other rows.')
                         : activeNames.length
                           ? "Tonight's scrape will load them, or import an Excel file."
                           : 'Select a suburb to view listings.'}
@@ -1120,6 +1267,8 @@ function PillToggle({ on, onClick, label, colorOn = 'var(--accent)', bgOn = '#d1
     <button
       type="button"
       onClick={onClick}
+      onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.94)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
       style={{
         padding: '6px 12px', fontSize: 12, fontWeight: 600,
         border: `1px solid ${on ? colorOn : 'var(--border)'}`,

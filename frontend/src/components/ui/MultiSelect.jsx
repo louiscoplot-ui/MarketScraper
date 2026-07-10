@@ -20,6 +20,7 @@ export default function MultiSelect({
   style,
 }) {
   const [open, setOpen] = useState(false)
+  const [focused, setFocused] = useState(false)
   const rootRef = useRef(null)
 
   useEffect(() => {
@@ -44,9 +45,24 @@ export default function MultiSelect({
   const fontSize = size === 'sm' ? 12 : 13
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', ...style }}>
+    <div
+      ref={rootRef}
+      style={{ position: 'relative', ...style }}
+      onKeyDown={(e) => { if (e.key === 'Escape' && open) setOpen(false) }}
+    >
       <div
+        role="button"
+        tabIndex={0}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          // Only the trigger itself — chip × buttons handle their own keys.
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o) }
+        }}
+        onFocus={(e) => { if (e.target === e.currentTarget) setFocused(true) }}
+        onBlur={(e) => { if (e.target === e.currentTarget) setFocused(false) }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -56,10 +72,11 @@ export default function MultiSelect({
           padding: '4px 8px',
           fontSize,
           background: 'var(--surface)',
-          border: `1px solid ${open ? 'var(--accent)' : 'var(--border)'}`,
+          border: `1px solid ${open || focused ? 'var(--accent)' : 'var(--border)'}`,
           borderRadius: 'var(--radius-sm)',
           cursor: 'pointer',
-          boxShadow: open ? 'var(--focus-ring)' : 'none',
+          outline: 'none',
+          boxShadow: open || focused ? 'var(--focus-ring)' : 'none',
         }}
       >
         {selected.length === 0 ? (
@@ -76,13 +93,14 @@ export default function MultiSelect({
             }}
           >
             {allLabel} ({options.length})
-            <X
-              size={13}
-              strokeWidth={2.5}
+            <button
+              type="button"
               aria-label="Clear selection"
               onClick={(e) => { e.stopPropagation(); clearAll() }}
-              style={{ cursor: 'pointer', flexShrink: 0 }}
-            />
+              style={{ display: 'inline-flex', background: 'none', border: 'none', padding: 0, color: 'inherit', cursor: 'pointer', flexShrink: 0 }}
+            >
+              <X size={13} strokeWidth={2.5} aria-hidden="true" />
+            </button>
           </span>
         ) : (
           selected.map((v) => (
@@ -101,13 +119,14 @@ export default function MultiSelect({
               }}
             >
               {labelFor(v)}
-              <X
-                size={13}
-                strokeWidth={2.5}
+              <button
+                type="button"
                 aria-label={`Remove ${labelFor(v)}`}
                 onClick={(e) => { e.stopPropagation(); toggle(v) }}
-                style={{ cursor: 'pointer', flexShrink: 0 }}
-              />
+                style={{ display: 'inline-flex', background: 'none', border: 'none', padding: 0, color: 'inherit', cursor: 'pointer', flexShrink: 0 }}
+              >
+                <X size={13} strokeWidth={2.5} aria-hidden="true" />
+              </button>
             </span>
           ))
         )}
@@ -153,7 +172,12 @@ export default function MultiSelect({
             </button>
           </div>
           {options.map((o) => (
-            <div key={o.value} style={{ padding: '5px 8px', borderRadius: 'var(--radius-sm)' }}>
+            <div
+              key={o.value}
+              style={{ padding: '5px 8px', borderRadius: 'var(--radius-sm)' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-hover)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+            >
               <Checkbox
                 checked={selectedSet.has(o.value)}
                 onChange={() => toggle(o.value)}

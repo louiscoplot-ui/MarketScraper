@@ -13,7 +13,7 @@ const SECTIONS = [
       ['What is SuburbDesk?',
         'SuburbDesk is a daily prospecting tool for Perth real estate agents. It tracks your suburb markets in real time, identifies likely sellers, and helps you send personalised prospecting letters — all before your competitors make their first call.'],
       ['When is data updated?',
-        'Market data is scraped from REIWA.com.au every night at midnight Perth time. Your Morning Brief email arrives shortly after.'],
+        'Market data is scraped from REIWA.com.au every night Monday–Saturday at midnight Perth time (no Sunday run). Your Morning Brief email arrives shortly after.'],
       ['How do I get support?',
         'Email suburbdesk@gmail.com — we typically respond same business day.'],
     ],
@@ -23,7 +23,7 @@ const SECTIONS = [
     label: 'Listings',
     items: [
       ['Where does this data come from?',
-        'Publicly available listings from REIWA.com.au, updated every night at midnight Perth time for your assigned suburbs.'],
+        'Publicly available listings from REIWA.com.au, updated every night Monday–Saturday at midnight Perth time for your assigned suburbs.'],
       ['What do the status filters mean?',
         'Active = currently for sale. Under Offer = offer accepted. Sold = settled. Withdrawn = removed without selling.'],
       ['How do I add a note?',
@@ -57,11 +57,11 @@ const SECTIONS = [
     label: 'Hot Vendors',
     items: [
       ['What is a Hot Vendor Score?',
-        'A 0-100 score per property owner based on holding period (50%), property type (20%), and capital gain (30%). Higher = more likely to sell soon.'],
+        'A 0-100 score per property owner combining six factors — holding period (the largest, ~50%), property type, capital gain, growth rate, sale frequency and profit — with weights auto-calibrated to each suburb (shown in the banner above your report). Higher = more likely to sell soon.'],
       ['Where does the data come from?',
         'You import your own RP Data or CoreLogic export (from your existing licence). Your data is never shared with other users on the platform.'],
-      ['Why do scores expire after 60 days?',
-        'Market conditions change. Re-importing keeps your prospecting targets current and accurate.'],
+      ['Do scores expire?',
+        'No — scores and exports are never locked by age. After about 3 months an import shows a neutral age note, because re-importing keeps your prospecting targets current. Older data on long-held properties is still perfectly usable.'],
       ['What do HOT / WARM / MEDIUM / LOW mean?',
         'HOT (top ~18% of the suburb, badge shows 70+) = call today. WARM = monitor closely. MEDIUM = longer-term watch. LOW = low priority. The 0-100 score ranks owners within the imported suburb.'],
     ],
@@ -136,7 +136,20 @@ function sectionForHash() {
   } catch { return 'general' }
 }
 
+// Inject the slide-in keyframes exactly once (same pattern as Spinner) —
+// inline styles can't declare @keyframes.
+const KEYFRAMES_ID = 'sd-faq-keyframes'
+function ensureKeyframes() {
+  if (typeof document === 'undefined') return
+  if (document.getElementById(KEYFRAMES_ID)) return
+  const style = document.createElement('style')
+  style.id = KEYFRAMES_ID
+  style.textContent = '@keyframes sd-faq-in { from { transform: translateX(100%) } to { transform: none } }'
+  document.head.appendChild(style)
+}
+
 export default function FaqPanel() {
+  ensureKeyframes()
   const [open, setOpen] = useState(false)
   const [section, setSection] = useState(sectionForHash)
 
@@ -216,7 +229,9 @@ const s = {
     width: 40, height: 40,
     borderRadius: '50%',
     background: ACCENT,
-    color: 'var(--surface)',
+    // --accent-fg (fixed white), NOT --surface: dark presets turn
+    // --surface near-black which vanished on the green accent (2.2:1).
+    color: 'var(--accent-fg)',
     border: 'none',
     fontSize: 20,
     fontWeight: 600,
@@ -264,7 +279,7 @@ const s = {
     fontSize: 12, cursor: 'pointer',
   },
   tabActive: {
-    background: ACCENT, color: 'var(--surface)',
+    background: ACCENT, color: 'var(--accent-fg)',
     borderColor: ACCENT,
   },
   body: {

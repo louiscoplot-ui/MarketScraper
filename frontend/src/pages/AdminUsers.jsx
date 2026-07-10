@@ -17,6 +17,17 @@ const profileInputStyle = {
   background: 'var(--surface)', outline: 'none', width: '100%', boxSizing: 'border-box',
 }
 
+// profileInputStyle sets outline:'none', so without these the keyboard
+// focus position is invisible (WCAG 2.4.7). Same ring as Select.jsx.
+const focusInput = (e) => {
+  e.currentTarget.style.borderColor = 'var(--accent)'
+  e.currentTarget.style.boxShadow = 'var(--focus-ring)'
+}
+const blurInput = (e) => {
+  e.currentTarget.style.borderColor = 'var(--border)'
+  e.currentTarget.style.boxShadow = 'none'
+}
+
 // Self-contained "set / change password" card for the current user.
 // Writes via the existing auth-required POST /api/users/me/set-password
 // (the gate resolves the caller from their access_key — no way to set a
@@ -693,7 +704,7 @@ export default function AdminUsers() {
             className="admin-keyinput"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="paste 32-char hex from Render logs"
+            placeholder="Paste your 32-character access key"
           />
           <button className="btn btn-primary btn-sm" onClick={saveKey}>Save key</button>
         </div>
@@ -731,22 +742,26 @@ export default function AdminUsers() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input
               type="text" placeholder="Agency Name" style={profileInputStyle}
+              onFocus={focusInput} onBlur={blurInput}
               value={profileDraft.agency_name}
               onChange={(e) => setProfileDraft({ ...profileDraft, agency_name: e.target.value })}
             />
             <input
               type="text" placeholder="Agent Name" style={profileInputStyle}
+              onFocus={focusInput} onBlur={blurInput}
               value={profileDraft.agent_name}
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_name: e.target.value })}
               required
             />
             <input
               type="tel" placeholder="Phone" style={profileInputStyle}
+              onFocus={focusInput} onBlur={blurInput}
               value={profileDraft.agent_phone}
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_phone: e.target.value })}
             />
             <input
               type="email" placeholder="Email" style={profileInputStyle}
+              onFocus={focusInput} onBlur={blurInput}
               value={profileDraft.agent_email}
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_email: e.target.value })}
             />
@@ -834,6 +849,9 @@ export default function AdminUsers() {
         </div>
       </form>
 
+      {/* 10-column table — let IT scroll on narrow screens instead of
+          pushing the whole page body into horizontal scroll. */}
+      <div style={{ overflowX: 'auto' }}>
       <table className="admin-users-table">
         <thead>
           <tr>
@@ -907,10 +925,11 @@ export default function AdminUsers() {
                     onClick={() => toggleRentalAccess(u)}
                     title={u.rental_access ? 'Click to revoke rental access' : 'Click to grant rental access'}
                     style={{
-                      cursor: 'pointer', border: 'none', padding: '3px 10px',
+                      cursor: 'pointer', padding: '3px 10px',
                       borderRadius: 10, fontSize: 11, fontWeight: 600,
-                      background: u.rental_access ? 'var(--status-good-bg)' : 'var(--bg)',
-                      color: u.rental_access ? 'var(--status-good-text)' : 'var(--text-faint)',
+                      border: '1px solid var(--border)',
+                      background: u.rental_access ? 'var(--status-good-bg)' : 'var(--status-off-bg)',
+                      color: u.rental_access ? 'var(--status-good-text)' : 'var(--status-off-text)',
                     }}
                   >
                     {u.rental_access ? 'ON' : 'OFF'}
@@ -926,10 +945,11 @@ export default function AdminUsers() {
                       onClick={() => toggleDigest(u)}
                       title={on ? 'Click to disable morning digest' : 'Click to enable morning digest'}
                       style={{
-                        cursor: 'pointer', border: 'none', padding: '3px 10px',
+                        cursor: 'pointer', padding: '3px 10px',
                         borderRadius: 10, fontSize: 11, fontWeight: 600,
-                        background: on ? 'var(--status-good-bg)' : 'var(--bg)',
-                        color: on ? 'var(--status-good-text)' : 'var(--text-faint)',
+                        border: '1px solid var(--border)',
+                        background: on ? 'var(--status-good-bg)' : 'var(--status-off-bg)',
+                        color: on ? 'var(--status-good-text)' : 'var(--status-off-text)',
                       }}
                     >
                       {on ? 'ON' : 'OFF'}
@@ -962,10 +982,11 @@ export default function AdminUsers() {
             </tr>
           ))}
           {!users.length && !loading && (
-            <tr><td colSpan="9" className="empty">No users yet. Add one above.</td></tr>
+            <tr><td colSpan="10" className="empty">No users yet. Add one above.</td></tr>
           )}
         </tbody>
       </table>
+      </div>
 
       {me && me.role === 'admin' && (
         <div style={{ marginTop: 32 }}>
@@ -980,7 +1001,7 @@ export default function AdminUsers() {
           {/* Add new suburb — visible block above the list with its
               own label so it can't be confused with a toolbar item. */}
           <div style={{
-            border: '1px solid #d1d5db', borderRadius: 8,
+            border: '1px solid var(--border)', borderRadius: 8,
             padding: '10px 12px', marginBottom: 14, background: 'var(--bg)',
           }}>
             <label style={{
@@ -1001,7 +1022,7 @@ export default function AdminUsers() {
                 }}
                 style={{
                   flex: 1, padding: '8px 12px', fontSize: 14,
-                  border: '1px solid #cbd5e1', borderRadius: 6,
+                  border: '1px solid var(--border)', borderRadius: 6,
                   background: 'var(--surface)',
                 }}
               />
@@ -1012,8 +1033,10 @@ export default function AdminUsers() {
                 style={{
                   padding: '8px 18px', fontSize: 14, fontWeight: 600,
                   background: (!newRentalSuburb.trim() || addingRentalSuburb)
-                    ? 'var(--text-faint)' : 'var(--accent)',
-                  color: 'var(--surface)', border: 'none', borderRadius: 6,
+                    ? 'var(--status-off-bg)' : 'var(--accent)',
+                  color: (!newRentalSuburb.trim() || addingRentalSuburb)
+                    ? 'var(--status-off-text)' : 'var(--accent-fg)',
+                  border: 'none', borderRadius: 6,
                   cursor: (!newRentalSuburb.trim() || addingRentalSuburb)
                     ? 'not-allowed' : 'pointer',
                   whiteSpace: 'nowrap',
@@ -1048,8 +1071,9 @@ export default function AdminUsers() {
                 disabled={dirtyCount === 0 || savingRentalBatch}
                 style={{
                   padding: '6px 16px', fontSize: 13, fontWeight: 600,
-                  background: dirtyCount === 0 ? 'var(--border)' : 'var(--accent)',
-                  color: 'var(--surface)', border: 'none', borderRadius: 6,
+                  background: dirtyCount === 0 ? 'var(--status-off-bg)' : 'var(--accent)',
+                  color: dirtyCount === 0 ? 'var(--status-off-text)' : 'var(--accent-fg)',
+                  border: 'none', borderRadius: 6,
                   cursor: dirtyCount === 0 ? 'not-allowed' : 'pointer',
                 }}
               >
@@ -1060,7 +1084,7 @@ export default function AdminUsers() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
                         maxHeight: 360, overflowY: 'auto',
-                        border: '1px solid #e5e7eb', borderRadius: 6,
+                        border: '1px solid var(--border)', borderRadius: 6,
                         padding: 8, background: 'var(--surface)' }}>
             {rentalSuburbs.length === 0 && (
               <div style={{ padding: 12, color: 'var(--text-faint)', fontSize: 13 }}>
@@ -1109,7 +1133,7 @@ export default function AdminUsers() {
 
           <p style={{
             fontSize: 12, color: 'var(--status-info-text)',
-            background: 'var(--status-info-bg)', border: '1px solid #bae6fd',
+            background: 'var(--status-info-bg)', border: '1px solid var(--status-info)',
             borderRadius: 6, padding: '8px 12px', marginTop: 12,
           }}>
             ℹ️ Active suburbs are automatically scraped nightly at midnight Perth time.
@@ -1142,7 +1166,7 @@ export default function AdminUsers() {
             }}
           >
             <div style={{
-              padding: '16px 20px', borderBottom: '1px solid #e5e7eb',
+              padding: '16px 20px', borderBottom: '1px solid var(--border)',
               flexShrink: 0,
               display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
               gap: 16,
@@ -1302,7 +1326,7 @@ export default function AdminUsers() {
                   disabled={managing.saving || managing.loading || managing.customAdding}
                   style={{
                     flex: 1, padding: '6px 10px', fontSize: 13,
-                    border: '1px solid #d1d5db', borderRadius: 6,
+                    border: '1px solid var(--border)', borderRadius: 6,
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
@@ -1322,7 +1346,7 @@ export default function AdminUsers() {
                 {managing.customSuggestions && managing.customSuggestions.length > 0 && (
                   <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0,
-                    background: 'var(--surface)', border: '1px solid #d1d5db',
+                    background: 'var(--surface)', border: '1px solid var(--border)',
                     borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto',
                     zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                   }}>
@@ -1331,10 +1355,12 @@ export default function AdminUsers() {
                         key={name}
                         type="button"
                         onClick={() => addCustomSuburb(name)}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-hover)' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                         style={{
                           display: 'block', width: '100%', textAlign: 'left',
                           padding: '6px 12px', background: 'transparent',
-                          border: 'none', borderBottom: '1px solid #f3f4f6',
+                          border: 'none', borderBottom: '1px solid var(--surface-hover)',
                           fontSize: 13, cursor: 'pointer',
                         }}
                       >{name}</button>
@@ -1405,7 +1431,7 @@ export default function AdminUsers() {
                       disabled={managing.saving || managing.loading || managing.rentalCustomAdding}
                       style={{
                         flex: 1, padding: '6px 10px', fontSize: 13,
-                        border: '1px solid #d1d5db', borderRadius: 6,
+                        border: '1px solid var(--border)', borderRadius: 6,
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
@@ -1425,7 +1451,7 @@ export default function AdminUsers() {
                     {managing.rentalCustomSuggestions && managing.rentalCustomSuggestions.length > 0 && (
                       <div style={{
                         position: 'absolute', top: '100%', left: 0, right: 0,
-                        background: 'var(--surface)', border: '1px solid #d1d5db',
+                        background: 'var(--surface)', border: '1px solid var(--border)',
                         borderRadius: 6, marginTop: 4, maxHeight: 180, overflowY: 'auto',
                         zIndex: 10, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                       }}>
@@ -1434,10 +1460,12 @@ export default function AdminUsers() {
                             key={name}
                             type="button"
                             onClick={() => addCustomRentalSuburb(name)}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-hover)' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                             style={{
                               display: 'block', width: '100%', textAlign: 'left',
                               padding: '6px 12px', background: 'transparent',
-                              border: 'none', borderBottom: '1px solid #f3f4f6',
+                              border: 'none', borderBottom: '1px solid var(--surface-hover)',
                               fontSize: 13, cursor: 'pointer',
                             }}
                           >{name}</button>
@@ -1464,12 +1492,12 @@ export default function AdminUsers() {
             </div>
 
             {managing.error && (
-              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--status-alert-bg)', border: '1px solid #fca5a5', color: 'var(--status-alert-text)', fontSize: 12 }}>
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--status-alert-bg)', border: '1px solid var(--status-alert)', color: 'var(--status-alert-text)', fontSize: 12 }}>
                 {managing.error}
               </div>
             )}
             {managing.message && !managing.error && (
-              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--status-good-bg)', border: '1px solid #6ee7b7', color: 'var(--status-good-text)', fontSize: 12 }}>
+              <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 6, background: 'var(--status-good-bg)', border: '1px solid var(--status-good)', color: 'var(--status-good-text)', fontSize: 12 }}>
                 {managing.message}
               </div>
             )}
@@ -1477,7 +1505,7 @@ export default function AdminUsers() {
             </div>{/* end scrollable body */}
 
             <div style={{
-              padding: '12px 20px', borderTop: '1px solid #e5e7eb',
+              padding: '12px 20px', borderTop: '1px solid var(--border)',
               flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               gap: 12, background: 'var(--bg)',
@@ -1496,7 +1524,7 @@ export default function AdminUsers() {
                   onClick={saveManagement}
                   disabled={managing.saving || managing.loading}
                 >
-                  {managing.saving ? 'Saving…' : 'Save Changes'}
+                  {managing.saving ? 'Saving…' : 'Save changes'}
                 </button>
               </div>
             </div>

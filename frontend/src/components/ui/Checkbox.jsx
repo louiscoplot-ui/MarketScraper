@@ -3,6 +3,7 @@
 // A visually-hidden native input keeps keyboard + form semantics; the
 // visible box is a styled span that fills with the brand accent and a
 // lucide Check when checked.
+import { useState } from 'react'
 import { Check } from 'lucide-react'
 
 export default function Checkbox({
@@ -15,6 +16,10 @@ export default function Checkbox({
 }) {
   const box = size === 'sm' ? 15 : 17
   const tick = size === 'sm' ? 11 : 13
+  // The native input is visually hidden, so keyboard focus must be
+  // mirrored onto the visible box (inline styles can't express
+  // `input:focus-visible + span`).
+  const [focused, setFocused] = useState(false)
 
   return (
     <label
@@ -35,6 +40,8 @@ export default function Checkbox({
         checked={checked}
         onChange={onChange}
         disabled={disabled}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         style={{
           position: 'absolute',
           opacity: 0,
@@ -52,8 +59,9 @@ export default function Checkbox({
           height: box,
           flexShrink: 0,
           borderRadius: 'var(--radius-sm)',
-          border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+          border: `1px solid ${checked || focused ? 'var(--accent)' : 'var(--border)'}`,
           background: checked ? 'var(--accent)' : 'var(--surface)',
+          boxShadow: focused ? 'var(--focus-ring)' : 'none',
           transition: 'background 0.12s, border-color 0.12s',
         }}
       >

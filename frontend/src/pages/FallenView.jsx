@@ -83,8 +83,16 @@ export default function FallenView({ bootApi }) {
                 : list.length === 0 ? <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No live fallen sales right now.</div>
                 : list.map(it => (
                   <div key={it.id} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid var(--border)', borderLeft: '3px solid var(--status-watch)' }}>
-                    <a href={it.reiwa_url || '#'} target={it.reiwa_url ? '_blank' : undefined} rel="noreferrer" onClick={it.reiwa_url ? undefined : (e) => e.preventDefault()}
-                      style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.address}</a>
+                    {/* Accent colour = link affordance (same as classic); no
+                        URL → plain text, never a dead pointer. */}
+                    {it.reiwa_url ? (
+                      <a href={it.reiwa_url} target="_blank" rel="noreferrer"
+                        style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}>{it.address}</a>
+                    ) : (
+                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.address}</span>
+                    )}
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)' }}>{it.suburb || ''}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>{it.original_price || '—'}</span>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{formatIsoDate(it.detected_at) || '—'}</span>

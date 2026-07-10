@@ -1885,7 +1885,7 @@ body.col-resizing * {
   color: #b91c1c; font-size: 12px; font-style: italic;
 }
 .admin-suburbs-empty:hover { color: #7f1d1d; }
-.admin-me-locked { color: #888; font-size: 11px; }
+.admin-me-locked { color: var(--text-muted); font-size: 11px; }
 
 /* Inline "add new suburb" inside the assign-suburbs modal. */
 .admin-assign-add {

@@ -4,13 +4,13 @@
 // .xlsx report is regenerated on demand from the persisted data.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, MapPin, ChevronDown, StickyNote, Plus } from 'lucide-react'
+import { Download, MapPin, ChevronDown, StickyNote, Plus, Upload, Search, Check, Star, Clock } from 'lucide-react'
 import StickyHScroll from './components/StickyHScroll'
 import DeskMap from './components/DeskMap'
 import { formatIsoDate } from './hooks/useListings'
 import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
 import { getDeskMode } from './lib/deskFlag'
-import { readCache, writeCache, writeCacheEvicting } from './lib/api'
+import { readCache, writeCache, writeCacheEvicting, BACKEND_DIRECT, fetchWithRetry, getAccessKey } from './lib/api'
 
 // Vercel proxy has a ~25s edge timeout that includes upload buffering.
 // For big suburbs (Ellenbrook, Mandurah — 50-200 MB CSVs) we bypass
@@ -18,8 +18,12 @@ import { readCache, writeCache, writeCacheEvicting } from './lib/api'
 // (`CORS(app)` in app.py) so cross-origin POST works. Polling stays on
 // the proxy because each poll is tiny + low-latency.
 const API = ''
-const BACKEND_DIRECT = 'https://marketscraper-backend.onrender.com'
-const ACTIVE_JOB_KEY = 'agentdeck_hv_active_job'
+// BACKEND_DIRECT comes from lib/api — the hardcoded local copy skipped
+// the preview-host fallback (previews sit outside the backend's CORS
+// allow-list, so direct calls silently died there).
+// The active-job key is scoped per user (access-key prefix): on a
+// shared browser, user B must not resume/clear user A's scoring job.
+const ACTIVE_JOB_KEY = `agentdeck_hv_active_job_${(getAccessKey() || 'anon').slice(0, 16)}`
 
 // Category filter chips — a coloured dot (score-badge palette) + a
 // plain label. No emoji, no full-pill fill: the row stays neutral and
@@ -147,6 +151,7 @@ function getSuburb(p) {
 const SORT_FIELDS = {
   rank: (a, b) => (a.rank ?? 0) - (b.rank ?? 0),
   address: (a, b) => (a.address || '').localeCompare(b.address || ''),
+  current_owner: (a, b) => String(a.current_owner || '').localeCompare(String(b.current_owner || '')),
   type: (a, b) => (a.type || '').localeCompare(b.type || ''),
   bedrooms: (a, b) => (a.bedrooms ?? -1) - (b.bedrooms ?? -1),
   last_sale_price: (a, b) => (a.last_sale_price ?? 0) - (b.last_sale_price ?? 0),
@@ -220,7 +225,10 @@ export default function HotVendorScoring() {
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch(`${API}/api/hot-vendors/uploads`)
+        // BACKEND_DIRECT + retry: through the Vercel proxy a cold Render
+        // dyno died at the 25s edge timeout with a single attempt, and
+        // "Recent reports" stayed empty for the first morning visit.
+        const res = await fetchWithRetry(`${BACKEND_DIRECT}/api/hot-vendors/uploads`, {}, 4)
         if (!res.ok) throw new Error('list failed')
         const j = await res.json()
         if (cancelled) return
@@ -270,7 +278,9 @@ export default function HotVendorScoring() {
     setLoading(true)
     setIsLoadingReport(true)
     try {
-      const res = await fetch(`${API}/api/hot-vendors/uploads/${uploadId}`)
+      // Direct + retry — a multi-MB report through a cold Vercel proxy
+      // hit the 25s edge timeout on the first morning load.
+      const res = await fetchWithRetry(`${BACKEND_DIRECT}/api/hot-vendors/uploads/${uploadId}`, {}, 4)
       const result = await res.json()
       if (seq !== loadSeqRef.current) return  // a newer click is in flight
       if (!res.ok) throw new Error(result.error || `Load failed (${res.status})`)
@@ -330,7 +340,12 @@ export default function HotVendorScoring() {
       let sJson = {}
       let sRes
       try {
-        sRes = await fetch(`${API}/api/hot-vendors/score-csv/job/${jobId}`)
+        // Per-attempt deadline: a TCP-stalled poll never resolved, so
+        // the MAX_MS guard below was never reached and the upload froze
+        // "in progress" forever. AbortError lands in the catch and the
+        // loop keeps polling.
+        sRes = await fetch(`${API}/api/hot-vendors/score-csv/job/${jobId}`,
+          { signal: AbortSignal.timeout(12000) })
         sJson = await sRes.json().catch(() => ({}))
       } catch (netErr) {
         // Transient network blip — keep polling, the job is still on
@@ -366,7 +381,7 @@ export default function HotVendorScoring() {
         method: 'POST',
         body: fd,
       })
-      const startJson = await startRes.json()
+      const startJson = await startRes.json().catch(() => ({}))
       if (!startRes.ok || !startJson.job_id) {
         throw new Error(startJson.error || `Upload rejected (${startRes.status})`)
       }
@@ -853,7 +868,10 @@ export default function HotVendorScoring() {
   // ── Desk redesign — full render of mock #hotvendors (scored state only;
   // the upload/empty flow keeps its classic UI below). ──
   if (getDeskMode() === 'desk' && properties.length > 0) {
-    const top = sorted[0] || properties[0]
+    // Highest final_score across the whole dataset — independent of the
+    // current sort/filter so the banner never promotes the wrong lead.
+    const top = properties.reduce((a, b) => ((b.final_score || 0) > (a.final_score || 0) ? b : a), properties[0])
+    const currentUploadId = String(data?.upload_id ?? data?.id ?? data?.uploadId ?? '')
     const kpis = [
       { l: 'Hot', v: counts.HOT, c: 'var(--score-hot)' },
       { l: 'Warm', v: counts.WARM, c: 'var(--score-warm)' },
@@ -863,12 +881,14 @@ export default function HotVendorScoring() {
     const sigChips = (p) => {
       const out = []
       if (p.holding_years != null) out.push(`${Math.round(p.holding_years)}y hold`)
-      if (p.owner_gain_pct != null) out.push(`+${Math.round(p.owner_gain_pct)}% gain`)
-      if (p.sales_count) out.push(`${p.sales_count} st. sales`)
+      if (p.owner_gain_pct != null) out.push(`${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% gain`)
+      if (p.sales_count) out.push(`${p.sales_count} street sale${p.sales_count === 1 ? '' : 's'}`)
       return out.slice(0, 3)
     }
     const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
-    const GRID = '54px minmax(0,1.5fr) minmax(0,1.1fr) minmax(0,1fr) 132px 156px'
+    // Status column 170px — the native <select> sizes to its longest
+    // option (~165px at 12px + padding) and overflowed the previous 132px.
+    const GRID = '54px minmax(0,1.5fr) minmax(0,1.1fr) minmax(0,1fr) 170px 156px'
     const noteFor = (a) => (notes[a] || '').trim()
     const catBadge = (cat) => cat === 'HOT' ? { bg: 'var(--score-hot-bg)', fg: 'var(--score-hot-text)' }
       : cat === 'WARM' ? { bg: 'var(--status-watch-bg)', fg: 'var(--status-watch-text)' }
@@ -885,7 +905,43 @@ export default function HotVendorScoring() {
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Hot Vendors</h2>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {Math.round(avgScore)}</div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {/* Excel export — same background job + polling flow as classic. */}
+            <button onClick={downloadExcel} disabled={excelLoading}
+              title="Download the scored .xlsx report"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--accent-fg)', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 10, padding: '9px 14px', cursor: excelLoading ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+              <Download size={13} strokeWidth={2} aria-hidden="true" />
+              {excelLoading ? (excelStage || 'Generating…') : 'Export Excel'}
+            </button>
+            {excelFallbackUrl && (
+              <a href={excelFallbackUrl} download={excelFallbackName}
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
+                Click here if it didn't download
+              </a>
+            )}
+            {/* Switch between saved reports — same loader as the classic
+                "Recent reports" cards. */}
+            {savedUploads.length > 1 && (
+              <Select
+                size="sm"
+                title="Switch report"
+                value={savedUploads.some(u => String(u.id) === currentUploadId) ? currentUploadId : ''}
+                onChange={(e) => { const u = savedUploads.find(x => String(x.id) === e.target.value); if (u) loadSavedUpload(u.id) }}
+                options={[
+                  ...(savedUploads.some(u => String(u.id) === currentUploadId) ? [] : [{ value: '', label: 'Recent reports…' }]),
+                  ...savedUploads.map(u => ({ value: String(u.id), label: `${u.suburb || 'Report'}${u.uploaded_at ? ` · ${formatIsoDate(u.uploaded_at)}` : ''}` })),
+                ]}
+              />
+            )}
+            {/* Load another file — same scoring flow as the classic dropzone. */}
+            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }}
+              onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} />
+            <button onClick={() => !loading && fileInputRef.current?.click()} disabled={loading}
+              title="Upload a new RP Data CSV / xlsx to score"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px', cursor: loading ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+              <Upload size={13} strokeWidth={2} aria-hidden="true" />
+              {loading ? (loadingStage || 'Working…') : 'Upload CSV'}
+            </button>
             {/* Contacts import — csv/xlsx with names/addresses/phones,
                 merged by address into this list (same flow as the
                 official RP-Data upload). */}
@@ -893,16 +949,19 @@ export default function HotVendorScoring() {
               onChange={(e) => importContacts(e.target.files && e.target.files[0])} />
             <button onClick={() => contactsInputRef.current && contactsInputRef.current.click()} disabled={importingContacts}
               title="Import a spreadsheet of names, addresses and phone numbers — matched to this list by address"
-              style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px', cursor: importingContacts ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
-              {importingContacts ? 'Importing…' : '⇪ Import contacts'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px', cursor: importingContacts ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+              {importingContacts ? 'Importing…' : <><Upload size={13} strokeWidth={2} aria-hidden="true" /> Import contacts</>}
             </button>
             {/* Suburb picker — desk has no sidebar, so surface suburb
                 selection here. Empty selection = all. */}
             {uniqueSuburbs.length > 1 && (
-              <div style={{ position: 'relative' }}>
+              /* ref shared with the doc-level mousedown closer — without it
+                 (desk has its own markup) every mousedown inside the menu
+                 unmounted the dropdown before the click could land. */
+              <div ref={suburbDropdownRef} style={{ position: 'relative' }}>
                 <button onClick={() => setSuburbDropdownOpen(o => !o)}
-                  style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: selectedSuburbs.size ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--surface)', border: `1px solid ${selectedSuburbs.size ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '9px 14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  {suburbBtnLabel} ▾
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: selectedSuburbs.size ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--surface)', border: `1px solid ${selectedSuburbs.size ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '9px 14px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {suburbBtnLabel} <ChevronDown size={13} strokeWidth={2} aria-hidden="true" />
                 </button>
                 {suburbDropdownOpen && (
                   <>
@@ -930,9 +989,9 @@ export default function HotVendorScoring() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search address or owner…"
-                style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px 9px 34px', width: 240, outline: 'none' }}
+                style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: search ? '9px 34px' : '9px 14px 9px 34px', width: 240, outline: 'none' }}
               />
-              <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', fontSize: 13 }}>⌕</span>
+              <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', display: 'flex' }}><Search size={13} strokeWidth={2} aria-hidden="true" /></span>
               {search && <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{sorted.length}</div>}
             </div>
           </div>
@@ -944,7 +1003,7 @@ export default function HotVendorScoring() {
               <span style={{ fontFamily: 'var(--font-display)', fontSize: 32, width: 56, height: 56, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)', color: 'var(--score-hot-text)', boxShadow: '0 2px 10px rgba(219,39,119,.22)', flexShrink: 0 }}>{Math.round(top.final_score)}</span>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--score-hot-text)', marginBottom: 5 }}>Hottest lead today · act first</div>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, letterSpacing: '-0.01em', color: 'var(--text)' }}>{top.address}{getSuburb(top) ? `, ${getSuburb(top)}` : ''}</div>
+                <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, letterSpacing: '-0.01em', color: 'var(--text)' }}>{titleCase(top.address)}{getSuburb(top) ? `, ${getSuburb(top)}` : ''}</div>
                 <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text-muted)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{top.current_owner || '—'}{noteFor(top.address) ? ` · ${noteFor(top.address)}` : ''}</div>
               </div>
             </div>
@@ -968,17 +1027,21 @@ export default function HotVendorScoring() {
           {CHIPS.map(c => {
             const on = filter === c.key
             return (
-              <span key={c.key} onClick={() => setFilter(c.key)} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, borderRadius: 999, padding: '6px 12px', border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent-soft)' : 'transparent', color: on ? 'var(--accent)' : 'var(--text-muted)' }}>
+              /* Real <button> — keyboard focusable + default focus outline. */
+              <button key={c.key} type="button" onClick={() => setFilter(c.key)} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, borderRadius: 999, padding: '6px 12px', border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent-soft)' : 'transparent', color: on ? 'var(--accent)' : 'var(--text-muted)' }}>
                 {c.dot && <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.dot }} />}{c.label}<span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7 }}>{c.n}</span>
-              </span>
+              </button>
             )
           })}
         </div>
 
         <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, padding: '13px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
-            {HV_HEAD.map(h => (
-              <span key={h.l} onClick={h.f ? () => toggleSort(h.f) : undefined} style={{ cursor: h.f ? 'pointer' : 'default', userSelect: 'none' }}>{h.l}{h.f ? sortIndicator(h.f) : ''}</span>
+            {HV_HEAD.map(h => h.f ? (
+              /* Real <button> — keyboard sortable, keeps the default focus outline. */
+              <button key={h.l} type="button" onClick={() => toggleSort(h.f)} style={{ cursor: 'pointer', userSelect: 'none', background: 'none', border: 'none', padding: 0, textAlign: 'left', font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit', color: 'inherit' }}>{h.l}{sortIndicator(h.f)}</button>
+            ) : (
+              <span key={h.l}>{h.l}</span>
             ))}
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -992,7 +1055,7 @@ export default function HotVendorScoring() {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
                   <button type="button" onClick={() => openDetail(p)} title="Open details"
-                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</button>
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.address)}</button>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                     {getSuburb(p) || ''}
                     {cbState === 'due' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, background: 'var(--status-watch-bg)', color: 'var(--status-watch-text)', border: '1px solid var(--status-watch)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>call-back due</span>}
@@ -1054,7 +1117,7 @@ export default function HotVendorScoring() {
             point (row click, future map pins, Contact today). */}
         {propDetail && (() => {
           const p = propDetail
-          const money = (v) => (v || v === 0) && !Number.isNaN(Number(v)) ? `$${Number(v).toLocaleString()}` : '—'
+          const money = (v) => (v || v === 0) && !Number.isNaN(Number(v)) ? `${Number(v) < 0 ? '-' : ''}$${Math.abs(Number(v)).toLocaleString('en-AU')}` : '—'
           const cb = catBadge(p.category)
           const savedPhone = phones[p.address] ?? p.phone ?? ''
           const dirty = (phoneDraft || '').trim() !== (savedPhone || '').trim()
@@ -1079,7 +1142,7 @@ export default function HotVendorScoring() {
             if (cbSt === 'due') return { tone: 'watch', text: `Call-back due — you set a reminder for ${formatIsoDate(callbacks[p.address])}.` }
             const bits = []
             if (p.holding_years != null) bits.push(`${Math.round(p.holding_years)}-year hold`)
-            if (p.owner_gain_pct != null) bits.push(`an estimated +${Math.round(p.owner_gain_pct)}% untapped gain`)
+            if (p.owner_gain_pct != null) bits.push(`an estimated ${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% untapped gain`)
             if (!bits.length) return null
             const street = p.sales_count ? ` ${p.sales_count} recent sale${p.sales_count !== 1 ? 's' : ''} in the street strengthen${p.sales_count === 1 ? 's' : ''} the conversation.` : ''
             return { tone: 'accent', text: `${bits.join(' with ')} — owners in this bracket are the suburb's most likely listers.${street}` }
@@ -1147,14 +1210,14 @@ export default function HotVendorScoring() {
                     <div style={{ ...cardS, padding: '13px 15px' }}>
                       <div style={{ ...lblStyle, marginBottom: 9 }}>Log call outcome</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <button className="btn btn-primary btn-sm" style={{ textAlign: 'left' }} onClick={() => { setStatus(p.address, 'contacted', ''); setPropDetail(null) }}>✓ Spoke to owner</button>
+                        <button className="btn btn-primary btn-sm" style={{ textAlign: 'left' }} onClick={() => { setStatus(p.address, 'contacted', ''); setPropDetail(null) }}><Check size={13} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} />Spoke to owner</button>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => { setStatus(p.address, 'no_answer', ''); setPropDetail(null) }}>No answer</button>
                           <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => { setStatus(p.address, 'declined', ''); setPropDetail(null) }}>Not interested</button>
                         </div>
-                        <button className="btn btn-ghost btn-sm" style={{ textAlign: 'left' }} onClick={() => { setStatus(p.address, 'listed', ''); setPropDetail(null) }}>★ Appraisal booked</button>
+                        <button className="btn btn-ghost btn-sm" style={{ textAlign: 'left' }} onClick={() => { setStatus(p.address, 'listed', ''); setPropDetail(null) }}><Star size={13} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} />Appraisal booked</button>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                          ⏰ Call back on
+                          <Clock size={13} strokeWidth={2} aria-hidden="true" /> Call back on
                           <input type="date" min={localIsoDate(null, 1)} value={callbacks[p.address] || ''}
                             onChange={(e) => { if (e.target.value) { setStatus(p.address, 'pending', e.target.value); setPropDetail(null) } }}
                             style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 6, padding: '4px 7px', background: 'var(--surface)', color: 'var(--text)' }} />
@@ -1179,7 +1242,7 @@ export default function HotVendorScoring() {
                           <span style={{ position: 'absolute', left: -19, top: 3, width: 12, height: 12, borderRadius: '50%', background: 'var(--status-off)', border: '2.5px solid var(--surface)' }} />
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)' }}>{p.owner_purchase_date || 'PURCHASE'}</div>
                           <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}><strong>Purchased</strong>{p.owner_purchase_price ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}> — {money(p.owner_purchase_price)}</span> : null}</div>
-                          {p.holding_years != null && <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.holding_years}-yr hold{p.owner_gain_pct != null ? ` · est. gain +${Math.round(p.owner_gain_pct)}%` : ''}</div>}
+                          {p.holding_years != null && <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.holding_years}-yr hold{p.owner_gain_pct != null ? ` · est. gain ${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}%` : ''}</div>}
                         </div>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: -19, top: 3, width: 12, height: 12, borderRadius: '50%', background: 'var(--accent)', border: '2.5px solid var(--surface)' }} />
@@ -1487,7 +1550,7 @@ export default function HotVendorScoring() {
               onChange={(e) => setTypeFilter(e.target.value)}
               size="sm"
               options={[
-                { value: 'ALL', label: 'All Types' },
+                { value: 'ALL', label: 'All types' },
                 { value: 'HOUSE', label: 'Houses only' },
                 { value: 'APARTMENT', label: 'Apartments only' },
               ]}
@@ -1513,7 +1576,7 @@ export default function HotVendorScoring() {
                     ['address', 'Address'],
                     ['type', 'Type'],
                     ['bedrooms', 'Beds'],
-                    ['last_sale_price', 'Last Sale'],
+                    ['last_sale_price', 'Last sale'],
                     ['holding_years', 'Hold (yrs)'],
                     ['owner_gain_pct', 'Gain %'],
                     ['cagr', 'Growth %/yr'],

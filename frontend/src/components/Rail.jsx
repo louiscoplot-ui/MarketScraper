@@ -6,17 +6,22 @@
 // count badges (Hot Vendors badge in the reserved rose), user block at
 // the bottom, plus the tone switcher + a one-click return to classic.
 //
-// Colour = information: the 4 tone palettes below are copied verbatim
-// from the handoff's palette(tone); nothing is invented here.
+// Colour = information: the 4 tone palettes below come from the
+// handoff's palette(tone), with secondary text lifted to WCAG AA
+// (see the note above PALETTES).
 import { useMemo, useState } from 'react'
 import { DESK_TONES, getDeskCustomColor, setDeskCustomColor } from '../lib/deskFlag'
 
-// Tone palettes — verbatim from SuburbDeskRail.dc.html palette(tone).
+// Tone palettes — from SuburbDeskRail.dc.html palette(tone), with the
+// text tokens faint/stext/usub/bofff (and bone's muted) lifted just
+// enough to clear WCAG AA 4.5:1 against the worst end of each gradient
+// (bofff measured on the boff chip composite). The handoff originals
+// sat at 2.3–4.3:1; hues preserved (mixed toward the text pole).
 const PALETTES = {
-  ink:   { bg:'linear-gradient(178deg,#0E1A14 0%,#0C120E 55%,#0A0F0C 100%)', fg:'#F5F5F4', muted:'#8A938C', faint:'#565d57', line:'rgba(255,255,255,.06)', sbg:'rgba(255,255,255,.05)', sbd:'rgba(255,255,255,.08)', stext:'#6b746d', activeBg:'rgba(56,99,80,.30)', hover:'rgba(255,255,255,.055)', mark:'#7fbfa1', imark:'rgba(255,255,255,.20)', atext:'#EBF0EE', bon:'rgba(127,191,161,.20)', bonf:'#a6dabf', boff:'rgba(255,255,255,.07)', bofff:'#6b746d', hotb:'rgba(219,39,119,.20)', hotf:'#f0a8cc', uname:'#EBF0EE', usub:'#6b746d' },
-  forest:{ bg:'linear-gradient(178deg,#123322 0%,#0E2418 55%,#09150E 100%)', fg:'#F2F7F3', muted:'#8FAE9C', faint:'#5f7a68', line:'rgba(255,255,255,.07)', sbg:'rgba(255,255,255,.06)', sbd:'rgba(255,255,255,.09)', stext:'#7a9585', activeBg:'rgba(127,191,161,.20)', hover:'rgba(255,255,255,.06)', mark:'#a6dabf', imark:'rgba(255,255,255,.22)', atext:'#EBF6EE', bon:'rgba(166,218,191,.22)', bonf:'#c6ecd4', boff:'rgba(255,255,255,.08)', bofff:'#7a9585', hotb:'rgba(240,168,204,.20)', hotf:'#f6c2da', uname:'#EBF6EE', usub:'#7a9585' },
-  slate: { bg:'linear-gradient(178deg,#1B1F26 0%,#15181E 55%,#0F1116 100%)', fg:'#EDEEF0', muted:'#8B909A', faint:'#5A5F69', line:'rgba(255,255,255,.07)', sbg:'rgba(255,255,255,.05)', sbd:'rgba(255,255,255,.08)', stext:'#767b85', activeBg:'rgba(56,99,80,.34)', hover:'rgba(255,255,255,.05)', mark:'#7fbfa1', imark:'rgba(255,255,255,.20)', atext:'#EBF0EE', bon:'rgba(127,191,161,.20)', bonf:'#a6dabf', boff:'rgba(255,255,255,.07)', bofff:'#767b85', hotb:'rgba(219,39,119,.20)', hotf:'#f0a8cc', uname:'#EDEEF0', usub:'#767b85' },
-  bone:  { bg:'#F4F3F0', fg:'#0C0A09', muted:'#78716C', faint:'#A8A29E', line:'#E7E5E4', sbg:'#FFFFFF', sbd:'#E7E5E4', stext:'#A8A29E', activeBg:'#EBF0EE', hover:'#ECEAE6', mark:'#386350', imark:'#C9C6C1', atext:'#0C0A09', bon:'rgba(56,99,80,.13)', bonf:'#2D5040', boff:'#EDEBE8', bofff:'#78716C', hotb:'rgba(219,39,119,.12)', hotf:'#9D174D', uname:'#0C0A09', usub:'#A8A29E' },
+  ink:   { bg:'linear-gradient(178deg,#0E1A14 0%,#0C120E 55%,#0A0F0C 100%)', fg:'#F5F5F4', muted:'#8A938C', faint:'#7c827d', line:'rgba(255,255,255,.06)', sbg:'rgba(255,255,255,.05)', sbd:'rgba(255,255,255,.08)', stext:'#7a827b', activeBg:'rgba(56,99,80,.30)', hover:'rgba(255,255,255,.055)', mark:'#7fbfa1', imark:'rgba(255,255,255,.20)', atext:'#EBF0EE', bon:'rgba(127,191,161,.20)', bonf:'#a6dabf', boff:'rgba(255,255,255,.07)', bofff:'#88908a', hotb:'rgba(219,39,119,.20)', hotf:'#f0a8cc', uname:'#EBF0EE', usub:'#7a827b' },
+  forest:{ bg:'linear-gradient(178deg,#123322 0%,#0E2418 55%,#09150E 100%)', fg:'#F2F7F3', muted:'#8FAE9C', faint:'#84998b', line:'rgba(255,255,255,.07)', sbg:'rgba(255,255,255,.06)', sbd:'rgba(255,255,255,.09)', stext:'#809a8a', activeBg:'rgba(127,191,161,.20)', hover:'rgba(255,255,255,.06)', mark:'#a6dabf', imark:'rgba(255,255,255,.22)', atext:'#EBF6EE', bon:'rgba(166,218,191,.22)', bonf:'#c6ecd4', boff:'rgba(255,255,255,.08)', bofff:'#96ac9f', hotb:'rgba(240,168,204,.20)', hotf:'#f6c2da', uname:'#EBF6EE', usub:'#809a8a' },
+  slate: { bg:'linear-gradient(178deg,#1B1F26 0%,#15181E 55%,#0F1116 100%)', fg:'#EDEEF0', muted:'#8B909A', faint:'#82868d', line:'rgba(255,255,255,.07)', sbg:'rgba(255,255,255,.05)', sbd:'rgba(255,255,255,.08)', stext:'#81868f', activeBg:'rgba(56,99,80,.34)', hover:'rgba(255,255,255,.05)', mark:'#7fbfa1', imark:'rgba(255,255,255,.20)', atext:'#EBF0EE', bon:'rgba(127,191,161,.20)', bonf:'#a6dabf', boff:'rgba(255,255,255,.07)', bofff:'#92969d', hotb:'rgba(219,39,119,.20)', hotf:'#f0a8cc', uname:'#EDEEF0', usub:'#81868f' },
+  bone:  { bg:'#F4F3F0', fg:'#0C0A09', muted:'#6B6560', faint:'#736e6c', line:'#E7E5E4', sbg:'#FFFFFF', sbd:'#E7E5E4', stext:'#736e6c', activeBg:'#EBF0EE', hover:'#ECEAE6', mark:'#386350', imark:'#C9C6C1', atext:'#0C0A09', bon:'rgba(56,99,80,.13)', bonf:'#2D5040', boff:'#EDEBE8', bofff:'#706965', hotb:'rgba(219,39,119,.12)', hotf:'#9D174D', uname:'#0C0A09', usub:'#736e6c' },
 }
 
 const MONO = "'JetBrains Mono', ui-monospace, monospace"
@@ -198,7 +203,9 @@ export default function Rail({
     ]},
   ]
 
-  const hasBadge = (v) => v !== undefined && v !== null && v !== ''
+  // A "0" badge is noise (loading, or filters emptied the list) — only
+  // show a count when there is actually something to count.
+  const hasBadge = (v) => Number(v) > 0
 
   return (
     <aside

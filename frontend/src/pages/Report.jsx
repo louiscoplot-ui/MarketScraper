@@ -130,6 +130,10 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
   const gridRef = useRef(null)
   const splitRef = useRef(reportSplit)
   useEffect(() => { splitRef.current = reportSplit }, [reportSplit])
+  // Hover / dragging feedback for the divider handle — inline styles
+  // can't express :hover, so a tiny state pair drives the colour.
+  const [splitHover, setSplitHover] = useState(false)
+  const [splitDragging, setSplitDragging] = useState(false)
   const startReportResize = (e) => {
     e.preventDefault()
     // During the drag, write the column widths DIRECTLY to the grid node —
@@ -137,6 +141,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
     // MapLibre map) dozens of times a second and made the drag stutter.
     // React state (and localStorage) only commit once, on mouseup.
     const onMove = (ev) => {
+      // Button released outside the browser window → no mouseup ever
+      // fires here; end the drag on the first re-entering move.
+      if (ev.buttons === 0) { onUp(); return }
       const node = gridRef.current
       const rect = node && node.getBoundingClientRect()
       if (!rect || !rect.width) return
@@ -146,26 +153,30 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       node.style.gridTemplateColumns = `${f}fr 10px ${(1 - f).toFixed(3)}fr`
     }
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
       document.body.style.userSelect = ''
+      setSplitDragging(false)
       setReportSplit(splitRef.current)
       try { localStorage.setItem('report_split', String(splitRef.current)) } catch { /* ignore */ }
     }
     document.body.style.userSelect = 'none'
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
+    setSplitDragging(true)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
   }
 
   // ── Desk redesign — full render of mock #report. ──
   if (getDeskMode() === 'desk' && report && !report.error) {
     const sm = report.summary || {}, pr = report.price || {}, dm = report.dom || {}
-    const money = (n) => n ? `$${Number(n).toLocaleString()}` : '—'
+    const money = (n) => n ? `$${Number(n).toLocaleString('en-AU')}` : '—'
     const kpis = [
       { l: 'Active', v: sm.active || 0, c: 'var(--status-good)' },
       { l: 'Under Offer', v: sm.under_offer || 0, c: 'var(--status-watch)' },
       { l: 'Sold', v: sm.sold || 0, c: 'var(--status-info)' },
-      { l: 'Median price', v: pr.median ? `$${(pr.median / 1e6).toFixed(2)}M` : '—', c: 'var(--accent)' },
+      { l: 'Median price', v: pr.median ? abbrevMoney(pr.median) : '—', c: 'var(--accent)' },
       { l: 'Avg days on market', v: dm.avg ?? '—', c: 'var(--text)' },
       { l: 'Stale (60+ days)', v: dm.stale_count || 0, c: 'var(--status-alert)' },
     ]
@@ -197,7 +208,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
           {kpis.map(k => (
             <div key={k.l} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 13, padding: '14px 15px', boxShadow: 'var(--shadow-card)' }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.l}</div>
@@ -218,7 +229,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 {share.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No data.</div> : share.map(a => (
                   <div key={a.agency} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', width: 150, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.agency}</span>
-                    <div style={{ flex: 1, height: 9, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${a.pct}%`, background: 'linear-gradient(90deg,#4f8067,#386350)', borderRadius: 999 }} /></div>
+                    <div style={{ flex: 1, height: 9, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${a.pct}%`, background: 'linear-gradient(90deg, color-mix(in srgb, var(--accent) 80%, white), var(--accent))', borderRadius: 999 }} /></div>
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text)', minWidth: 82, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{a.count} · {a.pct}%</span>
                   </div>
                 ))}
@@ -229,11 +240,16 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               <div style={{ overflowY: 'auto' }}>
                 {drops.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No recent price changes.</div> : drops.map((m, i) => {
                   const cut = (m.delta_amount ?? 0) < 0
+                  // delta 0 happens when only the price TEXT changed
+                  // ("Offers From $1.1m" → "$1,100,000") — not a rise.
+                  const zero = m.delta_amount === 0
                   return (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                       <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · was {m.old_price || '—'}</div></div>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{m.new_price || '—'}</span>
-                      {m.delta_pct != null && Math.abs(m.delta_pct) <= 200 && <span title="Change vs previous asking price" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, minWidth: 62, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(Math.round(m.delta_pct))}%</span>}
+                      {m.delta_pct != null && Math.abs(m.delta_pct) <= 200 && (zero
+                        ? <span title="Asking price unchanged" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, minWidth: 62, textAlign: 'center', flexShrink: 0, background: 'var(--status-off-bg)', color: 'var(--status-off-text)' }}>No change</span>
+                        : <span title="Change vs previous asking price" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, minWidth: 62, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(Math.round(m.delta_pct))}%</span>)}
                     </div>
                   )
                 })}
@@ -242,8 +258,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           </div>
           {/* drag to resize left / right */}
           <div onMouseDown={startReportResize} title="Drag to resize"
+            onMouseEnter={() => setSplitHover(true)} onMouseLeave={() => setSplitHover(false)}
             style={{ cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 4, height: 46, borderRadius: 999, background: 'var(--border)' }} />
+            <div style={{ width: 4, height: 46, borderRadius: 999, background: (splitDragging || splitHover) ? 'var(--accent)' : 'var(--text-faint)' }} />
           </div>
           {/* right */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
@@ -253,7 +270,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 label="Coverage by suburb"
                 addressOf={(x) => x.name}
                 suburbOf={() => ''}
-                colorOf={() => '#386350'}
+                colorOf={() => 'var(--accent)'}
                 popupOf={(x) => `${x.name}${x.total != null ? ` · ${x.total} listing${x.total !== 1 ? 's' : ''}` : ''}`}
               />
             </div>
@@ -316,7 +333,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
         }}>
           <span style={{
             width: 12, height: 12, borderRadius: '50%',
-            border: '2px solid rgba(30, 64, 175, 0.25)',
+            border: '2px solid color-mix(in srgb, var(--status-info-text) 25%, transparent)',
             borderTopColor: 'var(--status-info-text)',
             animation: 'sd-spin 0.8s linear infinite',
             display: 'inline-block',
@@ -339,6 +356,21 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
             First load can take 15–30 seconds while the server warms up.
           </div>
         </div>
+      ) : report.error ? (
+        // Backend 4xx bodies ({'error': ...}) reach here as-is (fetch
+        // helper doesn't throw on 4xx) — show them instead of a fake
+        // all-zero report. The selector above stays usable to recover.
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: 8, padding: '48px 24px', textAlign: 'center',
+        }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+            {String(report.error)}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 380, lineHeight: 1.5 }}>
+            No report could be built for this selection. Try different suburbs above.
+          </div>
+        </div>
       ) : (
       <>
       <div className="report-grid">
@@ -355,9 +387,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
         <div className="report-card">
           <h3>Price Range (Active)</h3>
           <div className="report-stats">
-            <div className="report-stat"><span className="stat-val">{report.price?.min ? `$${report.price.min.toLocaleString()}` : '-'}</span><span className="stat-label">Min</span></div>
-            <div className="report-stat"><span className="stat-val">{report.price?.median ? `$${report.price.median.toLocaleString()}` : '-'}</span><span className="stat-label">Median</span></div>
-            <div className="report-stat"><span className="stat-val">{report.price?.max ? `$${report.price.max.toLocaleString()}` : '-'}</span><span className="stat-label">Max</span></div>
+            <div className="report-stat"><span className="stat-val">{report.price?.min ? `$${report.price.min.toLocaleString('en-AU')}` : '-'}</span><span className="stat-label">Min</span></div>
+            <div className="report-stat"><span className="stat-val">{report.price?.median ? `$${report.price.median.toLocaleString('en-AU')}` : '-'}</span><span className="stat-label">Median</span></div>
+            <div className="report-stat"><span className="stat-val">{report.price?.max ? `$${report.price.max.toLocaleString('en-AU')}` : '-'}</span><span className="stat-label">Max</span></div>
             <div className="report-stat"><span className="stat-val">{report.price?.count_with_price || 0}/{report.summary?.active || 0}</span><span className="stat-label">With Price</span></div>
           </div>
         </div>
@@ -446,7 +478,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           <div className="report-table-section">
             <h3>Price Changes — Motivated Sellers <span className="muted-count">(latest 15)</span></h3>
             <table>
-              <thead><tr><th>Address</th><th>Suburb</th><th>Old Price</th><th>New Price</th><th>Drop</th><th>When</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
+              <thead><tr><th>Address</th><th>Suburb</th><th>Old Price</th><th>New Price</th><th>Change</th><th>When</th><th>Agent</th><th>Agency</th><th>Link</th></tr></thead>
               <tbody>
                 {report.price_drops.map((pd, i) => (
                   <tr key={i} className={pd.drop_amount ? 'price-drop-row' : ''}>
@@ -458,15 +490,18 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                       {pd.delta_amount != null ? (
                         // Signed delta. A cut is the motivated-seller
                         // signal → alert (red, per the status grammar);
-                        // a rise is neutral information → info (blue).
+                        // a rise is neutral information → info (blue);
+                        // 0 = only the price TEXT changed → no signal.
                         pd.delta_amount < 0 ? (
                           <Chip status="alert" size="sm" dot={false}>
-                            −{abbrevMoney(pd.delta_amount)} · {pd.delta_pct}%
+                            −{abbrevMoney(pd.delta_amount)} · −{Math.abs(pd.delta_pct)}%
                           </Chip>
-                        ) : (
+                        ) : pd.delta_amount > 0 ? (
                           <Chip status="info" size="sm" dot={false}>
                             +{abbrevMoney(pd.delta_amount)} · +{pd.delta_pct}%
                           </Chip>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>No change</span>
                         )
                       ) : (
                         // Prices we can't parse into numbers (e.g. "Offers
@@ -498,19 +533,24 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           const prev = prevDate ? report.snapshots.filter(s => s.snapshot_date === prevDate) : []
           const sumField = (arr, f) => arr.reduce((s, x) => s + (x[f] || 0), 0)
           const latestActive = sumField(latest, 'active_count')
-          const prevActive = prev.length > 0 ? sumField(prev, 'active_count') : null
           const latestUO = sumField(latest, 'under_offer_count')
-          const prevUO = prev.length > 0 ? sumField(prev, 'under_offer_count') : null
           const medians = latest.map(s => s.median_price).filter(Boolean)
           const latestMedian = medians.length > 0 ? Math.round(medians.reduce((a,b) => a+b, 0) / medians.length) : null
-          const prevMedians = prev.map(s => s.median_price).filter(Boolean)
-          const prevMedian = prevMedians.length > 0 ? Math.round(prevMedians.reduce((a,b) => a+b, 0) / prevMedians.length) : null
-          const delta = (cur, prv) => {
-            if (prv === null || prv === undefined) return null
-            const d = cur - prv
-            if (d === 0) return '='
-            return d > 0 ? `+${d}` : `${d}`
-          }
+          // Deltas only compare suburbs present on BOTH dates. A partial
+          // scrape night (Cloudflare, quota) or a single-suburb manual
+          // scrape would otherwise read as a huge fake market swing.
+          // Headline totals stay the full latest-date sums.
+          const latestIds = new Set(latest.map(s => s.suburb_id))
+          const commonIds = new Set(prev.map(s => s.suburb_id).filter(id => latestIds.has(id)))
+          const latestC = latest.filter(s => commonIds.has(s.suburb_id))
+          const prevC = prev.filter(s => commonIds.has(s.suburb_id))
+          const activeDelta = commonIds.size > 0 ? sumField(latestC, 'active_count') - sumField(prevC, 'active_count') : null
+          const uoDelta = commonIds.size > 0 ? sumField(latestC, 'under_offer_count') - sumField(prevC, 'under_offer_count') : null
+          const avgMedian = (arr) => { const ps = arr.map(s => s.median_price).filter(Boolean); return ps.length ? ps.reduce((a,b) => a+b, 0) / ps.length : null }
+          const latestMedianC = avgMedian(latestC)
+          const prevMedianC = avgMedian(prevC)
+          const medianDeltaPct = latestMedianC != null && prevMedianC ? (latestMedianC - prevMedianC) / prevMedianC * 100 : null
+          const fmtDelta = (d) => d === 0 ? '=' : d > 0 ? `+${d}` : `${d}`
           return (
             <div className="report-table-section">
               <h3>Market Trends</h3>
@@ -519,18 +559,18 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 <div className="trend-card">
                   <span className="trend-val">{latestActive}</span>
                   <span className="trend-label">Active Listings</span>
-                  {prevActive !== null && <span className={`trend-delta ${latestActive > prevActive ? 'up' : latestActive < prevActive ? 'down' : ''}`}>{delta(latestActive, prevActive)} vs prev</span>}
+                  {activeDelta !== null && <span className={`trend-delta ${activeDelta > 0 ? 'up' : activeDelta < 0 ? 'down' : ''}`}>{fmtDelta(activeDelta)} vs prev</span>}
                 </div>
                 <div className="trend-card">
                   <span className="trend-val">{latestUO}</span>
                   <span className="trend-label">Under Offer</span>
-                  {prevUO !== null && <span className={`trend-delta ${latestUO > prevUO ? 'up' : latestUO < prevUO ? 'down' : ''}`}>{delta(latestUO, prevUO)} vs prev</span>}
+                  {uoDelta !== null && <span className={`trend-delta ${uoDelta > 0 ? 'up' : uoDelta < 0 ? 'down' : ''}`}>{fmtDelta(uoDelta)} vs prev</span>}
                 </div>
                 {latestMedian && (
                   <div className="trend-card">
-                    <span className="trend-val">${latestMedian.toLocaleString()}</span>
+                    <span className="trend-val">${latestMedian.toLocaleString('en-AU')}</span>
                     <span className="trend-label" title="Average of each suburb's median asking price">Median Price (avg across suburbs)</span>
-                    {prevMedian && <span className={`trend-delta ${latestMedian > prevMedian ? 'up' : latestMedian < prevMedian ? 'down' : ''}`}>{latestMedian > prevMedian ? '+' : ''}{((latestMedian - prevMedian) / prevMedian * 100).toFixed(1)}% vs prev</span>}
+                    {medianDeltaPct !== null && <span className={`trend-delta ${medianDeltaPct > 0 ? 'up' : medianDeltaPct < 0 ? 'down' : ''}`}>{medianDeltaPct > 0 ? '+' : ''}{medianDeltaPct.toFixed(1)}% vs prev</span>}
                   </div>
                 )}
               </div>
@@ -550,7 +590,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                           <td className="num">{sumField(snaps, 'sold_count')}</td>
                           <td className="num">{sumField(snaps, 'withdrawn_count')}</td>
                           <td className="num">{sumField(snaps, 'new_count')}</td>
-                          <td className="num">{(() => { const ps = snaps.map(s => s.median_price).filter(Boolean); return ps.length ? `$${Math.round(ps.reduce((a,b)=>a+b,0)/ps.length).toLocaleString()}` : '-' })()}</td>
+                          <td className="num">{(() => { const ps = snaps.map(s => s.median_price).filter(Boolean); return ps.length ? `$${Math.round(ps.reduce((a,b)=>a+b,0)/ps.length).toLocaleString('en-AU')}` : '-' })()}</td>
                           <td className="num">{(() => { const ds = snaps.map(s => s.avg_dom).filter(Boolean); return ds.length ? Math.round(ds.reduce((a,b)=>a+b,0)/ds.length) : '-' })()}</td>
                         </tr>
                       )

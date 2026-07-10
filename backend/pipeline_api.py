@@ -583,13 +583,21 @@ def _bulk_insert_pipeline(conn, rows):
     # source_suburb_lower kept in sync at write time so the indexed
     # filter `source_suburb_lower = LOWER(?)` on read can use
     # idx_pipeline_suburb_lower instead of full-scanning the table.
+    # sent_date is passed EXPLICITLY as the Perth date: the schema's
+    # DEFAULT CURRENT_DATE is UTC, so the nightly cron (midnight Perth =
+    # 16:xx UTC) stamped J-1 and the UNIQUE(target_address, sent_date)
+    # dedup key didn't collide with a morning-Perth manual Generate —
+    # the same target got two rows for the same Perth day.
+    from time_utils import perth_now
+    sent_day = perth_now().strftime('%Y-%m-%d')
     cols = ('source_address', 'source_suburb', 'source_suburb_lower',
             'source_sold_date', 'source_price', 'target_address',
-            'target_owner_name', 'hot_vendor_score')
+            'target_owner_name', 'hot_vendor_score', 'sent_date')
     n_cols = len(cols)
 
     enriched_rows = [
-        (r[0], r[1], (r[1] or '').strip().lower(), r[2], r[3], r[4], r[5], r[6])
+        (r[0], r[1], (r[1] or '').strip().lower(), r[2], r[3], r[4], r[5], r[6],
+         sent_day)
         for r in rows
     ]
 
@@ -665,130 +673,138 @@ def _generate_pipeline_for_suburb(suburb, days=7, enforce_acl=True):
     src_limit = _source_limit(days)
 
     conn = get_db()
-    has_hv = _hot_vendors_table_exists(conn)
-    # Pre-fetch HV scores once (instead of N+1 per-target queries). On
-    # busy suburbs the loop below ran 200-800 SELECTs just to look up
-    # owner/score, blowing past the Vercel 25s budget. One IN-memory
-    # dict is O(1) per lookup.
-    hv_lookup = _build_hv_lookup(conn) if has_hv else {}
+    # try/finally: the generate path holds this connection through the
+    # OSM prefetch and neighbour loops — an exception anywhere leaked a
+    # pooled Neon connection per failed generate.
+    try:
+        has_hv = _hot_vendors_table_exists(conn)
+        # Pre-fetch HV scores once (instead of N+1 per-target queries). On
+        # busy suburbs the loop below ran 200-800 SELECTs just to look up
+        # owner/score, blowing past the Vercel 25s budget. One IN-memory
+        # dict is O(1) per lookup.
+        hv_lookup = _build_hv_lookup(conn) if has_hv else {}
 
-    sold_rows = conn.execute(
-        """
-        SELECT l.address, l.sold_price, l.price_text, l.sold_date,
-               l.first_seen, l.last_seen, s.name AS suburb_name,
-               COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) AS effective_date
-        FROM listings l
-        JOIN suburbs s ON l.suburb_id = s.id
-        WHERE l.status = 'sold'
-          AND LOWER(s.name) = LOWER(?)
-          AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?
-        ORDER BY COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) DESC,
-                 l.first_seen DESC
-        LIMIT ?
-        """,
-        (suburb, cutoff_date, src_limit)
-    ).fetchall()
-    sold_count = len(sold_rows)
+        sold_rows = conn.execute(
+            """
+            SELECT l.address, l.sold_price, l.price_text, l.sold_date,
+                   l.first_seen, l.last_seen, s.name AS suburb_name,
+                   COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) AS effective_date
+            FROM listings l
+            JOIN suburbs s ON l.suburb_id = s.id
+            WHERE l.status = 'sold'
+              AND LOWER(s.name) = LOWER(?)
+              AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?
+            ORDER BY COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) DESC,
+                     l.first_seen DESC
+            LIMIT ?
+            """,
+            (suburb, cutoff_date, src_limit)
+        ).fetchall()
+        sold_count = len(sold_rows)
 
-    streets_to_fetch = []
-    seen = set()
-    for r in sold_rows:
-        parsed = _parse_address(r['address'])
-        if not parsed:
-            continue
-        _, _, street = parsed
-        key = (street.lower(), (r['suburb_name'] or '').lower())
-        if key in seen:
-            continue
-        seen.add(key)
-        if _osm_street_numbers_cached(conn, street, r['suburb_name']) is None:
-            streets_to_fetch.append((street, r['suburb_name']))
-    # Defensive dedup — `seen` above already collapses (street, suburb)
-    # duplicates within sold_rows, but tuples are hashable so dict.fromkeys
-    # is cheap and protects against any future caller that bypasses `seen`.
-    streets_to_fetch = list(dict.fromkeys(streets_to_fetch))
-    if streets_to_fetch:
-        logger.info(f"[pipeline] pre-warming OSM cache for {len(streets_to_fetch)} streets in parallel")
-        def _warm(pair):
-            street, sub = pair
-            try:
-                nums = _osm_fetch_street_numbers(street, sub)
-            except Exception:
-                logger.exception(f"[pipeline] OSM prefetch failed for {street!r}, {sub!r}")
-                nums = []
-            return (street, sub, nums)
-        with ThreadPoolExecutor(max_workers=6) as ex:
-            for street, sub, nums in ex.map(_warm, streets_to_fetch):
-                _osm_street_numbers_store(conn, street, sub, nums)
+        streets_to_fetch = []
+        seen = set()
+        for r in sold_rows:
+            parsed = _parse_address(r['address'])
+            if not parsed:
+                continue
+            _, _, street = parsed
+            key = (street.lower(), (r['suburb_name'] or '').lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            if _osm_street_numbers_cached(conn, street, r['suburb_name']) is None:
+                streets_to_fetch.append((street, r['suburb_name']))
+        # Defensive dedup — `seen` above already collapses (street, suburb)
+        # duplicates within sold_rows, but tuples are hashable so dict.fromkeys
+        # is cheap and protects against any future caller that bypasses `seen`.
+        streets_to_fetch = list(dict.fromkeys(streets_to_fetch))
+        if streets_to_fetch:
+            logger.info(f"[pipeline] pre-warming OSM cache for {len(streets_to_fetch)} streets in parallel")
+            def _warm(pair):
+                street, sub = pair
+                try:
+                    nums = _osm_fetch_street_numbers(street, sub)
+                except Exception:
+                    logger.exception(f"[pipeline] OSM prefetch failed for {street!r}, {sub!r}")
+                    nums = []
+                return (street, sub, nums)
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                for street, sub, nums in ex.map(_warm, streets_to_fetch):
+                    _osm_street_numbers_store(conn, street, sub, nums)
 
-    insert_rows = []
-    skipped_no_neighbour = 0
-    for r in sold_rows:
-        source_address = r['address']
-        source_suburb = r['suburb_name']
-        # ONLY use the actual sold_price from REIWA's "Last Sold on …"
-        # block — never fall back to price_text. The asking price is
-        # often very different from the transaction price (vendor
-        # bid up / down) and surfacing it as "sold for $X" was
-        # inventing data. NULL when sold_price is missing.
-        source_price = _price_to_int(r['sold_price'])
-        # ONLY use the real sold_date — never fall back to first_seen
-        # (which was baking the date the listing was first scraped into
-        # source_sold_date for every sale, surfacing as "all sold 28 Apr"
-        # when the user first scraped the suburb on the 28th). NULL is
-        # honest; the UI shows "—" rather than a fake unified date.
-        source_sold_date = (r['sold_date'] or '').strip() or None
-        targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
-        if not targets:
-            skipped_no_neighbour += 1
-            continue
-        for target in targets:
-            if has_hv:
-                owner, score = _lookup_hot_vendor(hv_lookup, target)
-            else:
-                owner, score = None, None
-            insert_rows.append((
-                source_address, source_suburb, source_sold_date,
-                source_price, target, owner, score,
-            ))
+        insert_rows = []
+        skipped_no_neighbour = 0
+        for r in sold_rows:
+            source_address = r['address']
+            source_suburb = r['suburb_name']
+            # ONLY use the actual sold_price from REIWA's "Last Sold on …"
+            # block — never fall back to price_text. The asking price is
+            # often very different from the transaction price (vendor
+            # bid up / down) and surfacing it as "sold for $X" was
+            # inventing data. NULL when sold_price is missing.
+            source_price = _price_to_int(r['sold_price'])
+            # ONLY use the real sold_date — never fall back to first_seen
+            # (which was baking the date the listing was first scraped into
+            # source_sold_date for every sale, surfacing as "all sold 28 Apr"
+            # when the user first scraped the suburb on the 28th). NULL is
+            # honest; the UI shows "—" rather than a fake unified date.
+            source_sold_date = (r['sold_date'] or '').strip() or None
+            targets = _real_neighbours(conn, source_address, source_suburb, has_hv)
+            if not targets:
+                skipped_no_neighbour += 1
+                continue
+            for target in targets:
+                if has_hv:
+                    owner, score = _lookup_hot_vendor(hv_lookup, target)
+                else:
+                    owner, score = None, None
+                insert_rows.append((
+                    source_address, source_suburb, source_sold_date,
+                    source_price, target, owner, score,
+                ))
 
-    generated = _bulk_insert_pipeline(conn, insert_rows)
-    # Skipped rows hit ON CONFLICT (target_address, sent_date) DO
-    # NOTHING — every target already had a pipeline row for today.
-    # Exposed so the UI can show "N targets already existed".
-    total_attempted = len(insert_rows)
-    skipped = max(0, total_attempted - generated)
-    conn.commit()
+        generated = _bulk_insert_pipeline(conn, insert_rows)
+        # Skipped rows hit ON CONFLICT (target_address, sent_date) DO
+        # NOTHING — every target already had a pipeline row for today.
+        # Exposed so the UI can show "N targets already existed".
+        total_attempted = len(insert_rows)
+        skipped = max(0, total_attempted - generated)
+        conn.commit()
 
-    # Always return the raw source sales — even when generated=0
-    # (every neighbour already in pipeline OR no neighbours found).
-    # The Pipeline UI surfaces these so the user can SEE the sales
-    # found and add manual targets if auto-discovery missed them.
-    raw_sales = []
-    for r in sold_rows:
-        d = dict(r)
-        sold_date = (d.get('sold_date') or '').strip() or None
-        first_seen = (d.get('first_seen') or '')[:10]
-        if sold_date and sold_date == first_seen:
-            sold_date = None  # extract_date corruption guard
-        raw_sales.append({
-            'source_address': d.get('address'),
-            'source_suburb': d.get('suburb_name'),
-            'source_price': _price_to_int(d.get('sold_price')),
-            'source_sold_date': sold_date,
-        })
-    conn.close()
+        # Always return the raw source sales — even when generated=0
+        # (every neighbour already in pipeline OR no neighbours found).
+        # The Pipeline UI surfaces these so the user can SEE the sales
+        # found and add manual targets if auto-discovery missed them.
+        raw_sales = []
+        for r in sold_rows:
+            d = dict(r)
+            sold_date = (d.get('sold_date') or '').strip() or None
+            first_seen = (d.get('first_seen') or '')[:10]
+            if sold_date and sold_date == first_seen:
+                sold_date = None  # extract_date corruption guard
+            raw_sales.append({
+                'source_address': d.get('address'),
+                'source_suburb': d.get('suburb_name'),
+                'source_price': _price_to_int(d.get('sold_price')),
+                'source_sold_date': sold_date,
+            })
 
-    return {
-        'generated': generated,
-        'skipped': skipped,
-        'total_attempted': total_attempted,
-        'sold_count': sold_count,
-        'suburb': suburb,
-        'cap_applied': sold_count >= src_limit,
-        'skipped_no_neighbour': skipped_no_neighbour,
-        'recent_sales': raw_sales,
-    }
+        return {
+            'generated': generated,
+            'skipped': skipped,
+            'total_attempted': total_attempted,
+            'sold_count': sold_count,
+            'suburb': suburb,
+            'cap_applied': sold_count >= src_limit,
+            'skipped_no_neighbour': skipped_no_neighbour,
+            'recent_sales': raw_sales,
+        }
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def pipeline_generate():
@@ -836,7 +852,7 @@ def pipeline_manual_add():
 
     source_price = _price_to_int(data.get('source_price'))
     source_sold_date = (data.get('source_sold_date') or '').strip() or \
-        date.today().isoformat()
+        perth_now().date().isoformat()
 
     explicit_targets = data.get('target_addresses') or []
     if not isinstance(explicit_targets, list):
@@ -886,7 +902,9 @@ def pipeline_manual_add():
           AND sent_date = ?
         ORDER BY target_address ASC
         """,
-        (source_address, source_suburb, date.today().isoformat())
+        # Perth date — must match the sent_date stamp _bulk_insert_pipeline
+        # now writes, or the readback misses today's fresh rows.
+        (source_address, source_suburb, perth_now().date().isoformat())
     ).fetchall()
     entries = _serialize_entries(rows)
     conn.close()
@@ -1012,6 +1030,13 @@ def pipeline_tracking_grouped():
         )
         params.extend([cutoff_date, cutoff_date])
     sql += " ORDER BY target_address ASC, created_at DESC"
+    # SQL-side bound: without it the unfiltered admin/all-suburbs case
+    # loaded the ENTIRE tracking table into memory on every Pipeline
+    # visit. `limit` counts GROUPS (targets); rows per target are
+    # bounded in practice by the per-day dedup key, so limit*25 leaves
+    # generous headroom while capping the worst case.
+    sql += " LIMIT ?"
+    params.append(limit * 25)
     rows = conn.execute(sql, params).fetchall()
     conn.close()
 

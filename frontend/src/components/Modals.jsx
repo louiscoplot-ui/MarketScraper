@@ -107,7 +107,7 @@ export function ThemeModal({ theme, setTheme, defaultTheme, presets, updateColor
       <div className="modal theme-modal">
         <div className="modal-header">
           <h2>Customize Theme</h2>
-          <button className="btn btn-icon" onClick={onClose}>x</button>
+          <button className="btn btn-icon" onClick={onClose}>×</button>
         </div>
         <div className="theme-presets">
           {Object.entries(presets).map(([name, colors]) => (
@@ -186,11 +186,15 @@ export function ScrapeModal({
   // ack'd the job. Once the POST returns, parent flips connecting=false
   // and we fall through to the normal progress UI below.
   if (connecting && scrapeJobs.length === 0) {
+    // Closable even while connecting: if the POST hangs (mute socket on
+    // a cold start) the full-screen modal must not trap the app. Closing
+    // only hides the modal — the request keeps going in the background.
     return (
-      <div className="modal-overlay">
+      <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
         <div className="modal">
           <div className="modal-header">
             <h2>Scraping Progress</h2>
+            <button className="btn btn-icon" onClick={onClose}>×</button>
           </div>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 12,

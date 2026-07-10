@@ -30,6 +30,16 @@ const STATUS_LABEL = {
   withdrawn: 'Withdrawn',
 }
 
+// AA-safe label colour for the ACTIVE filter buttons — the strong tones
+// (statusColors) stay on border + tint, but at 11px on their own 20%
+// tint they sit at 2.6-3.9:1. The darker -text tokens pass 4.5:1.
+const STATUS_TEXT = {
+  active: 'var(--status-active-text)',
+  under_offer: 'var(--status-under-offer-text)',
+  sold: 'var(--status-sold-text)',
+  withdrawn: 'var(--status-withdrawn-text)',
+}
+
 
 export default function ListingsView({
   selectedStatuses, toggleStatus, statusColors,
@@ -247,7 +257,7 @@ export default function ListingsView({
           onSave={(iso) => updateListing(l.id, { listing_date: isoToDmy(iso) })}
         />
       ) },
-    showDom && { field: 'dom', label: 'DOM', sortable: true,
+    showDom && { field: 'dom', label: 'DOM', sortable: true, className: 'num',
       cellClass: (l) => `num ${(calcDOM(l) ?? 0) >= 60 ? 'stale' : ''}`,
       cell: (l) => {
         const d = calcDOM(l)
@@ -312,9 +322,13 @@ export default function ListingsView({
       { l: 'Land', f: 'land_size', a: 'right' }, { l: 'Agency', f: 'agency' },
       { l: 'Agent', f: 'agent' }, { l: 'Listed', f: 'listing_date' }, { l: 'DOM', f: 'dom', a: 'right' },
     ]
+    // c = strong tone (dot, active border) · t/bg = AA text/background
+    // pair from tokens.css. No hardcoded hex (tokens.css rule).
     const STATUS_PILLS = [
-      { k: 'active', l: 'Active', c: '#16A34A' }, { k: 'under_offer', l: 'Under Offer', c: '#D97706' },
-      { k: 'sold', l: 'Sold', c: '#2563EB' }, { k: 'withdrawn', l: 'Withdrawn', c: '#DC2626' },
+      { k: 'active', l: 'Active', c: 'var(--status-good)', t: 'var(--status-good-text)', bg: 'var(--status-good-bg)' },
+      { k: 'under_offer', l: 'Under Offer', c: 'var(--status-watch)', t: 'var(--status-watch-text)', bg: 'var(--status-watch-bg)' },
+      { k: 'sold', l: 'Sold', c: 'var(--status-info)', t: 'var(--status-info-text)', bg: 'var(--status-info-bg)' },
+      { k: 'withdrawn', l: 'Withdrawn', c: 'var(--status-alert)', t: 'var(--status-alert-text)', bg: 'var(--status-alert-bg)' },
     ]
     // Per-status totals for the current suburb scope, summed from the
     // suburb rows (active_count / under_offer_count / …) — same source as
@@ -346,7 +360,7 @@ export default function ListingsView({
                   </button>
                 ) : (
                   <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text-muted)', padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                    Rental <span title="Rental is not enabled on your account — ask your admin to switch it on" style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '.08em', background: 'var(--border)', color: 'var(--text-muted)', borderRadius: 4, padding: '1px 5px', cursor: 'help' }}>ASK ADMIN</span>
+                    Rental <span title="Rental is not enabled on your account — ask your admin to switch it on" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', background: 'var(--status-off-bg)', color: 'var(--status-off-text)', borderRadius: 4, padding: '1px 5px', cursor: 'help' }}>ASK ADMIN</span>
                   </span>
                 )}
               </div>
@@ -368,10 +382,12 @@ export default function ListingsView({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {suburbs.filter(s => checkedSuburbs.has(s.id)).slice(0, 8).map(s => (
-              <span key={s.id} onClick={() => toggleCheckSuburb && toggleCheckSuburb(s.id)} title={`Remove ${s.name}`}
+              <button key={s.id} type="button" onClick={() => toggleCheckSuburb && toggleCheckSuburb(s.id)} title={`Remove ${s.name}`}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--accent-soft)' }}
                 style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent-soft)', borderRadius: 999, padding: '6px 12px' }}>
                 {s.name} <span style={{ opacity: 0.6 }}>×</span>
-              </span>
+              </button>
             ))}
             {checkedSuburbs.size > 8 && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 999, padding: '6px 12px' }}>+ {checkedSuburbs.size - 8} more</span>}
             {suburbs.length > 0 && toggleCheckSuburb && (
@@ -389,13 +405,13 @@ export default function ListingsView({
                     {suburbs.map(s => {
                       const on = checkedSuburbs.has(s.id)
                       return (
-                        <div key={s.id} onClick={() => toggleCheckSuburb(s.id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}
+                        <button key={s.id} type="button" onClick={() => toggleCheckSuburb(s.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                           <span style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, border: `1.5px solid ${on ? 'var(--accent)' : 'var(--border)'}`, background: on ? 'var(--accent)' : 'transparent', color: '#fff', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{on ? '✓' : ''}</span>
                           {s.name}
-                        </div>
+                        </button>
                       )
                     })}
                   </div>
@@ -406,11 +422,13 @@ export default function ListingsView({
             {STATUS_PILLS.map(p => {
               const on = selectedStatuses.has(p.k)
               return (
-                <span key={p.k} onClick={() => toggleStatus(p.k)}
-                  style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', borderRadius: 999, padding: '6px 13px', background: on ? p.c + '1f' : 'transparent', color: on ? p.c : 'var(--text-muted)', border: `1px solid ${on ? p.c : 'var(--border)'}` }}>
+                <button key={p.k} type="button" onClick={() => toggleStatus(p.k)}
+                  onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = on ? p.bg : 'transparent' }}
+                  style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', borderRadius: 999, padding: '6px 13px', background: on ? p.bg : 'transparent', color: on ? p.t : 'var(--text-muted)', border: `1px solid ${on ? p.c : 'var(--border)'}` }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.c }} />{p.l}
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0, opacity: on ? 1 : 0.8 }}>{statusCounts[p.k]}</span>
-                </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: 0 }}>{statusCounts[p.k]}</span>
+                </button>
               )
             })}
             <Select size="sm" value={selectedAgency} onChange={e => setSelectedAgency(e.target.value)}
@@ -434,7 +452,7 @@ export default function ListingsView({
                   <tr>
                     {columns.map(c => (
                       <th key={c.field} onClick={c.sortable ? () => toggleSort(c.field) : undefined}
-                        className={c.sortable ? 'sortable' : undefined} style={c.style}>
+                        className={[c.sortable && 'sortable', c.className].filter(Boolean).join(' ') || undefined} style={c.style}>
                         {c.label}{c.sortable && sortField === c.field && (sortDir === 'asc' ? ' ↑' : ' ↓')}{c.headerExtra}
                       </th>
                     ))}
@@ -556,7 +574,7 @@ export default function ListingsView({
             className={`filter-btn ${selectedStatuses.has(s) ? 'active' : ''}`}
             onClick={() => toggleStatus(s)}
             style={selectedStatuses.has(s)
-              ? { borderColor: statusColors[s], backgroundColor: statusColors[s] + '33', color: statusColors[s] }
+              ? { borderColor: statusColors[s], backgroundColor: statusColors[s] + '33', color: STATUS_TEXT[s] }
               : { borderColor: statusColors[s] }}
           >
             {s.replace('_', ' ').toUpperCase()}
@@ -605,7 +623,7 @@ export default function ListingsView({
                 <th
                   key={c.field}
                   onClick={c.sortable ? () => toggleSort(c.field) : undefined}
-                  className={c.sortable ? 'sortable' : undefined}
+                  className={[c.sortable && 'sortable', c.className].filter(Boolean).join(' ') || undefined}
                   style={c.style}
                 >
                   {c.label}
@@ -646,7 +664,9 @@ export default function ListingsView({
                 <td colSpan={columns.length} className="empty">
                   {suburbs.length === 0
                     ? 'Add a suburb to get started'
-                    : 'No listings yet. Click "Scrape" to fetch data.'}
+                    : (allListings && allListings.length > 0
+                        ? 'No listings match the current filters — adjust or clear the filters above.'
+                        : 'No listings yet. Click "Scrape" to fetch data.')}
                 </td>
               </tr>
             )}

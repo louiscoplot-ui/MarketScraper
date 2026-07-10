@@ -93,13 +93,16 @@ function MarketPulse({ report, suburbCount, scope }) {
   const Y = (v) => 138 - ((v - min) / rng) * 122
   const line = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')
   const area = `M0,150 ${series.map((p, i) => `L${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')} L640,150 Z`
-  const cur = hi != null ? series[hi] : series[n - 1]
+  // Clamp the hover index — `series` can shrink under the cursor (report
+  // refresh in the background, scope change) leaving `hi` past the end.
+  const hIdx = hi == null ? null : Math.min(hi, n - 1)
+  const cur = hIdx != null ? series[hIdx] : series[n - 1]
   const first = series[0].v
   const deltaPct = first ? ((cur.v - first) / first) * 100 : 0
   const up = deltaPct >= 0
   const labelIdx = n <= 6 ? series.map((_, i) => i) : [0, Math.floor(n / 3), Math.floor(2 * n / 3), n - 1]
-  const hx = hi != null ? (X(hi) / 640) * 100 : null
-  const hy = hi != null ? (Y(series[hi].v) / 150) * 100 : null
+  const hx = hIdx != null ? (X(hIdx) / 640) * 100 : null
+  const hy = hIdx != null ? (Y(series[hIdx].v) / 150) * 100 : null
   const onMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect()
     if (!r.width) return
@@ -123,13 +126,13 @@ function MarketPulse({ report, suburbCount, scope }) {
         {/* chart */}
         <div style={{ position: 'relative', flex: 1, height: 118, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
           <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
-            <defs><linearGradient id="mp-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#386350" stopOpacity=".18" /><stop offset="1" stopColor="#386350" stopOpacity="0" /></linearGradient></defs>
+            <defs><linearGradient id="mp-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".18" /><stop offset="1" stopColor="var(--accent)" stopOpacity="0" /></linearGradient></defs>
             <line x1="0" y1="40" x2="640" y2="40" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="90" x2="640" y2="90" stroke="var(--border)" strokeWidth="1" />
             <path d={area} fill="url(#mp-fill)" />
-            <polyline points={line} fill="none" stroke="#386350" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+            <polyline points={line} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
           </svg>
-          {hi != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${hx}%`, width: 1, background: 'var(--accent)', opacity: 0.45 }} />}
-          {hi != null && <div style={{ position: 'absolute', left: `${hx}%`, top: `${hy}%`, width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: '50%', background: 'var(--accent)', border: '2px solid var(--surface)', boxShadow: '0 0 0 1px var(--accent)' }} />}
+          {hIdx != null && <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${hx}%`, width: 1, background: 'var(--accent)', opacity: 0.45 }} />}
+          {hIdx != null && <div style={{ position: 'absolute', left: `${hx}%`, top: `${hy}%`, width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: '50%', background: 'var(--accent)', border: '2px solid var(--surface)', boxShadow: '0 0 0 1px var(--accent)' }} />}
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 6, marginLeft: 54 }}>
@@ -145,8 +148,10 @@ function MarketPulse({ report, suburbCount, scope }) {
 const DASH_WIDGETS = [
   { id: 'leads',      label: 'Contact today',         group: 'Leads' },
   { id: 'fallen',     label: 'Sales fallen through',  group: 'Leads' },
-  { id: 'bySuburb',   label: 'Signals by suburb',     group: 'Leads' },
-  { id: 'hot',        label: 'Morning signals',       group: 'Leads' },
+  // Both fed by brief.items (the nightly top-5), NOT the full signal set —
+  // labels say "brief" so the numbers don't contradict the Signals page.
+  { id: 'bySuburb',   label: 'Brief signals by suburb', group: 'Leads' },
+  { id: 'hot',        label: "Today's brief",         group: 'Leads' },
   { id: 'market',     label: 'Market state',          group: 'Market' },
   { id: 'movers',     label: 'Price movements',       group: 'Market' },
   { id: 'pulse',      label: 'Market pulse',          group: 'Trends' },
@@ -157,8 +162,8 @@ const DASH_WIDGETS = [
 const DASH_PREF_KEY = 'desk_dash_widgets_v1'
 const WIDE = new Set(['leads', 'pulse', 'market'])   // full-width widgets
 
-const TONE_TEXT = { alert: 'var(--status-alert-text)', watch: 'var(--status-watch-text)', good: 'var(--status-good-text)', off: 'var(--text-muted)' }
-const TONE_BG = { alert: 'var(--status-alert-bg)', watch: 'var(--status-watch-bg)', good: 'var(--status-good-bg)', off: 'var(--bg)' }
+const TONE_TEXT = { alert: 'var(--status-alert-text)', watch: 'var(--status-watch-text)', good: 'var(--status-good-text)', off: 'var(--status-off-text)' }
+const TONE_BG = { alert: 'var(--status-alert-bg)', watch: 'var(--status-watch-bg)', good: 'var(--status-good-bg)', off: 'var(--status-off-bg)' }
 
 // The morning call-list: merge every "reason to phone an owner" from the
 // real datasets into one prioritised list (address + why + where to act).
@@ -185,13 +190,23 @@ function buildLeads(report, items, fallenList, suburb) {
       ((s.reasons || [])[0] || 'Vendor signal') + ((s.reasons || []).length > 1 ? ` +${s.reasons.length - 1}` : ''),
       (s.score || 0) >= 0.6 ? 'alert' : 'watch', 'signals', 60 + (s.score || 0) * 20,
       { kind: 'Vendor signal', score: s.score, reasons: s.reasons, narrative: s.narrative }))
-  ;(r.withdrawn_listings || []).forEach(w => add(w.address, w.suburb, 'Withdrawn', 'watch', 'report', 50,
+  // Freshness bound: the report carries every withdrawn row ever scraped
+  // but no withdrawn_date, so listing_date is the only proxy — a withdrawn
+  // listing that went up >180 days ago is history, not a call for today.
+  // Rows with no date at all are kept (can't judge them).
+  const wCut = new Date(); wCut.setDate(wCut.getDate() - 180)
+  const wCutIso = wCut.toISOString().slice(0, 10)
+  ;(r.withdrawn_listings || [])
+    .filter(w => !w.listing_date || String(w.listing_date).slice(0, 10) >= wCutIso)
+    .forEach(w => add(w.address, w.suburb, 'Withdrawn', 'watch', 'report', 50,
     { kind: 'Withdrawn', price: w.price, agent: w.agent, agency: w.agency, dom: w.dom, listing_date: w.listing_date, reiwa_url: w.reiwa_url }))
   ;(r.stale_listings || []).forEach(s => add(s.address, s.suburb, `${s.dom || '60+'} days on market`, 'off', 'report', 40,
     { kind: 'Stale listing', price: s.price, agent: s.agent, agency: s.agency, dom: s.dom, listing_date: s.listing_date, reiwa_url: s.reiwa_url }))
   const seen = new Map()
   for (const o of out) {
-    const k = (o.address || '').toLowerCase()
+    // Suburb is part of the key — REIWA addresses don't include it, so the
+    // same street address can exist in two tracked suburbs (two owners).
+    const k = `${o.address || ''}|${o.suburb || ''}`.toLowerCase()
     if (!seen.has(k) || seen.get(k).weight < o.weight) seen.set(k, o)
   }
   return [...seen.values()].sort((a, b) => b.weight - a.weight)
@@ -211,7 +226,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
   // Dashboard customization — enabled widgets (persisted) + the Customize panel.
   const [enabled, setEnabled] = useState(() => {
     try { const raw = localStorage.getItem(DASH_PREF_KEY); if (raw) return new Set(JSON.parse(raw)) } catch { /* ignore */ }
-    // 'hot' (Morning signals) is OFF by default: on a small portfolio it
+    // 'hot' (Today's brief) is OFF by default: on a small portfolio it
     // lists the same addresses as "Contact today" right next to it —
     // pure duplication. Still one click away in ⚙ Customize.
     return new Set(DASH_WIDGETS.map(w => w.id).filter(id => id !== 'hot'))
@@ -262,27 +277,51 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
   // just hides the line.
   useEffect(() => {
     apiJson('/api/signals?status=dismissed&limit=200')
-      .then(d => setCooldownCount((d.signals || []).length))
+      .then(d => {
+        // Only signals still inside the engine's 30-day dismissed cooldown
+        // (signal_engine.py DISMISSED_COOLDOWN_DAYS) are actually snoozed;
+        // older dismissed rows stay in the table forever and would inflate
+        // the count indefinitely.
+        const cutoff = Date.now() - 30 * 86400000
+        setCooldownCount((d.signals || []).filter(s => {
+          const t = Date.parse(s.created_at)
+          return !isNaN(t) && t >= cutoff
+        }).length)
+      })
       .catch(() => setCooldownCount(0))
+  }, [])
+
+  // Reactive desk flag: getDeskMode() read once inside an effect never
+  // re-fires when the operator clicks "Enter desk" mid-session, so the
+  // fallen/appraisals widgets stayed empty until a full reload. The
+  // <html data-desk> attribute (set by deskFlag.applyDesk) is the
+  // observable source of truth.
+  const [deskOn, setDeskOn] = useState(() => getDeskMode() === 'desk')
+  useEffect(() => {
+    const el = document.documentElement
+    const obs = new MutationObserver(() =>
+      setDeskOn(el.getAttribute('data-desk') === 'on'))
+    obs.observe(el, { attributes: true, attributeFilter: ['data-desk'] })
+    return () => obs.disconnect()
   }, [])
 
   // Sales fallen through — for the leads / fallen widgets.
   useEffect(() => {
-    if (getDeskMode() !== 'desk') return
+    if (!deskOn) return
     if (!(enabled.has('leads') || enabled.has('fallen'))) return
     apiJson('/api/signals/sale-fallen')
       .then(d => { const a = Array.isArray(d) ? d : []; setFallenList(a); writeCache('dash_fallen', a) })
       .catch(() => {})
-  }, [enabled])
+  }, [enabled, deskOn])
 
-  // Appraisal follow-ups — for the "Suivi perso" widget.
+  // Appraisal follow-ups — for the personal follow-up widget.
   useEffect(() => {
-    if (getDeskMode() !== 'desk') return
+    if (!deskOn) return
     if (!enabled.has('appraisals')) return
     apiJson('/api/appraisals')
       .then(d => { const a = Array.isArray(d) ? d : (d && d.appraisals) || []; setAppraisalsList(a); writeCache('dash_appraisals', a) })
       .catch(() => {})
-  }, [enabled])
+  }, [enabled, deskOn])
 
   async function recordAction(item, actionType) {
     setBusy(item.signal_id)
@@ -440,6 +479,18 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     )
     const emptyLine = (t) => <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>{t}</div>
     const go = (v) => setView && setView(v)
+    // The desk widgets are styled inline, which can't express :hover /
+    // :focus-visible (and desk.css is shared shell CSS): hover is applied
+    // by hand, keyboard focus relies on the browser's default outline —
+    // native <button> or tabIndex element, never outline:none.
+    const hoverFx = (enter, leave) => ({
+      onMouseEnter: (e) => Object.assign(e.currentTarget.style, enter),
+      onMouseLeave: (e) => Object.assign(e.currentTarget.style, leave),
+    })
+    const asButton = (fn) => ({
+      role: 'button', tabIndex: 0,
+      onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() } },
+    })
     const W = (id, node) => has(id) ? node : null
     // Each column scrolls on its own so the PAGE never scrolls.
     const colStyle = { display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, overflowY: 'auto', paddingRight: 4 }
@@ -451,7 +502,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', flexShrink: 0, marginBottom: 16 }}>
           <div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 6 }}>
-              {formatIsoDate(brief?.brief_date) || ''} · {suburbsList.length} suburbs tracked
+              {[formatIsoDate(brief?.brief_date), `${suburbsList.length} suburbs tracked`].filter(Boolean).join(' · ')}
             </div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 400, fontSize: 30, letterSpacing: '-0.02em', margin: 0, color: 'var(--text)' }}>Good morning</h2>
           </div>
@@ -462,6 +513,8 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
               {suburbsList.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <button onClick={() => setCustomOpen(o => !o)} title="Choose widgets"
+              onMouseEnter={(e) => { if (!customOpen) e.currentTarget.style.background = 'var(--surface-hover)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--surface)' }}
               style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: customOpen ? 'var(--accent)' : 'var(--text-muted)', background: 'var(--surface)', border: `1px solid ${customOpen ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '9px 14px', cursor: 'pointer' }}>
               ⚙ Customize
             </button>
@@ -474,7 +527,8 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                     <div key={g} style={{ marginBottom: 10 }}>
                       <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 5 }}>{g}</div>
                       {DASH_WIDGETS.filter(w => w.group === g).map(w => (
-                        <label key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 4px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)' }}>
+                        <label key={w.id} {...hoverFx({ background: 'var(--surface-hover)' }, { background: 'transparent' })}
+                          style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 4px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)' }}>
                           <input type="checkbox" checked={has(w.id)} onChange={() => toggleWidget(w.id)} style={{ accentColor: 'var(--accent)', width: 15, height: 15 }} />
                           {w.label}
                         </label>
@@ -494,10 +548,15 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         ) : enabled.size === 0 ? (
           <div style={{ color: 'var(--text-muted)', padding: 24, fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>No widgets enabled — click ⚙ Customize to add some.</div>
         ) : (
-          // Full-height 3-column grid — columns scroll, page does not.
-          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: 16, overflow: 'hidden' }}>
+          // Full-height column grid — columns scroll internally. auto-fit
+          // (a) drops the track of any column whose widgets are all off, so
+          // no permanent blank third of the screen, and (b) wraps columns on
+          // narrow viewports — the grid then scrolls vertically instead of
+          // clipping (overflowY auto is a no-op while everything fits).
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, overflowY: 'auto', overflowX: 'hidden' }}>
 
             {/* ── Column 1 — the call list ── */}
+            {(has('leads') || has('hot')) && (
             <div style={colStyle}>
               {W('leads', (
                 <div style={{ ...card, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -506,13 +565,16 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', minHeight: 0, paddingBottom: 12, WebkitMaskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)', maskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)' }}>
                       {leads.map((l, i) => (
                         <button key={`${l.view}-${l.address}-${i}`} onClick={() => setLeadDetail(l)}
+                          {...hoverFx({ background: 'var(--surface-hover)' }, { background: 'var(--bg)' })}
                           style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', cursor: 'pointer', minWidth: 0 }}>
                           <span style={{ width: 8, height: 8, borderRadius: '50%', background: TONE_TEXT[l.tone], flexShrink: 0 }} />
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</div>
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.suburb}</div>
                           </div>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', padding: '3px 8px', borderRadius: 999, background: TONE_BG[l.tone], color: TONE_TEXT[l.tone] }}>{l.reason}</span>
+                          {/* Capped so a long multi-signal reason can't squeeze the
+                              address out — the popup shows the full detail. */}
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, whiteSpace: 'nowrap', maxWidth: '45%', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0, padding: '3px 8px', borderRadius: 999, background: TONE_BG[l.tone], color: TONE_TEXT[l.tone] }}>{l.reason}</span>
                         </button>
                       ))}
                     </div>
@@ -523,8 +585,10 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 // Accent-toned (NOT rose): the grammar reserves rose for the
                 // Hot Vendor score surface only — this is a signals feed.
                 <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-                  <div onClick={() => go('signals')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'var(--accent-soft)', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--accent)' }}>Morning signals · {scoped.length}</span>
+                  <div onClick={() => go('signals')} {...asButton(() => go('signals'))}
+                    {...hoverFx({ background: 'color-mix(in srgb, var(--accent) 14%, var(--surface))' }, { background: 'var(--accent-soft)' })}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', background: 'var(--accent-soft)', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--accent)' }}>Today's brief · {scoped.length}</span>
                     <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: 'var(--accent-fg)', background: 'var(--accent)', borderRadius: 8, padding: '5px 11px' }}>Open →</span>
                   </div>
                   <div style={{ padding: '2px 16px 6px', maxHeight: 260, overflowY: 'auto' }}>
@@ -545,8 +609,10 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 </div>
               ))}
             </div>
+            )}
 
             {/* ── Column 2 — market ── */}
+            {(has('market') || has('pulse') || has('movers')) && (
             <div style={colStyle}>
               {W('market', (
                 <div style={card}>
@@ -560,6 +626,8 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                         const on = statePeriod === k
                         return (
                           <button key={k} onClick={() => setPeriod(k)}
+                            onMouseEnter={(e) => { if (!on) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = on ? 'var(--accent-soft)' : 'var(--surface)' }}
                             style={{ fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, padding: '4px 11px', border: 'none', cursor: 'pointer', background: on ? 'var(--accent-soft)' : 'var(--surface)', color: on ? 'var(--accent)' : 'var(--text-muted)' }}>{lab}</button>
                         )
                       })}
@@ -580,7 +648,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, letterSpacing: '-0.02em', lineHeight: 1.05, color: 'var(--text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{t.v}</div>
                         {/* change vs the selected window — arrow + count + plain words */}
                         {t.skip ? (
-                          <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>latest sales on file</div>
+                          reportReady && <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>latest sales on file</div>
                         ) : hasD ? (
                           t.d === 0 ? (
                             <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>No change {periodWord.replace('vs ', '')}</div>
@@ -623,11 +691,15 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 </div>
               ))}
             </div>
+            )}
 
             {/* ── Column 3 — intel + follow-ups ── */}
+            {(has('fallen') || has('bySuburb') || has('appraisals') || has('dom') || has('agencies')) && (
             <div style={colStyle}>
               {W('fallen', (
-                <div onClick={() => go('fallen')} style={{ ...card, cursor: 'pointer', background: saleFallenCount > 0 ? 'var(--status-watch-bg)' : 'var(--surface)', border: saleFallenCount > 0 ? '1px solid var(--status-watch)' : '1px solid var(--border)' }}>
+                <div onClick={() => go('fallen')} {...asButton(() => go('fallen'))}
+                  {...hoverFx({ boxShadow: 'var(--shadow-pop)' }, { boxShadow: 'var(--shadow-card)' })}
+                  style={{ ...card, cursor: 'pointer', background: saleFallenCount > 0 ? 'var(--status-watch-bg)' : 'var(--surface)', border: saleFallenCount > 0 ? '1px solid var(--status-watch)' : '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--status-watch)', boxShadow: '0 0 0 3px rgba(217,119,6,.16)' }} />
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--status-watch-text)' }}>Motivated vendors · 14 days</span>
@@ -641,12 +713,12 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
               ))}
               {W('bySuburb', (
                 <div style={card}>
-                  {titleRow('Signals by suburb')}
+                  {titleRow('Brief signals by suburb')}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {bars.length === 0 ? emptyLine('No signals yet.') : bars.map(b => (
                       <div key={b.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text)', width: 104, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
-                        <div style={{ flex: 1, height: 8, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${(b.count / maxBar) * 100}%`, background: 'linear-gradient(90deg,#4f8067,#386350)', borderRadius: 999 }} /></div>
+                        <div style={{ flex: 1, height: 8, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${(b.count / maxBar) * 100}%`, background: 'linear-gradient(90deg, color-mix(in srgb, var(--accent) 75%, white), var(--accent))', borderRadius: 999 }} /></div>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', width: 30, textAlign: 'right' }}>{b.count}</span>
                       </div>
                     ))}
@@ -654,7 +726,9 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 </div>
               ))}
               {W('appraisals', (
-                <div onClick={() => go('appraisals')} style={{ ...card, cursor: 'pointer' }}>
+                <div onClick={() => go('appraisals')} {...asButton(() => go('appraisals'))}
+                  {...hoverFx({ boxShadow: 'var(--shadow-pop)' }, { boxShadow: 'var(--shadow-card)' })}
+                  style={{ ...card, cursor: 'pointer' }}>
                   {titleRow('Appraisal follow-ups', apDue.length || null)}
                   {apDue.length === 0 ? emptyLine('No follow-ups due.') : (
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -691,7 +765,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                     {share.length === 0 ? emptyLine('No data.') : share.map(a => (
                       <div key={a.agency} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text)', width: 120, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.agency}</span>
-                        <div style={{ flex: 1, height: 8, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${((a.pct || 0) / maxShare) * 100}%`, background: 'linear-gradient(90deg,#4f8067,#386350)', borderRadius: 999 }} /></div>
+                        <div style={{ flex: 1, height: 8, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${((a.pct || 0) / maxShare) * 100}%`, background: 'linear-gradient(90deg, color-mix(in srgb, var(--accent) 75%, white), var(--accent))', borderRadius: 999 }} /></div>
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', width: 40, textAlign: 'right' }}>{a.pct != null ? `${Math.round(a.pct)}%` : ''}</span>
                       </div>
                     ))}
@@ -699,6 +773,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 </div>
               ))}
             </div>
+            )}
 
           </div>
         )}

@@ -958,6 +958,17 @@ def audit_suburbs():
         if not suburb_ids:
             return jsonify({'error': 'Not authorised for any of those suburbs'}), 403
     do_compare = request.args.get('compare', '').lower() in ('1', 'true', 'yes')
+    if do_compare:
+        # compare=1 runs a LIVE Playwright scrape per suburb inside the
+        # request — admin-only, and capped so one call can't chain a
+        # dozen synchronous REIWA scrapes on the web worker.
+        from admin_api import _require_admin
+        _u, err = _require_admin()
+        if err:
+            return err
+        if len(suburb_ids) > 3:
+            return jsonify({'error': 'compare=1 is limited to 3 suburbs '
+                                     'per call — split the request.'}), 400
 
     conn = get_db()
     results = []

@@ -14,7 +14,9 @@
 // screen of ~40 addresses resolves in a few seconds on first load, then
 // instantly from cache afterwards.
 
-const CACHE_PREFIX = 'sd_geo_v3_'   // v3 — soft validation w/ Perth fallback
+// v4 — transient failures no longer cached; bump flushes caches already
+// poisoned with nulls from past Photon outages/429s (v3 kept them forever).
+const CACHE_PREFIX = 'sd_geo_v4_'
 const PERTH = { lat: -31.9505, lon: 115.8605 }
 const WORKERS = 3
 
@@ -75,7 +77,10 @@ async function lookup(address, suburb, postcode) {
   const q = `${street}, ${suburb || ''} ${postcode || ''} Western Australia`.replace(/\s+/g, ' ').trim()
   const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${PERTH.lat}&lon=${PERTH.lon}`
   const res = await fetch(url)
-  if (!res.ok) return null
+  // Non-2xx (429 rate limit, 5xx outage) is a TRANSIENT failure — throw so
+  // the caller can distinguish it from a definitive "no result" and avoid
+  // caching it forever.
+  if (!res.ok) throw new Error(`geocode HTTP ${res.status}`)
   const j = await res.json()
   const feats = (j && j.features) || []
   const coordOf = f => f && f.geometry && f.geometry.coordinates
@@ -99,11 +104,19 @@ function drain() {
     const job = queue.shift()
     active++
     lookup(job.address, job.suburb, job.postcode)
-      .catch(() => null)
-      .then(out => {
-        try { localStorage.setItem(keyFor(job.cacheKey), JSON.stringify(out ?? null)) } catch {}
-        job.resolve(out ?? null)
-      })
+      .then(
+        out => {
+          // Only definitive answers (a 200 response) reach here — a hit or
+          // a true "not found". Those are safe to cache permanently.
+          try { localStorage.setItem(keyFor(job.cacheKey), JSON.stringify(out ?? null)) } catch {}
+          job.resolve(out ?? null)
+        },
+        () => {
+          // Transient failure (network down, 429/5xx): resolve without
+          // caching so the address is retried on the next screen load.
+          job.resolve(null)
+        }
+      )
       .finally(() => { active--; drain() })
   }
 }

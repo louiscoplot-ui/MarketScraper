@@ -152,15 +152,17 @@ export default function AppraisalsView() {
       { v: items.length, l: 'Total', c: 'var(--status-off)' },
     ]
     const stColor = (s) => s === 'won' ? 'var(--status-good)' : s === 'lost' ? 'var(--status-alert)' : 'var(--status-info)'
-    const GRID = '1.6fr 1.1fr 92px 108px 110px 92px'
+    // Last (Status) track must fit the Won + Lost sm buttons (~100px
+    // incl. gap) — 92px made them overflow the header and card padding.
+    const GRID = '1.6fr 1.1fr 92px 108px 110px 112px'
     return (
       <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Appraisals</h2>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{activeCount} open · {wonCount} won{roi ? ` · $${Number(roi.total_commission_aud || 0).toLocaleString()} commissions` : ''}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{activeCount} open · {wonCount} won{roi ? ` · $${Number(roi.total_commission_aud || 0).toLocaleString()} in commission` : ''}</div>
           </div>
-          <Button variant="primary" size="sm" onClick={() => setDeskForm(v => !v)}>{deskForm ? 'Close' : '+ Log request'}</Button>
+          <Button variant="primary" size="sm" onClick={() => setDeskForm(v => !v)}>{deskForm ? 'Close' : '+ Log appraisal'}</Button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
@@ -187,7 +189,7 @@ export default function AppraisalsView() {
         <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
           <div style={{ width: '64%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, padding: '12px 18px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
-              <span>Address</span><span>Owner</span><span>Date</span><span>Est. value</span><span>Follow-up</span><span>Status</span>
+              <span>Address</span><span>Owner</span><span>Date</span><span>Est. price</span><span>Follow-up</span><span>Status</span>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {loading ? <div style={{ padding: 24, color: 'var(--text-muted)', display: 'flex', gap: 10, alignItems: 'center' }}><Spinner size={16} muted inline /> Loading…</div>
@@ -231,8 +233,8 @@ export default function AppraisalsView() {
         {roi && (
           <span style={{ background: 'var(--accent)', color: 'var(--accent-fg)', padding: '3px 10px',
             borderRadius: 'var(--radius-pill)', fontWeight: 700, fontSize: 12, fontVariantNumeric: 'tabular-nums' }}
-            title={`${roi.total_mandates_won} mandates · this quarter $${(roi.this_quarter?.commission || 0).toLocaleString()}`}>
-            ${Number(roi.total_commission_aud || 0).toLocaleString()} commissions
+            title={`${roi.total_mandates_won} mandates · $${(roi.this_quarter?.commission || 0).toLocaleString()} this quarter`}>
+            ${Number(roi.total_commission_aud || 0).toLocaleString()} in commission
           </span>
         )}
       </div>

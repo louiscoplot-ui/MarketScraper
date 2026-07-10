@@ -199,7 +199,9 @@ export default function SignalsView() {
               <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Signals</h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: MONO, fontSize: 12, color: 'var(--text-muted)' }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--status-good)', boxShadow: '0 0 0 3px var(--status-good-bg)' }} />
-                {signals.length} {STATUS_LABELS[status].toLowerCase()} signals · live
+                {/* "shown", not a total: the fetch is capped at 200 and rows
+                    can come from the stale-while-revalidate cache. */}
+                {signals.length} {STATUS_LABELS[status].toLowerCase()} signal{signals.length === 1 ? '' : 's'} shown
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

@@ -73,7 +73,7 @@ def _build_sections(suburb_rows, user_id, since_iso):
     # this runs once per opted-in user every night; leaking one Neon
     # connection per user exhausts the free-tier pool.
     try:
-        return _build_sections(conn, suburb_ids, placeholders, since_iso, user_id, suburb_rows)
+        return _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, suburb_rows)
     finally:
         try:
             conn.close()
@@ -81,7 +81,10 @@ def _build_sections(suburb_rows, user_id, since_iso):
             pass
 
 
-def _build_sections(conn, suburb_ids, placeholders, since_iso, user_id, suburb_rows):
+# NOTE: must NOT be named _build_sections — that would shadow the 3-arg
+# wrapper above (the later def wins at import time), making every
+# send_digest() call raise TypeError and silently skip the email.
+def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, suburb_rows):
     try:
         new_listings = conn.execute(
             f"SELECT l.address, l.price_text, l.bedrooms, l.bathrooms, "

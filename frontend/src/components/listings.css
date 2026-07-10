@@ -118,6 +118,20 @@ tr.status-under_offer td:first-child { box-shadow: inset 3px 0 0 var(--status-un
 tr.status-sold td:first-child { box-shadow: inset 3px 0 0 var(--status-sold), 1px 0 0 var(--border); }
 tr.status-withdrawn td:first-child { box-shadow: inset 3px 0 0 var(--status-withdrawn), 1px 0 0 var(--border); }
 
+/* The sticky Address cell needs an OPAQUE background for horizontal
+   scroll, but plain var(--surface) was erasing the row's status tint
+   (and hover) on the most-read column. Pre-blend the same tint over
+   the surface so the sticky cell matches its row in both states. */
+.table-wrapper tbody tr.status-active td:first-child { background: color-mix(in srgb, var(--status-active) var(--row-tint-opacity), var(--surface)); }
+.table-wrapper tbody tr.status-under_offer td:first-child { background: color-mix(in srgb, var(--status-under-offer) var(--row-tint-opacity), var(--surface)); }
+.table-wrapper tbody tr.status-sold td:first-child { background: color-mix(in srgb, var(--status-sold) var(--row-tint-opacity), var(--surface)); }
+.table-wrapper tbody tr.status-withdrawn td:first-child { background: color-mix(in srgb, var(--status-withdrawn) var(--row-tint-opacity), var(--surface)); }
+
+.table-wrapper tbody tr.status-active:hover td:first-child { background: color-mix(in srgb, var(--status-active) var(--row-tint-opacity-hover), var(--surface)); }
+.table-wrapper tbody tr.status-under_offer:hover td:first-child { background: color-mix(in srgb, var(--status-under-offer) var(--row-tint-opacity-hover), var(--surface)); }
+.table-wrapper tbody tr.status-sold:hover td:first-child { background: color-mix(in srgb, var(--status-sold) var(--row-tint-opacity-hover), var(--surface)); }
+.table-wrapper tbody tr.status-withdrawn:hover td:first-child { background: color-mix(in srgb, var(--status-withdrawn) var(--row-tint-opacity-hover), var(--surface)); }
+
 .table-wrapper tbody tr {
   border-left: none !important;
 }

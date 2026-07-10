@@ -57,10 +57,16 @@ export default function DeskMap({
   const markersRef = useRef([])
   const lastSigRef = useRef(null)
   const runIdRef = useRef(0)
+  // Once the user pans/zooms by hand, the auto fitBounds (which fires as
+  // pins geocode in over several seconds) must stop stealing the camera.
+  const userMovedRef = useRef(false)
   // Offline / blocked CDN → the canvas stays blank grey with no
   // explanation. Track tile errors so we can say "Map unavailable"
   // instead; a later successful tile load clears it (network came back).
   const [tilesDown, setTilesDown] = useState(false)
+  // All geocodes failed (Photon down / rate-limited) → the map would sit
+  // empty while the label announces N listings. Say so, discreetly.
+  const [noPins, setNoPins] = useState(false)
 
   // Init map once.
   useEffect(() => {
@@ -83,6 +89,11 @@ export default function DeskMap({
     map.on('sourcedata', (e) => {
       if (e.isSourceLoaded) setTilesDown(false)
     })
+    // Manual interaction only — programmatic fitBounds also emits
+    // zoomstart, but without an originalEvent.
+    map.on('dragstart', () => { userMovedRef.current = true })
+    map.on('wheel', () => { userMovedRef.current = true })
+    map.on('zoomstart', (e) => { if (e && e.originalEvent) userMovedRef.current = true })
     mapRef.current = map
     return () => { try { map.remove() } catch {} ; mapRef.current = null }
   }, [])
@@ -109,6 +120,10 @@ export default function DeskMap({
     const cancelled = () => runIdRef.current !== runId || !mapRef.current
     markersRef.current.forEach(m => { try { m.remove() } catch {} })
     markersRef.current = []
+    // A new item set may re-frame the view; interaction during THIS run
+    // re-raises the flag and stops the auto-fit again.
+    userMovedRef.current = false
+    setNoPins(false)
 
     const list = list0
     const bounds = new maplibregl.LngLatBounds()
@@ -122,22 +137,25 @@ export default function DeskMap({
 
     // Rich pin card — address + facts line + serif price per item; rows
     // click through to the dossier when the parent wires onSelect.
+    // MapLibre's .maplibregl-popup-content background is a fixed white,
+    // so colours here are explicit light-theme hex (all ≥4.5:1 on white)
+    // — theme tokens would paint near-white text on it under dark presets.
     const buildCard = (its) => {
       const wrap = document.createElement('div')
       wrap.style.cssText = 'font-family:var(--font-ui);min-width:220px;max-width:300px;max-height:240px;overflow-y:auto'
       if (its.length > 1) {
         const head = document.createElement('div')
-        head.style.cssText = 'font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);padding:2px 4px 7px;border-bottom:1px solid var(--border);margin-bottom:2px'
+        head.style.cssText = 'font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#736D66;padding:2px 4px 7px;border-bottom:1px solid #E7E5E4;margin-bottom:2px'
         head.textContent = `${its.length} listings at this point`
         wrap.appendChild(head)
       }
       its.forEach((it, i) => {
         const row = document.createElement('div')
-        row.style.cssText = `display:flex;align-items:center;gap:10px;padding:7px 4px;${i < its.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}${onSelect ? 'cursor:pointer;border-radius:6px;' : ''}`
+        row.style.cssText = `display:flex;align-items:center;gap:10px;padding:7px 4px;${i < its.length - 1 ? 'border-bottom:1px solid #E7E5E4;' : ''}${onSelect ? 'cursor:pointer;border-radius:6px;' : ''}`
         const left = document.createElement('div')
         left.style.cssText = 'min-width:0;flex:1'
         const addr = document.createElement('div')
-        addr.style.cssText = 'font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+        addr.style.cssText = 'font-size:12.5px;font-weight:600;color:#0C0A09;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
         addr.textContent = addressOf(it) || '—'
         const dom = domOf(it)
         const facts = [
@@ -146,7 +164,7 @@ export default function DeskMap({
           it.land_size || null,
         ].filter(Boolean).join(' · ')
         const sub = document.createElement('div')
-        sub.style.cssText = 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+        sub.style.cssText = 'font-family:var(--font-mono);font-size:10px;color:#57534E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
         sub.innerHTML = ''
         const dot = document.createElement('span')
         dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${colorFor(it)};margin-right:5px;vertical-align:0`
@@ -154,14 +172,14 @@ export default function DeskMap({
         sub.appendChild(document.createTextNode(facts))
         if (dom != null) {
           const d = document.createElement('span')
-          d.style.cssText = `font-weight:600;color:${dom >= 60 ? 'var(--status-alert-text)' : 'var(--text-muted)'}`
+          d.style.cssText = `font-weight:600;color:${dom >= 60 ? '#991B1B' : '#57534E'}`
           d.textContent = `${facts ? ' · ' : ''}${dom} DOM`
           sub.appendChild(d)
         }
         left.appendChild(addr); left.appendChild(sub)
         if (onSelect) {
           const open = document.createElement('div')
-          open.style.cssText = 'font-size:10.5px;font-weight:600;color:var(--accent);margin-top:1px'
+          open.style.cssText = 'font-size:10.5px;font-weight:600;color:#386350;margin-top:1px'
           open.textContent = 'Open dossier →'
           left.appendChild(open)
         }
@@ -169,12 +187,12 @@ export default function DeskMap({
         const price = String(priceOf(it) || '').trim()
         if (price) {
           const p = document.createElement('span')
-          p.style.cssText = "flex:none;font-family:var(--font-display),Georgia,serif;font-size:15px;color:var(--text)"
+          p.style.cssText = "flex:none;font-family:var(--font-display),Georgia,serif;font-size:15px;color:#0C0A09"
           p.textContent = price
           row.appendChild(p)
         }
         if (onSelect) {
-          row.addEventListener('mouseenter', () => { row.style.background = 'var(--surface-hover)' })
+          row.addEventListener('mouseenter', () => { row.style.background = '#F5F5F4' })
           row.addEventListener('mouseleave', () => { row.style.background = 'transparent' })
           row.addEventListener('click', () => onSelect(it))
         }
@@ -213,8 +231,9 @@ export default function DeskMap({
         markersRef.current.push(mk)
         bounds.extend([c.lng, c.lat])
         placed++
-        // Re-fit as pins land (debounced by count) so the view tracks results.
-        if (placed === 4 || (placed > 4 && placed % 12 === 0)) {
+        // Re-fit as pins land (debounced by count) so the view tracks
+        // results — unless the user has taken the camera.
+        if (!userMovedRef.current && (placed === 4 || (placed > 4 && placed % 12 === 0))) {
           try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {}
         }
       }
@@ -231,7 +250,12 @@ export default function DeskMap({
         const c = await geocode({ address: addr, suburb: suburbOf(it) || '' })
         place(it, c)
       }))
-      if (!cancelled() && placed > 0) { try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {} }
+      if (cancelled()) return
+      if (placed > 0) {
+        if (!userMovedRef.current) { try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {} }
+      } else if (list.length > 0) {
+        setNoPins(true)
+      }
     }
     run()
   }, [items, max])
@@ -240,8 +264,17 @@ export default function DeskMap({
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight }}>
       <div ref={elRef} style={{ position: 'absolute', inset: 0 }} />
       {label && (
-        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#9a978f', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px' }}>
+        // Caption bg is a fixed light glass over the light tiles, so the
+        // text is an explicit hex too: #6b6862 ≥ 5:1 on the composite
+        // (the old #9a978f sat at ~2.9:1; a theme token would go light
+        // under dark presets and fail the same way).
+        <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#6b6862', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px' }}>
           {label}
+        </div>
+      )}
+      {noPins && !tilesDown && (
+        <div style={{ position: 'absolute', bottom: 28, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, color: '#6b6862', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px', pointerEvents: 'none' }}>
+          No addresses could be located on the map right now.
         </div>
       )}
       {tilesDown && (

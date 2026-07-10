@@ -106,7 +106,9 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
               View on REIWA <ExternalLink size={13} />
             </a>
           )}
-          <button onClick={onClose} aria-label="Close" style={{ flex: 'none', width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* Explicit color: the lucide X otherwise inherits the UA's black
+              ButtonText, invisible on dark-preset surfaces. */}
+          <button onClick={onClose} aria-label="Close" style={{ flex: 'none', width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <X size={15} />
           </button>
         </div>
