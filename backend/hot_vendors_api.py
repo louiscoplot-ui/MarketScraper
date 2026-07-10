@@ -360,6 +360,7 @@ def _build_upload_payload(conn, upload_id):
             'owner_purchase_date': d.get('owner_purchase_date'),
             'holding_years': d.get('holding_years'),
             'sales_count': d.get('sales_count'),
+            'owner_gain_dollars': d.get('owner_gain_dollars'),
             'owner_gain_pct': d.get('owner_gain_pct'),
             'cagr': d.get('cagr'),
             'estimated_value': d.get('estimated_value'),
@@ -625,8 +626,15 @@ def register_hot_vendors_routes(app):
             return jsonify({'error': 'Not authorised for that property'}), 403
         try:
             if status is None:
+                # Clear ONLY the status — never the whole row. phone, note
+                # and callback_date live in the same row but are owned by
+                # other endpoints; a DELETE here silently wiped the agent's
+                # hand-typed owner phone just for resetting a call outcome.
                 conn.execute(
-                    "DELETE FROM hot_vendor_property_status WHERE normalized_address = ?",
+                    "UPDATE hot_vendor_property_status "
+                    "SET status = NULL, updated_at = " +
+                    ("CURRENT_TIMESTAMP" if USE_POSTGRES else "datetime('now')") +
+                    " WHERE normalized_address = ?",
                     (norm,)
                 )
             else:
