@@ -21,7 +21,17 @@ import { PRESETS, DEFAULT_THEME, THEME_STORAGE_KEY } from './themes'
 import { fetchWithRetry, BACKEND_DIRECT, readCache, writeCache } from './lib/api'
 import { searchSuburbs } from './lib/waSuburbs'
 import { getDeskMode, setDeskMode, getDeskTone, setDeskTone } from './lib/deskFlag'
-const API = '/api'
+// Status filter-button colours — a true constant, hoisted to module scope
+// so it isn't re-allocated on every App render (which forced ListingsView
+// to re-render on every keystroke/poll). Hex (not var()) because the
+// filter bar appends '33' for a ~20% alpha fill; kept in sync with the
+// status grammar tokens: good / watch / info / alert.
+const STATUS_COLORS = {
+  active: '#16A34A',       // --status-good
+  under_offer: '#D97706',  // --status-watch
+  sold: '#2563EB',         // --status-info
+  withdrawn: '#DC2626',    // --status-alert
+}
 // Bootstrap fetches go direct to Render to bypass Vercel's 25s edge
 // timeout — without this, a cold Render dyno (30-60s wake) returns
 // 504 to the browser and the sidebar stays blank.
@@ -159,6 +169,11 @@ function App() {
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError, setReportError] = useState(false)
   const [reportSuburbs, setReportSuburbs] = useState(new Set())
+  // Live mirror of `report` so the warm-prefetch effect (deps []) can read
+  // the CURRENT value instead of the null captured at mount — otherwise it
+  // always fired an all-suburbs fetch that clobbered a filtered report.
+  const reportRef = useRef(report)
+  useEffect(() => { reportRef.current = report }, [report])
   // Lifted Pipeline state: survives Pipeline mount/unmount across tab
   // switches so auto-generate doesn't re-fire (and re-create duplicate
   // pipeline_tracking rows) every time the user toggles back to the
@@ -284,8 +299,15 @@ function App() {
       const data = await res.json()
       setSuburbs(data)
       writeCache(SUBURBS_CACHE, data)
+      // Seed "all checked" ONLY on the very first load (guarded by the same
+      // ref as the mount effect). Without this guard, any later refresh
+      // (scrape-poll, add/delete suburb) that ran while the user had
+      // deselected everything silently re-checked every suburb.
       setCheckedSuburbs(prev => {
-        if (prev.size === 0 && data.length > 0) return new Set(data.map(s => s.id))
+        if (!checkedSeededRef.current && prev.size === 0 && data.length > 0) {
+          checkedSeededRef.current = true
+          return new Set(data.map(s => s.id))
+        }
         return prev
       })
     }
@@ -633,7 +655,7 @@ function App() {
   // the all-suburbs snapshots to draw a real median-asking trend. Skipped
   // if a report is already loaded (e.g. hydrated from cache).
   useEffect(() => {
-    const id = setTimeout(() => { if (!report) fetchReport(new Set()) }, 1800)
+    const id = setTimeout(() => { if (!reportRef.current) fetchReport(new Set()) }, 1800)
     return () => clearTimeout(id)
   }, [])
 
@@ -698,16 +720,7 @@ function App() {
 
   const isAnyScraping = Object.values(scrapeStatus).some(j => j.status === 'running')
 
-  // Status filter-button colours. Hex (not var()) because the filter bar
-  // appends '33' for a ~20% alpha fill; kept in exact sync with the
-  // status grammar tokens so the buttons match the Chips one-for-one:
-  // good / watch / info / alert.
-  const statusColors = {
-    active: '#16A34A',       // --status-good
-    under_offer: '#D97706',  // --status-watch
-    sold: '#2563EB',         // --status-info
-    withdrawn: '#DC2626',    // --status-alert
-  }
+  const statusColors = STATUS_COLORS
 
   const scrapeJobs = Object.entries(scrapeStatus).map(([id, job]) => {
     const numericId = parseInt(id)
