@@ -702,7 +702,7 @@ export default function RentalView({ selectedNames } = {}) {
   }
 
   return (
-    <div>
+    <div style={getDeskMode() === 'desk' ? { padding: '24px 30px' } : undefined}>
       {/* Header band ------------------------------------------------ */}
       <div style={{
         display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',

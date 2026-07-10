@@ -1065,6 +1065,14 @@ function App() {
               />
             </div>
           )}
+          {/* Rental — background-warmed like the others (was lazy, so its
+              16-suburb load restarted on every visit). Gated by rental
+              access so non-rental users never fire those fetches. */}
+          {!!me && ((me.role || '').toLowerCase() === 'admin' || !!me.rental_access) && (view === 'rentals' || warmStage >= 2) && (
+            <div style={{ display: view === 'rentals' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
+              <RentalView selectedNames={rentalShownNames} />
+            </div>
+          )}
           {/* Listings is the landing tab (default view) — always mounted so
               it's warm even when the user lands elsewhere via a #hash. */}
           <div style={{ display: view === 'listings' ? (isDesk ? 'flex' : 'block') : 'none', flexDirection: 'column', height: isDesk ? '100%' : undefined, minHeight: 0 }}>
@@ -1092,10 +1100,9 @@ function App() {
             />
           </div>
 
-          {/* Lazy tabs — mounted on demand (depend on a selection / role). */}
-          {view === 'rentals' ? (
-            <RentalView selectedNames={rentalShownNames} />
-          ) : view === 'admin' ? (
+          {/* Lazy tabs — mounted on demand (depend on a selection / role).
+              Rental moved to the background-warmed section above. */}
+          {view === 'admin' ? (
             <AdminUsers />
           ) : view === 'report' && report ? (
             <Report
