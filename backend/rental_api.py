@@ -585,6 +585,35 @@ def register_rental_routes(app):
                         continue
                     suburbs_seen.append(sname)
 
+                    # Preload this sheet's suburb in TWO queries. The
+                    # per-row lookups (2-4 round-trips × 750 rows on a
+                    # real workbook) added up past the worker timeout on
+                    # Neon, which surfaced to the browser as a bare-text
+                    # 500 ("An error occurred…"). Keys stay EXACT
+                    # (address, suburb) to preserve the merge semantics
+                    # of the per-row SELECTs this replaces; the preload
+                    # is a case-insensitive superset so exact lookups
+                    # against it behave identically.
+                    sheet_lower = sname.lower()
+                    listings_cache = {}
+                    for r in conn.execute(
+                        "SELECT address, suburb, status, price_week, property_type, "
+                        "       beds, baths, cars, agency, agent, date_listed, "
+                        "       days_on_market, date_leased, url "
+                        "FROM rental_listings WHERE LOWER(suburb) = LOWER(?)",
+                        (sname,)
+                    ).fetchall():
+                        d = dict(r)
+                        listings_cache[(d['address'], d['suburb'])] = d
+                    owners_cache = {}
+                    for r in conn.execute(
+                        "SELECT address, suburb, owner_name, owner_phone, notes "
+                        "FROM rental_owners WHERE LOWER(suburb) = LOWER(?)",
+                        (sname,)
+                    ).fetchall():
+                        d = dict(r)
+                        owners_cache[(d['address'], d['suburb'])] = d
+
                     for row in rows_iter[header_idx + 1:]:
                         def cell(key):
                             idx = col_map.get(key)
@@ -625,14 +654,23 @@ def register_rental_routes(app):
 
                         # Snapshot of the existing listing — drives the
                         # field-level "fill empty only" merge below. None
-                        # means we'll INSERT.
-                        existing = conn.execute(
-                            "SELECT status, price_week, property_type, beds, baths, "
-                            "       cars, agency, agent, date_listed, days_on_market, "
-                            "       date_leased, url FROM rental_listings "
-                            "WHERE address = ? AND suburb = ?",
-                            (addr, sub)
-                        ).fetchone()
+                        # means we'll INSERT. Served from the sheet preload;
+                        # a stray row whose suburb differs from the sheet's
+                        # (belt-and-braces path above) falls back to the old
+                        # per-row lookup — rare enough to not matter.
+                        key = (addr, sub)
+                        if sub.strip().lower() == sheet_lower:
+                            existing = listings_cache.get(key)
+                        else:
+                            row_db = conn.execute(
+                                "SELECT address, suburb, status, price_week, "
+                                "       property_type, beds, baths, cars, agency, "
+                                "       agent, date_listed, days_on_market, "
+                                "       date_leased, url FROM rental_listings "
+                                "WHERE address = ? AND suburb = ?",
+                                (addr, sub)
+                            ).fetchone()
+                            existing = dict(row_db) if row_db else None
 
                         row_inserted = False
                         row_enriched = False
@@ -657,6 +695,23 @@ def register_rental_routes(app):
                                     cell('date_leased'), cell('url'),
                                 )
                             )
+                            # Mirror into the preload so a duplicate row
+                            # later in the sheet merges instead of trying
+                            # a second INSERT (same behaviour the per-row
+                            # SELECT gave us).
+                            listings_cache[key] = {
+                                'address': addr, 'suburb': sub,
+                                'status': cell('status') or 'Active',
+                                'price_week': cell('price_week'),
+                                'property_type': cell('property_type'),
+                                'beds': cell('beds'), 'baths': cell('baths'),
+                                'cars': cell('cars'), 'agency': cell('agency'),
+                                'agent': cell('agent'),
+                                'date_listed': cell('date_listed'),
+                                'days_on_market': cell('days_on_market'),
+                                'date_leased': cell('date_leased'),
+                                'url': cell('url'),
+                            }
                             row_inserted = True
                         else:
                             # Field-level merge — only fill columns the DB
@@ -665,11 +720,10 @@ def register_rental_routes(app):
                             # rental_listings.status defaults 'Active', so
                             # the DB value is virtually always non-empty
                             # and the status column stays untouched here.
-                            existing_d = dict(existing)
                             sets = []
                             params = []
                             for field in FILLABLE:
-                                db_val = (existing_d.get(field) or '').strip()
+                                db_val = (existing.get(field) or '').strip()
                                 if db_val:
                                     continue
                                 excel_val = cell(field)
@@ -677,6 +731,7 @@ def register_rental_routes(app):
                                     continue
                                 sets.append(f"{field} = ?")
                                 params.append(excel_val)
+                                existing[field] = excel_val
                             if sets:
                                 # last_seen bumps because we touched the row,
                                 # so the listings UI sorts the freshly-merged
@@ -698,21 +753,31 @@ def register_rental_routes(app):
                         owner_phone = cell('owner_phone')
                         notes_text = cell('notes')
                         if owner_name or owner_phone or notes_text:
-                            o_row = conn.execute(
-                                "SELECT owner_name, owner_phone, notes FROM rental_owners "
-                                "WHERE address = ? AND suburb = ?",
-                                (addr, sub)
-                            ).fetchone()
-                            if o_row is None:
+                            if sub.strip().lower() == sheet_lower:
+                                od = owners_cache.get(key)
+                            else:
+                                o_row = conn.execute(
+                                    "SELECT address, suburb, owner_name, owner_phone, "
+                                    "       notes FROM rental_owners "
+                                    "WHERE address = ? AND suburb = ?",
+                                    (addr, sub)
+                                ).fetchone()
+                                od = dict(o_row) if o_row else None
+                            if od is None:
                                 conn.execute(
                                     "INSERT INTO rental_owners "
                                     "(address, suburb, owner_name, owner_phone, notes) "
                                     "VALUES (?, ?, ?, ?, ?)",
                                     (addr, sub, owner_name, owner_phone, notes_text)
                                 )
+                                owners_cache[key] = {
+                                    'address': addr, 'suburb': sub,
+                                    'owner_name': owner_name,
+                                    'owner_phone': owner_phone,
+                                    'notes': notes_text,
+                                }
                                 row_enriched = True
                             else:
-                                od = dict(o_row)
                                 o_sets = []
                                 o_params = []
                                 for field, val in (
@@ -726,6 +791,7 @@ def register_rental_routes(app):
                                         continue
                                     o_sets.append(f"{field} = ?")
                                     o_params.append(val)
+                                    od[field] = val
                                 if o_sets:
                                     if USE_POSTGRES:
                                         o_sets.append("updated_at = CURRENT_TIMESTAMP")
