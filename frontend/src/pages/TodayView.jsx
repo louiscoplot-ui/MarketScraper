@@ -48,9 +48,15 @@ const SIGNAL_LEGEND = [
 // nightly market_snapshots, with hover (crosshair + point + value/date),
 // a $ axis on the left, and a plain-language subtitle.
 const MP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-function MarketPulse({ report, suburbCount }) {
+function MarketPulse({ report, suburbCount, scope }) {
   const [hi, setHi] = useState(null)
-  const snaps = (report && report.snapshots) || []
+  // Scope-aware: the Dashboard's suburb selector drives this chart too.
+  // One suburb selected → that suburb's own median series; All → the
+  // portfolio average (previous behaviour).
+  const scopeAll = !scope || scope === 'all'
+  const snaps = ((report && report.snapshots) || []).filter(s =>
+    scopeAll || (s.suburb_name || '').toLowerCase() === scope.toLowerCase()
+  )
   const dates = [...new Set(snaps.map(s => s.snapshot_date))].sort()
   const series = dates.map(dt => {
     const ps = snaps.filter(s => s.snapshot_date === dt).map(s => s.median_price).filter(Boolean)
@@ -69,7 +75,9 @@ function MarketPulse({ report, suburbCount }) {
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{series.length >= 2 ? 'nightly snapshots' : 'building'}</span>
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-        Average of each suburb's median asking price ({suburbCount || '—'} tracked), over time
+        {scopeAll
+          ? `Average of each suburb's median asking price (${suburbCount || '—'} tracked), over time`
+          : `${scope} · median asking price, over time`}
       </div>
     </div>
   )
@@ -554,7 +562,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                   </div>
                 </div>
               ))}
-              {W('pulse', <MarketPulse report={report} suburbCount={suburbs.length} />)}
+              {W('pulse', <MarketPulse report={report} suburbCount={suburbs.length} scope={scope} />)}
               {W('movers', (
                 <div style={card}>
                   {titleRow('Price movements', movers.length || null)}
