@@ -16,16 +16,28 @@ export default function FallenView({ bootApi }) {
 
   const fetchItems = useCallback(async () => {
     setError('')
-    try {
-      // Deadline: a stalled cold start otherwise leaves items === null
-      // and the view shows "Loading…" forever.
-      const res = await fetch(`${bootApi}/signals/sale-fallen`, { signal: AbortSignal.timeout(30000) })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const d = await res.json()
-      setItems(Array.isArray(d) ? d : [])
-    } catch (e) {
-      setError(e.message || 'Could not load fallen sales')
-      setItems([])
+    setItems(null)
+    // Deadline: a stalled cold start otherwise leaves items === null and
+    // the view shows "Loading…" forever. But a Render cold start can
+    // legitimately take 30-60s, so retry once with a longer window
+    // before surfacing an error — and surface it in plain words, not
+    // the raw "signal timed out" DOMException text.
+    for (const timeout of [30000, 60000]) {
+      try {
+        const res = await fetch(`${bootApi}/signals/sale-fallen`, { signal: AbortSignal.timeout(timeout) })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const d = await res.json()
+        setItems(Array.isArray(d) ? d : [])
+        return
+      } catch (e) {
+        if (timeout === 60000) {
+          const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError')
+          setError(timedOut
+            ? 'The server is still waking up — it can take a minute after a quiet spell.'
+            : (e.message || 'Could not load fallen sales.'))
+          setItems([])
+        }
+      }
     }
   }, [bootApi])
 
@@ -62,7 +74,12 @@ export default function FallenView({ bootApi }) {
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {items === null ? <div style={{ padding: 24, color: 'var(--text-muted)', display: 'flex', gap: 10, alignItems: 'center' }}><Spinner size={16} muted inline /> Loading…</div>
-                : error ? <div style={{ padding: 24, color: 'var(--status-alert-text)' }}>{error}</div>
+                : error ? (
+                  <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+                    <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-ui)', fontSize: 13 }}>{error}</span>
+                    <Button variant="secondary" size="sm" onClick={fetchItems}>Retry</Button>
+                  </div>
+                )
                 : list.length === 0 ? <div style={{ padding: 24, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>No live fallen sales right now.</div>
                 : list.map(it => (
                   <div key={it.id} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 12, alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid var(--border)', borderLeft: '3px solid var(--status-watch)' }}>
@@ -106,7 +123,10 @@ export default function FallenView({ bootApi }) {
           <Spinner size={16} muted inline /> Loading…
         </div>
       ) : error ? (
-        <div style={{ color: 'var(--status-alert-text)', padding: 24 }}>{error}</div>
+        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
+          <span style={{ color: 'var(--text-muted)' }}>{error}</span>
+          <Button variant="secondary" size="sm" onClick={fetchItems}>Retry</Button>
+        </div>
       ) : items.length === 0 ? (
         <div style={{ color: 'var(--text-muted)', padding: 24 }}>
           No live fallen sales in your suburbs right now.
