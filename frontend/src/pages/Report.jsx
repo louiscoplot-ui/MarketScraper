@@ -61,18 +61,21 @@ function formatWhen(raw) {
   const now = new Date()
   const diffMs = now - d
   const diffH = diffMs / (1000 * 60 * 60)
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  const time = `${hh}:${mm}`
   if (diffH < 1) {
     const mins = Math.floor(diffMs / 60000)
     return mins <= 1 ? 'Just now' : `${mins} min ago`
   }
   if (diffH < 24) return `${Math.floor(diffH)}h ago`
-  // ≥ 24h → absolute date in Australian DD/MM/YYYY (was "3 May 2026").
-  const dd = String(d.getDate()).padStart(2, '0')
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  return `${dd}/${mo}/${d.getFullYear()} ${time}`
+  // ≥ 24h → absolute date in Australian DD/MM/YYYY, in PERTH time so the
+  // cell matches the hover tooltip (was d.getHours()/getDate() = the
+  // viewer's browser timezone, diverging for anyone outside Perth).
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: PERTH_TZ, hourCycle: 'h23',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).formatToParts(d)
+  const g = (t) => (parts.find(p => p.type === t) || {}).value || ''
+  return `${g('day')}/${g('month')}/${g('year')} ${g('hour')}:${g('minute')}`
 }
 
 // Tooltip for the WHEN cell — full date + time so the operator can
