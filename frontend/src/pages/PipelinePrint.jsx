@@ -16,26 +16,40 @@ function formatPrice(p) {
 export default function PipelinePrint() {
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [profile, setProfile] = useState(null)
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
+    setError('')
+    // Check r.ok: a Render cold start returns a 502 HTML page, and
+    // r.json() on that throws → the old code showed "No letters found",
+    // making the agent think their pipeline was empty at print time.
     fetch(`${API}/api/pipeline/tracking?status=sent&limit=200`)
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(d => { setEntries(d.entries || []); setLoading(false) })
-      .catch(() => setLoading(false))
+      .catch(() => { setError('Could not load letters — the server may be waking up.'); setLoading(false) })
     fetch(`${API}/api/auth/me`)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d) setProfile(d) })
       .catch(() => {})
-  }, [])
+  }
+  useEffect(() => { load() }, [])
 
   if (loading) return <p style={{ padding: 40 }}>Loading letters...</p>
+  if (error) return (
+    <div style={{ padding: 40, fontFamily: 'system-ui, -apple-system, Arial, sans-serif' }}>
+      <p style={{ color: '#444' }}>{error}</p>
+      <button onClick={load} style={{ padding: '8px 18px', borderRadius: 6, border: '1px solid #ccc', cursor: 'pointer' }}>Retry</button>
+    </div>
+  )
   if (!entries.length) return <p style={{ padding: 40 }}>No letters with status "sent" found.</p>
 
   // These letters are posted to real homeowners. Never print placeholder
   // contact details ("0400 XXX XXX" / a shared gmail) — block printing
   // until the agent profile has a name, phone and email.
   const missing = [
+    !profile?.agency_name && 'agency name',
     !profile?.agent_name && 'name',
     !profile?.agent_phone && 'phone',
     !profile?.agent_email && 'email',
@@ -54,11 +68,15 @@ export default function PipelinePrint() {
     )
   }
 
-  const agencyHeader = profile.agency_name || 'BELLE PROPERTY  |  Cottesloe'
+  // No hardcoded agency identity — these letters go to real homeowners
+  // and this is a multi-tenant SaaS. Everything comes from the agent's
+  // own profile (printing is blocked above until agency_name is set).
+  const agencyHeader = profile.agency_name
   const agentName = profile.agent_name
-  const agentRole = `Sales Agent | ${profile.agency_name || 'Belle Property Cottesloe'}`
+  const agentRole = `Sales Agent | ${profile.agency_name}`
   const agentPhone = profile.agent_phone
   const agentEmail = profile.agent_email
+  const agencyWebsite = profile.agency_website || ''
 
   return (
     <>
@@ -100,9 +118,6 @@ export default function PipelinePrint() {
             <div style={{ fontSize: '20px', fontWeight: '700', letterSpacing: '2px', fontFamily: 'Arial, sans-serif' }}>
               {agencyHeader}
             </div>
-            <div style={{ fontSize: '13px', color: '#666', fontFamily: 'Arial, sans-serif', marginTop: '4px' }}>
-              160 Stirling Highway, Nedlands WA 6009
-            </div>
           </div>
 
           <div style={{ marginBottom: '32px', fontFamily: 'Arial, sans-serif', fontSize: '14px' }}>
@@ -142,8 +157,7 @@ export default function PipelinePrint() {
             <div style={{ color: '#444', fontSize: '14px' }}>{agentRole}</div>
             <div style={{ color: '#444', fontSize: '14px', marginTop: '8px' }}>
               M: {agentPhone}<br/>
-              E: {agentEmail}<br/>
-              W: belleproperty.com.au/cottesloe
+              E: {agentEmail}{agencyWebsite ? <><br/>W: {agencyWebsite}</> : null}
             </div>
           </div>
         </div>
