@@ -174,9 +174,12 @@ def export_listings():
     wb = Workbook()
     ws = wb.active
     ws.title = "Listings"
+    # Sold / Sold Price / Note were displayed (and hand-editable) in the
+    # listings table but missing from the workbook — an export of sold
+    # listings lost exactly the data the agent typed in.
     columns = ['Address', 'Suburb', 'Price', 'Price (AUD)', 'Bed', 'Bath', 'Car',
                'Land (m²)', 'Internal (m²)', 'Agency', 'Agent', 'Listed', 'DOM',
-               'Withdrawn', 'Status', 'Type', 'Link']
+               'Withdrawn', 'Sold', 'Sold Price', 'Status', 'Type', 'Note', 'Link']
     for col_idx, col_name in enumerate(columns, 1):
         ws.cell(row=1, column=col_idx, value=col_name)
 
@@ -187,7 +190,8 @@ def export_listings():
         7: BODY_ALIGN_CENTER, 8: BODY_ALIGN_RIGHT, 9: BODY_ALIGN_RIGHT,
         10: BODY_ALIGN_LEFT, 11: BODY_ALIGN_LEFT, 12: BODY_ALIGN_CENTER,
         13: BODY_ALIGN_CENTER, 14: BODY_ALIGN_CENTER, 15: BODY_ALIGN_CENTER,
-        16: BODY_ALIGN_CENTER, 17: BODY_ALIGN_CENTER,
+        16: BODY_ALIGN_RIGHT, 17: BODY_ALIGN_CENTER, 18: BODY_ALIGN_CENTER,
+        19: BODY_ALIGN_LEFT, 20: BODY_ALIGN_CENTER,
     }
 
     for row_idx, l in enumerate(listings, 2):
@@ -226,10 +230,24 @@ def export_listings():
         wcell = ws.cell(row=row_idx, column=14, value=withdrawn_date)
         if withdrawn_date:
             wcell.number_format = 'DD/MM/YYYY'
-        scell = ws.cell(row=row_idx, column=15,
+        # sold_date arrives either ISO (scraper/backfill) or DD/MM/YYYY
+        # (hand-edited in the UI) — accept both.
+        sold_date = (_iso_to_date(l.get('sold_date'))
+                     or _parse_listing_date(l.get('sold_date')))
+        sdcell = ws.cell(row=row_idx, column=15, value=sold_date)
+        if sold_date:
+            sdcell.number_format = 'DD/MM/YYYY'
+        sold_price_num = _parse_price_numeric(l.get('sold_price'))
+        spcell = ws.cell(row=row_idx, column=16,
+                         value=sold_price_num if sold_price_num is not None
+                         else (l.get('sold_price') or ''))
+        if sold_price_num is not None:
+            spcell.number_format = '"$"#,##0'
+        scell = ws.cell(row=row_idx, column=17,
                         value=status_raw.replace('_', ' ').title() if status_raw else '')
-        ws.cell(row=row_idx, column=16, value=l.get('listing_type', ''))
-        link_cell = ws.cell(row=row_idx, column=17, value="View on REIWA" if url else '')
+        ws.cell(row=row_idx, column=18, value=l.get('listing_type', ''))
+        ws.cell(row=row_idx, column=19, value=l.get('note') or '')
+        link_cell = ws.cell(row=row_idx, column=20, value="View on REIWA" if url else '')
         if url:
             link_cell.hyperlink = url
 
@@ -252,7 +270,7 @@ def export_listings():
         ws.row_dimensions[row_idx].height = 22
 
     for col_idx, width in enumerate(
-        [34, 18, 20, 14, 6, 6, 6, 13, 15, 28, 22, 12, 8, 12, 14, 14, 18], 1
+        [34, 18, 20, 14, 6, 6, 6, 13, 15, 28, 22, 12, 8, 12, 12, 14, 14, 14, 28, 18], 1
     ):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = width
     _style_header_row(ws, len(columns), height=34)

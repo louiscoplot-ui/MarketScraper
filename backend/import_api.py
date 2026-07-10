@@ -212,7 +212,11 @@ def _read_rows(file_storage):
             text = file_storage.read().decode('latin-1', errors='replace')
         reader = csv.reader(io.StringIO(text))
         return list(reader), None
-    if name.endswith('.xlsx') or name.endswith('.xls'):
+    if name.endswith('.xls') and not name.endswith('.xlsx'):
+        # openpyxl cannot read legacy .xls and xlrd isn't installed.
+        return None, ('Legacy .xls is not supported — re-save the file '
+                      'as .xlsx or CSV and re-upload.')
+    if name.endswith('.xlsx'):
         try:
             from openpyxl import load_workbook
         except ImportError:
@@ -316,7 +320,7 @@ def import_rpdata():
         _ph = ','.join(['?'] * len(csv_suburb_ids))
         listing_rows = conn.execute(
             f"SELECT id, suburb_id, normalized_address, sold_date, sold_price, "
-            f"status, first_seen "
+            f"status, first_seen, withdrawn_date "
             f"FROM listings WHERE suburb_id IN ({_ph})",
             tuple(csv_suburb_ids)
         ).fetchall()
@@ -406,10 +410,19 @@ def import_rpdata():
             # (no date/price writes either: an old sold_date on an active
             # listing corrupts the pipeline's recent-sales window just as
             # badly as the status flip). Missing dates → conservative skip.
-            if existing['status'] in ('active', 'under_offer'):
-                first_seen_day = str(existing.get('first_seen') or '')[:10]
-                csv_sale_newer = bool(sold_date and first_seen_day
-                                      and sold_date >= first_seen_day)
+            if existing['status'] in ('active', 'under_offer', 'withdrawn'):
+                # withdrawn included: RP Data carries an OLD sale for
+                # almost every address, and the unguarded flip below was
+                # silently turning withdrawn leads (the FallenView /
+                # pipeline source) into 'sold' with a years-old date.
+                # For withdrawn rows the sale must postdate the
+                # withdrawal, not first_seen.
+                anchor = str(existing.get('first_seen') or '')[:10]
+                if existing['status'] == 'withdrawn':
+                    anchor = (str(existing.get('withdrawn_date') or '')[:10]
+                              or anchor)
+                csv_sale_newer = bool(sold_date and anchor
+                                      and sold_date >= anchor)
                 if not csv_sale_newer:
                     skipped_active += 1
                     continue
@@ -429,7 +442,9 @@ def import_rpdata():
                     new_sold_price = price_str
                     changed = True
                     price_updates += 1
-            if existing['status'] != 'sold':
+            # Never flip a status without a dated sale to back it — an
+            # undated row can update nothing status-wise.
+            if sold_date and existing['status'] != 'sold':
                 new_status = 'sold'
                 changed = True
                 status_updates += 1

@@ -274,11 +274,18 @@ SCORED_HEADERS = ['Rank', 'Address', 'Type', 'Bed', 'Bath', 'Last Sale $',
 SCORED_WIDTHS = [6, 32, 10, 5, 5, 14, 16, 11, 12, 10, 10, 7, 14, 14, 12, 7, 7, 7, 7, 7, 7, 11, 11]
 
 
+# phone / user_status / user_note / callback_date are what the agent
+# typed INTO the app (patch_phone / patch_status / patch_note) — the
+# printable prospecting list was useless in the field without them.
 LEADS_COLS = SCORED_COLS + [
-    ('current_owner', 'str'), ('agency', 'str'), ('agent', 'str'),
+    ('current_owner', 'str'), ('phone', 'str'),
+    ('user_status', 'str'), ('user_note', 'str'), ('callback_date', 'date'),
+    ('agency', 'str'), ('agent', 'str'),
 ]
-LEADS_HEADERS = SCORED_HEADERS + ['Current Owner', 'Agency (last sale)', 'Agent (last sale)']
-LEADS_WIDTHS = SCORED_WIDTHS + [26, 26, 22]
+LEADS_HEADERS = SCORED_HEADERS + ['Current Owner', 'Phone', 'Call Status',
+                                  'My Notes', 'Call Back On',
+                                  'Agency (last sale)', 'Agent (last sale)']
+LEADS_WIDTHS = SCORED_WIDTHS + [26, 16, 13, 30, 13, 26, 22]
 
 
 def _build_data_sheet(wb, name, title, properties, columns, headers, widths):

@@ -276,8 +276,11 @@ def register_signals_routes(app):
         user = get_current_user()
         if not user:
             return jsonify({'error': 'Unauthenticated'}), 401
-        from datetime import datetime as _dt
-        today = _dt.utcnow().strftime('%Y-%m-%d')
+        # Perth date — must match the stamp send_morning_briefs() writes,
+        # otherwise the stored narrated brief is ignored for most of the
+        # Perth day and rebuilt live without narratives.
+        from time_utils import perth_now
+        today = perth_now().strftime('%Y-%m-%d')
         conn = get_db()
         try:
             row = conn.execute(
@@ -291,6 +294,20 @@ def register_signals_routes(app):
                     items = _json.loads(d.get('items') or '[]')
                 except Exception:
                     items = []
+                # Drop items whose signal was dismissed/actioned since the
+                # brief was stored — they kept reappearing in Today with
+                # live action buttons until the next day's brief.
+                ids = [it.get('signal_id') for it in items if it.get('signal_id')]
+                if ids:
+                    ph = ','.join(['?'] * len(ids))
+                    gone = {dict(r)['id'] for r in conn.execute(
+                        f"SELECT id FROM vendor_signals WHERE id IN ({ph}) "
+                        f"AND status IN ('dismissed', 'actioned')",
+                        tuple(ids)
+                    ).fetchall()}
+                    if gone:
+                        items = [it for it in items
+                                 if it.get('signal_id') not in gone]
                 return jsonify({'brief_id': d['id'], 'brief_date': d['brief_date'],
                                 'items': items, 'live': False})
             # no brief yet today — build items live WITHOUT the Claude

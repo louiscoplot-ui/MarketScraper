@@ -734,7 +734,11 @@ def get_price_changes(suburb_ids=None, limit=50):
 
 def take_market_snapshot(suburb_id, stats):
     conn = get_db()
-    today = datetime.utcnow().strftime('%Y-%m-%d')
+    # Perth date, not UTC: the nightly cron fires at 16:00 UTC = midnight
+    # Perth, so the UTC stamp dated every snapshot one day behind the
+    # Perth day the operator sees in Market Trends.
+    from time_utils import perth_now
+    today = perth_now().strftime('%Y-%m-%d')
     conn.execute(
         "DELETE FROM market_snapshots WHERE suburb_id = ? AND snapshot_date = ?",
         (suburb_id, today)

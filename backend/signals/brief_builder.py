@@ -197,12 +197,21 @@ def send_morning_briefs(backend_base_url=None):
             or 'https://marketscraper-backend.onrender.com').rstrip('/')
     conn = get_db()
     try:
+        # all_suburbs is REQUIRED here: build_items() checks it to widen
+        # scope, and omitting it from the SELECT made every all_suburbs
+        # (non-admin full-read) user fall back to their empty explicit
+        # assignment — they silently never received a brief.
         users = [dict(r) for r in conn.execute(
-            "SELECT id, email, first_name, role, digest_enabled "
+            "SELECT id, email, first_name, role, digest_enabled, all_suburbs "
             "FROM users WHERE digest_enabled = 1 "
             "AND email IS NOT NULL AND email <> ''"
         ).fetchall()]
-        today = datetime.utcnow().strftime('%Y-%m-%d')
+        # Perth date — the cron fires around midnight Perth (16:xx UTC),
+        # and a UTC stamp dated the brief 'yesterday': the Today view
+        # (which asks for Perth-today) ignored the stored narrated brief
+        # and rebuilt a non-narrated one on the fly after 8am Perth.
+        from time_utils import perth_now
+        today = perth_now().strftime('%Y-%m-%d')
         for user in users:
             existing = conn.execute(
                 "SELECT 1 FROM briefs WHERE user_id = ? AND brief_date = ?",

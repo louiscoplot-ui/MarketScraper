@@ -817,12 +817,32 @@ def init_db():
     # uploads — keep the row with the highest id (most recent score).
     # Step 2: add UNIQUE INDEX on normalized_address, which the UPSERT
     # in hot_vendors_api._insert_property_rows targets via ON CONFLICT.
+    # Backfill suburb from the owning upload where it's missing — must
+    # run BEFORE the scoped dedup below so old suburb-less rows group
+    # under their real suburb, and a NULL suburb never matches the
+    # composite ON CONFLICT target used by _insert_property_rows.
+    try:
+        conn.execute(
+            "UPDATE hot_vendor_properties SET suburb = "
+            "(SELECT u.suburb FROM hot_vendor_uploads u WHERE u.id = upload_id) "
+            "WHERE suburb IS NULL OR suburb = ''"
+        )
+        conn.commit()
+    except Exception:
+        try: conn.commit()
+        except Exception:
+            conn.rollback()
+
+    # Dedup scoped by (suburb, normalized_address) — the global-by-norm
+    # version deleted legitimate same-named streets living in DIFFERENT
+    # suburbs, which are valid rows under the composite key below.
     try:
         if USE_POSTGRES:
             conn.execute("""
                 DELETE FROM hot_vendor_properties a
                 USING hot_vendor_properties b
                 WHERE a.normalized_address = b.normalized_address
+                  AND COALESCE(a.suburb, '') = COALESCE(b.suburb, '')
                   AND a.normalized_address IS NOT NULL
                   AND a.normalized_address <> ''
                   AND a.id < b.id
@@ -834,7 +854,7 @@ def init_db():
                     SELECT MAX(id) FROM hot_vendor_properties
                     WHERE normalized_address IS NOT NULL
                       AND normalized_address <> ''
-                    GROUP BY normalized_address
+                    GROUP BY COALESCE(suburb, ''), normalized_address
                 )
                 AND normalized_address IS NOT NULL
                 AND normalized_address <> ''
@@ -870,10 +890,17 @@ def init_db():
         except Exception:
             conn.rollback()
 
+    # The unique key is now SUBURB-SCOPED: (suburb, normalized_address).
+    # The old global (normalized_address) key let an upload for suburb B
+    # silently steal/overwrite a same-named street row belonging to
+    # suburb A's report. Perth street names repeat heavily across
+    # suburbs, so this was real data loss on multi-suburb accounts.
+    # The composite index is safe to create directly: the old global key
+    # was strictly stricter, so no duplicate (suburb, norm) pairs exist.
     try:
         conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_normaddr "
-            "ON hot_vendor_properties(normalized_address)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_hv_props_suburb_normaddr "
+            "ON hot_vendor_properties(suburb, normalized_address)"
         )
         conn.commit()
     except Exception:

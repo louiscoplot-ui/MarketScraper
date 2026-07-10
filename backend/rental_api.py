@@ -160,6 +160,13 @@ def register_rental_routes(app):
             return jsonify({'error': 'Rental access not granted'}), 403
 
         single_suburb = (request.args.get('suburb') or '').strip()
+        # Multi-suburb narrowing: ?suburbs=a,b,c — the UI sends the exact
+        # selection so the workbook matches the table on screen (it used
+        # to export EVERY allowed suburb whenever more than one was
+        # selected, leaking suburbs the operator didn't mean to share).
+        multi_suburbs = [s.strip() for s in
+                         (request.args.get('suburbs') or '').split(',')
+                         if s.strip()]
 
         # Style palette — same family as export_api.py so the workbook
         # feels like part of the same product. Status colours diverge
@@ -219,6 +226,12 @@ def register_rental_routes(app):
                 if not match:
                     return jsonify({'error': 'Not authorised for that suburb'}), 403
                 suburb_names = [match]
+            elif multi_suburbs:
+                wanted = {s.lower() for s in multi_suburbs}
+                suburb_names = [n for n in allowed_names
+                                if n.strip().lower() in wanted]
+                if not suburb_names:
+                    return jsonify({'error': 'Not authorised for those suburbs'}), 403
             else:
                 suburb_names = allowed_names
             if not suburb_names:
@@ -263,6 +276,7 @@ def register_rental_routes(app):
                     LEFT JOIN rental_owners o
                       ON o.address = l.address AND o.suburb = l.suburb
                     WHERE LOWER(l.suburb) = LOWER(?)
+                      AND l.status IN ('New', 'Active', 'Leased')
                     ORDER BY
                       CASE l.status WHEN 'New' THEN 0 WHEN 'Active' THEN 1 ELSE 2 END,
                       l.date_listed DESC
@@ -497,8 +511,14 @@ def register_rental_routes(app):
             return jsonify({'error': 'No file uploaded. Use multipart field "file".'}), 400
         f = request.files['file']
         name = (f.filename or '').lower()
-        if not (name.endswith('.xlsx') or name.endswith('.xls')):
-            return jsonify({'error': 'Only .xlsx / .xls accepted'}), 400
+        # openpyxl cannot read legacy .xls (and xlrd isn't installed) —
+        # reject it up front with an actionable message instead of a
+        # contradictory "accepted then failed to parse".
+        if name.endswith('.xls') and not name.endswith('.xlsx'):
+            return jsonify({'error': 'Legacy .xls is not supported — '
+                                     're-save the file as .xlsx and re-upload.'}), 400
+        if not name.endswith('.xlsx'):
+            return jsonify({'error': 'Only .xlsx accepted'}), 400
         raw = f.read()
         if not raw:
             return jsonify({'error': 'Empty file'}), 400
@@ -614,6 +634,15 @@ def register_rental_routes(app):
                         d = dict(r)
                         owners_cache[(d['address'], d['suburb'])] = d
 
+                    # New rows are DEFERRED and flushed in one executemany
+                    # per sheet — the per-row INSERTs were the second half
+                    # of the timeout (first import = ~1 write round-trip
+                    # per row). The pending dicts are the SAME objects as
+                    # the cache entries, so a duplicate row later in the
+                    # sheet merges into the pending values in memory.
+                    pending_listings = {}
+                    pending_owners = {}
+
                     for row in rows_iter[header_idx + 1:]:
                         def cell(key):
                             idx = col_map.get(key)
@@ -676,30 +705,14 @@ def register_rental_routes(app):
                         row_enriched = False
 
                         if existing is None:
-                            # Brand-new row — full INSERT. status defaults to
-                            # 'Active' when the Excel didn't carry one so the
-                            # NOT NULL constraint stays satisfied.
-                            conn.execute(
-                                "INSERT INTO rental_listings "
-                                "(address, suburb, status, price_week, property_type, "
-                                " beds, baths, cars, agency, agent, date_listed, "
-                                " days_on_market, date_leased, url) "
-                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (
-                                    addr, sub,
-                                    cell('status') or 'Active',
-                                    cell('price_week'), cell('property_type'),
-                                    cell('beds'), cell('baths'), cell('cars'),
-                                    cell('agency'), cell('agent'),
-                                    cell('date_listed'), cell('days_on_market'),
-                                    cell('date_leased'), cell('url'),
-                                )
-                            )
-                            # Mirror into the preload so a duplicate row
-                            # later in the sheet merges instead of trying
-                            # a second INSERT (same behaviour the per-row
-                            # SELECT gave us).
-                            listings_cache[key] = {
+                            # Brand-new row — deferred INSERT (flushed at
+                            # sheet end). status defaults to 'Active' when
+                            # the Excel didn't carry one so the NOT NULL
+                            # constraint stays satisfied. The dict lands in
+                            # BOTH the cache and the pending queue, so a
+                            # duplicate row later in the sheet merges into
+                            # it in memory instead of double-inserting.
+                            listings_cache[key] = pending_listings[key] = {
                                 'address': addr, 'suburb': sub,
                                 'status': cell('status') or 'Active',
                                 'price_week': cell('price_week'),
@@ -733,18 +746,25 @@ def register_rental_routes(app):
                                 params.append(excel_val)
                                 existing[field] = excel_val
                             if sets:
-                                # last_seen bumps because we touched the row,
-                                # so the listings UI sorts the freshly-merged
-                                # rows toward the recent end.
-                                sets.append("last_seen = ?")
-                                params.append(datetime.utcnow().isoformat())
-                                params.extend([addr, sub])
-                                conn.execute(
-                                    f"UPDATE rental_listings SET {', '.join(sets)} "
-                                    "WHERE address = ? AND suburb = ?",
-                                    params
-                                )
-                                row_enriched = True
+                                if key in pending_listings:
+                                    # Row is still pending INSERT — the dict
+                                    # mutation above already merged the new
+                                    # fields; no SQL needed.
+                                    row_enriched = True
+                                else:
+                                    # last_seen bumps because we touched the
+                                    # row, so the listings UI sorts the
+                                    # freshly-merged rows toward the recent
+                                    # end.
+                                    sets.append("last_seen = ?")
+                                    params.append(datetime.utcnow().isoformat())
+                                    params.extend([addr, sub])
+                                    conn.execute(
+                                        f"UPDATE rental_listings SET {', '.join(sets)} "
+                                        "WHERE address = ? AND suburb = ?",
+                                        params
+                                    )
+                                    row_enriched = True
 
                         # rental_owners — same fill-empty-only contract,
                         # field by field. Operator-typed values in the UI
@@ -764,13 +784,7 @@ def register_rental_routes(app):
                                 ).fetchone()
                                 od = dict(o_row) if o_row else None
                             if od is None:
-                                conn.execute(
-                                    "INSERT INTO rental_owners "
-                                    "(address, suburb, owner_name, owner_phone, notes) "
-                                    "VALUES (?, ?, ?, ?, ?)",
-                                    (addr, sub, owner_name, owner_phone, notes_text)
-                                )
-                                owners_cache[key] = {
+                                owners_cache[key] = pending_owners[key] = {
                                     'address': addr, 'suburb': sub,
                                     'owner_name': owner_name,
                                     'owner_phone': owner_phone,
@@ -793,17 +807,22 @@ def register_rental_routes(app):
                                     o_params.append(val)
                                     od[field] = val
                                 if o_sets:
-                                    if USE_POSTGRES:
-                                        o_sets.append("updated_at = CURRENT_TIMESTAMP")
+                                    if key in pending_owners:
+                                        # Pending INSERT — dict already
+                                        # merged above, no SQL needed.
+                                        row_enriched = True
                                     else:
-                                        o_sets.append("updated_at = datetime('now')")
-                                    o_params.extend([addr, sub])
-                                    conn.execute(
-                                        f"UPDATE rental_owners SET {', '.join(o_sets)} "
-                                        "WHERE address = ? AND suburb = ?",
-                                        o_params
-                                    )
-                                    row_enriched = True
+                                        if USE_POSTGRES:
+                                            o_sets.append("updated_at = CURRENT_TIMESTAMP")
+                                        else:
+                                            o_sets.append("updated_at = datetime('now')")
+                                        o_params.extend([addr, sub])
+                                        conn.execute(
+                                            f"UPDATE rental_owners SET {', '.join(o_sets)} "
+                                            "WHERE address = ? AND suburb = ?",
+                                            o_params
+                                        )
+                                        row_enriched = True
 
                         if row_inserted:
                             inserted += 1
@@ -812,8 +831,56 @@ def register_rental_routes(app):
                         else:
                             skipped += 1
 
-                    # Sheet done — commit its work so it's durable even if
-                    # a LATER sheet blows up.
+                    # Flush this sheet's deferred INSERTs in one (Postgres:
+                    # execute_values) / few (SQLite: executemany) round
+                    # trips, then commit so the sheet is durable even if a
+                    # LATER sheet blows up.
+                    L_COLS = ('address', 'suburb', 'status', 'price_week',
+                              'property_type', 'beds', 'baths', 'cars',
+                              'agency', 'agent', 'date_listed',
+                              'days_on_market', 'date_leased', 'url')
+                    O_COLS = ('address', 'suburb', 'owner_name',
+                              'owner_phone', 'notes')
+                    if pending_listings:
+                        vals = [tuple(p[c] for c in L_COLS)
+                                for p in pending_listings.values()]
+                        if USE_POSTGRES:
+                            from psycopg2.extras import execute_values
+                            cur = conn._conn.cursor()
+                            try:
+                                execute_values(
+                                    cur,
+                                    f"INSERT INTO rental_listings "
+                                    f"({', '.join(L_COLS)}) VALUES %s",
+                                    vals, page_size=500)
+                            finally:
+                                cur.close()
+                        else:
+                            conn._conn.executemany(
+                                f"INSERT INTO rental_listings "
+                                f"({', '.join(L_COLS)}) "
+                                f"VALUES ({', '.join(['?'] * len(L_COLS))})",
+                                vals)
+                    if pending_owners:
+                        vals = [tuple(p[c] for c in O_COLS)
+                                for p in pending_owners.values()]
+                        if USE_POSTGRES:
+                            from psycopg2.extras import execute_values
+                            cur = conn._conn.cursor()
+                            try:
+                                execute_values(
+                                    cur,
+                                    f"INSERT INTO rental_owners "
+                                    f"({', '.join(O_COLS)}) VALUES %s",
+                                    vals, page_size=500)
+                            finally:
+                                cur.close()
+                        else:
+                            conn._conn.executemany(
+                                f"INSERT INTO rental_owners "
+                                f"({', '.join(O_COLS)}) "
+                                f"VALUES ({', '.join(['?'] * len(O_COLS))})",
+                                vals)
                     conn.commit()
                 except Exception:
                     # One bad sheet must never sink the rest of the import.
@@ -843,6 +910,16 @@ def register_rental_routes(app):
             n = len(skipped_suburbs)
             summary += (f". {n} suburb{'' if n == 1 else 's'} not in SuburbDesk "
                         f"({shown}{more}) — not tracked, ignored.")
+        # Failed sheets must NOT hide behind a green success toast — a
+        # rolled-back suburb is silent truncation if the operator isn't
+        # told which sheets to re-import.
+        if sheet_errors:
+            n = len(sheet_errors)
+            shown = ', '.join(sheet_errors[:6])
+            more = f" +{n - 6} more" if n > 6 else ''
+            summary += (f". WARNING: {n} sheet{'' if n == 1 else 's'} failed "
+                        f"and {'was' if n == 1 else 'were'} skipped "
+                        f"({shown}{more}) — re-import to retry.")
 
         return jsonify({
             'inserted': inserted,

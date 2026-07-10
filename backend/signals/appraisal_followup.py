@@ -30,16 +30,24 @@ def _suburb_data_point(conn, suburb, followup_day):
     invents a month-over-month delta we don't have history for."""
     if not suburb:
         return "the local market continues to move — worth a fresh look at your position."
-    since = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    # "Since we met, N have sold" must count SALES DATED in the window,
+    # not the sold backlog by last_seen (a sold listing's last_seen keeps
+    # refreshing while it stays visible on REIWA, so the old count was
+    # inflated to the whole visible backlog). Same effective-date pattern
+    # as the pipeline's recent-sales window. Suburb match is
+    # case-insensitive — appraisal suburbs are hand-typed.
+    since_day = (datetime.utcnow() - timedelta(days=int(followup_day or 30))
+                 ).strftime('%Y-%m-%d')
     sold = conn.execute(
         "SELECT COUNT(*) AS n FROM listings l JOIN suburbs s ON s.id = l.suburb_id "
-        "WHERE s.name = ? AND l.status = 'sold' AND l.last_seen >= ?",
-        (suburb, since)
+        "WHERE LOWER(s.name) = LOWER(?) AND l.status = 'sold' "
+        "AND COALESCE(l.sold_date, SUBSTR(l.first_seen, 1, 10)) >= ?",
+        (suburb, since_day)
     ).fetchone()
     sold_n = dict(sold)['n'] if sold else 0
     active_rows = conn.execute(
         "SELECT l.price_text FROM listings l JOIN suburbs s ON s.id = l.suburb_id "
-        "WHERE s.name = ? AND l.status = 'active'", (suburb,)
+        "WHERE LOWER(s.name) = LOWER(?) AND l.status = 'active'", (suburb,)
     ).fetchall()
     prices = [p for p in (_price_to_int(dict(r)['price_text']) for r in active_rows) if p]
     median_txt = f"${int(statistics.median(prices)):,}" if prices else None

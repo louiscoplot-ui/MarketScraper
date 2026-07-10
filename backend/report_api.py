@@ -4,6 +4,7 @@ under the MCP push size limit. Wired via register_report_routes(app)."""
 import re as _re
 import logging
 from datetime import datetime
+from statistics import median as _median
 from flask import request, jsonify
 
 from database import get_listings, get_price_changes, get_market_snapshots
@@ -46,7 +47,12 @@ def _parse_price(price_text):
         val *= 1_000
     # round, not int(), to avoid float-precision truncation:
     # 2.05 * 1_000_000 == 2049999.9999... → would truncate to 2049999.
-    return int(round(val))
+    val = int(round(val))
+    # Plausibility floor — free-text like "Auction 12 July" or "From 4
+    # offers" matches a bare digit and produced absurd medians/deltas
+    # (a "$12" listing skews a suburb median hard). No Perth dwelling
+    # trades under $10k.
+    return val if val >= 10_000 else None
 
 
 def _calc_dom(l):
@@ -282,14 +288,18 @@ def market_report():
             'count_with_price': len(prices),
             'min': min(prices) if prices else None,
             'max': max(prices) if prices else None,
-            'median': prices[len(prices)//2] if prices else None,
+            # statistics.median — the old prices[n//2] indexed an
+            # UNSORTED list, so the "median" was whatever listing
+            # happened to sit mid-array and disagreed with the snapshot
+            # median for the same suburb on the same day.
+            'median': round(_median(prices)) if prices else None,
             'avg': round(sum(prices) / len(prices)) if prices else None,
         },
         'dom': {
             'count': len(doms),
             'min': min(doms) if doms else None,
             'max': max(doms) if doms else None,
-            'median': doms[len(doms)//2] if doms else None,
+            'median': round(_median(doms)) if doms else None,
             'avg': round(sum(doms) / len(doms)) if doms else None,
             'stale_count': len(stale),
         },

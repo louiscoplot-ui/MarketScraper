@@ -241,23 +241,33 @@ def _create_upload_row(conn, meta):
 #      rather than creating duplicates. The user-status table
 #      (hot_vendor_property_status) is keyed on the same address and
 #      is untouched by this UPSERT, so colour flags survive.
-def _insert_property_rows(conn, upload_id, rows):
+def _insert_property_rows(conn, upload_id, rows, default_suburb=None):
     if not rows:
         return
 
     cols = ['upload_id', 'address', 'normalized_address'] + _PROP_COLUMNS[1:]
-    # Mutable columns refreshed on conflict — everything except the address
-    # identity columns (address text + normalized_address key).
-    update_cols = ['upload_id'] + _PROP_COLUMNS[1:]
+    # Mutable columns refreshed on conflict — everything except the
+    # identity columns. suburb is part of the conflict key now: the old
+    # global (normalized_address) key let an upload for suburb B steal a
+    # same-named street from suburb A's report (upload_id/suburb/scores
+    # overwritten, row silently gone from A). Scoping the key per suburb
+    # keeps the re-upload refresh semantics within a suburb only.
+    update_cols = ['upload_id'] + [c for c in _PROP_COLUMNS[1:] if c != 'suburb']
 
     def row_values(r):
         # Coerce empty-string normalized_address to NULL so multiple
         # bad-address rows don't trip the (now non-partial) unique index.
         norm = normalize_address(r['address']) or None
-        return tuple(
-            [upload_id, r['address'], norm] +
-            [r.get(c) for c in _PROP_COLUMNS[1:]]
-        )
+        vals = [upload_id, r['address'], norm]
+        for c in _PROP_COLUMNS[1:]:
+            v = r.get(c)
+            if c == 'suburb' and not (str(v).strip() if v is not None else ''):
+                # NULL suburb would never hit the composite conflict key
+                # → duplicate rows on re-upload. Fall back to the
+                # upload's suburb.
+                v = default_suburb
+            vals.append(v)
+        return tuple(vals)
 
     if USE_POSTGRES:
         from psycopg2.extras import execute_values
@@ -265,7 +275,7 @@ def _insert_property_rows(conn, upload_id, rows):
         sql = (
             f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) "
             f"VALUES %s "
-            f"ON CONFLICT (normalized_address) DO UPDATE SET "
+            f"ON CONFLICT (suburb, normalized_address) DO UPDATE SET "
             f"{set_clause}, last_updated_at = CURRENT_TIMESTAMP"
         )
         cur = conn._conn.cursor()
@@ -279,7 +289,7 @@ def _insert_property_rows(conn, upload_id, rows):
         sql = (
             f"INSERT INTO hot_vendor_properties ({', '.join(cols)}) "
             f"VALUES ({', '.join(['?'] * len(cols))}) "
-            f"ON CONFLICT(normalized_address) DO UPDATE SET "
+            f"ON CONFLICT(suburb, normalized_address) DO UPDATE SET "
             f"{set_clause}, last_updated_at = datetime('now')"
         )
         conn._conn.executemany(sql, [list(row_values(r)) for r in rows])
@@ -491,7 +501,8 @@ def register_hot_vendors_routes(app):
             conn = get_db()
             try:
                 upload_id = _create_upload_row(conn, meta)
-                _insert_property_rows(conn, upload_id, rows)
+                _insert_property_rows(conn, upload_id, rows,
+                                      default_suburb=meta.get('suburb'))
                 conn.commit()
                 _attach_user_status(conn, result['properties'])
             finally:
@@ -581,6 +592,11 @@ def register_hot_vendors_routes(app):
         body = request.get_json(silent=True) or {}
         addr = (body.get('address') or '').strip()
         status = (body.get('status') or '').strip().lower() or None
+        # note follows the same key-presence contract as callback_date:
+        # the UI's status dropdown sends {address, status} only, and the
+        # unconditional `note = EXCLUDED.note` upsert was silently wiping
+        # the agent's saved note (note=None) on every status click.
+        has_note = 'note' in body
         note = (body.get('note') or '').strip() or None
         # Snooze — "call back on…" outcome. Only touched when the key is
         # present in the body: sending callback_date=null/'' clears it,
@@ -600,14 +616,19 @@ def register_hot_vendors_routes(app):
             except ValueError:
                 return jsonify({'error': 'callback_date must be YYYY-MM-DD'}), 400
 
-        def _resolve_callback(conn, norm):
-            if has_callback:
-                return callback_date
+        def _resolve_sticky(conn, norm):
+            """Resolve note + callback_date under the key-presence
+            contract: keys absent from the body keep their stored value."""
+            if has_note and has_callback:
+                return note, callback_date
             row = conn.execute(
-                "SELECT callback_date FROM hot_vendor_property_status "
+                "SELECT note, callback_date FROM hot_vendor_property_status "
                 "WHERE normalized_address = ?", (norm,)
             ).fetchone()
-            return (dict(row).get('callback_date') if row else None) or None
+            d = dict(row) if row else {}
+            nt = note if has_note else ((d.get('note') or '').strip() or None)
+            cb = callback_date if has_callback else (d.get('callback_date') or None)
+            return nt, cb
 
         norm = normalize_address(addr)
         if not norm:
@@ -638,7 +659,7 @@ def register_hot_vendors_routes(app):
                     (norm,)
                 )
             else:
-                cb = _resolve_callback(conn, norm)
+                nt, cb = _resolve_sticky(conn, norm)
                 if USE_POSTGRES:
                     conn.execute(
                         "INSERT INTO hot_vendor_property_status "
@@ -648,7 +669,7 @@ def register_hot_vendors_routes(app):
                         "status = EXCLUDED.status, note = EXCLUDED.note, "
                         "callback_date = EXCLUDED.callback_date, "
                         "updated_at = CURRENT_TIMESTAMP",
-                        (norm, status, note, cb)
+                        (norm, status, nt, cb)
                     )
                 else:
                     conn.execute(
@@ -659,7 +680,7 @@ def register_hot_vendors_routes(app):
                         "status = excluded.status, note = excluded.note, "
                         "callback_date = excluded.callback_date, "
                         "updated_at = datetime('now')",
-                        (norm, status, note, cb)
+                        (norm, status, nt, cb)
                     )
             conn.commit()
         finally:
@@ -669,7 +690,7 @@ def register_hot_vendors_routes(app):
             'address': addr,
             'normalized_address': norm,
             'status': status or '',
-            'note': note or '',
+            'note': (note if has_note else None) or '',
             'callback_date': (callback_date if has_callback else None) or '',
         })
 
@@ -917,9 +938,25 @@ def register_hot_vendors_routes(app):
                 d = dict(r)
                 prop_suburb.setdefault(d['normalized_address'], d['suburb'])
 
+            # Rows with an empty current_owner, counted per norm — lets the
+            # loop below stay purely in-memory and keeps owners_filled
+            # exact without per-row UPDATE round-trips (2-3k contacts were
+            # 4-6k sequential Neon round-trips → worker timeout → text 500).
+            owner_empty_counts = {}
+            for r in conn.execute(
+                "SELECT normalized_address AS na, COUNT(*) AS n "
+                "FROM hot_vendor_properties "
+                "WHERE (current_owner IS NULL OR current_owner = '') "
+                "AND normalized_address IS NOT NULL AND normalized_address != '' "
+                "GROUP BY normalized_address"
+            ).fetchall():
+                d = dict(r)
+                owner_empty_counts[d['na']] = d['n']
+
             matched = phones_saved = owners_filled = unmatched = skipped_scope = 0
             unmatched_sample = []
-            now_sql = 'CURRENT_TIMESTAMP' if USE_POSTGRES else "datetime('now')"
+            phone_map = {}   # norm → phone (last row wins, like the per-row UPDATEs did)
+            owner_map = {}   # norm → owner (first row wins — fill-empty-only)
             for row in rows[header_idx + 1:]:
                 addr = cell(row, 'address')
                 if not addr:
@@ -943,47 +980,65 @@ def register_hot_vendors_routes(app):
                     continue
                 matched += 1
                 if phone:
-                    if USE_POSTGRES:
-                        conn.execute(
-                            "INSERT INTO hot_vendor_property_status "
-                            "(normalized_address, phone, updated_at) "
-                            "VALUES (?, ?, CURRENT_TIMESTAMP) "
-                            "ON CONFLICT (normalized_address) DO UPDATE SET "
-                            "phone = EXCLUDED.phone, updated_at = CURRENT_TIMESTAMP",
-                            (norm, phone)
-                        )
-                    else:
-                        existing = conn.execute(
-                            "SELECT 1 FROM hot_vendor_property_status WHERE normalized_address = ?",
-                            (norm,)
-                        ).fetchone()
-                        if existing:
-                            conn.execute(
-                                f"UPDATE hot_vendor_property_status SET phone = ?, "
-                                f"updated_at = {now_sql} WHERE normalized_address = ?",
-                                (phone, norm)
-                            )
-                        else:
-                            conn.execute(
-                                f"INSERT INTO hot_vendor_property_status "
-                                f"(normalized_address, phone, updated_at) "
-                                f"VALUES (?, ?, {now_sql})",
-                                (norm, phone)
-                            )
+                    phone_map[norm] = phone
                     phones_saved += 1
-                if owner:
+                if owner and norm in owner_empty_counts and norm not in owner_map:
                     # Fill only where RP Data had no owner — never overwrite
                     # title data with a spreadsheet.
-                    cur = conn.execute(
+                    owner_map[norm] = owner
+                    owners_filled += owner_empty_counts[norm]
+
+            # Flush in 1-2 round-trips instead of O(rows).
+            if phone_map:
+                pairs = list(phone_map.items())
+                if USE_POSTGRES:
+                    from psycopg2.extras import execute_values
+                    cur = conn._conn.cursor()
+                    try:
+                        execute_values(
+                            cur,
+                            "INSERT INTO hot_vendor_property_status "
+                            "(normalized_address, phone, updated_at) VALUES %s "
+                            "ON CONFLICT (normalized_address) DO UPDATE SET "
+                            "phone = EXCLUDED.phone, updated_at = CURRENT_TIMESTAMP",
+                            pairs,
+                            template="(%s, %s, CURRENT_TIMESTAMP)",
+                            page_size=500,
+                        )
+                    finally:
+                        cur.close()
+                else:
+                    conn._conn.executemany(
+                        "INSERT INTO hot_vendor_property_status "
+                        "(normalized_address, phone, updated_at) "
+                        "VALUES (?, ?, datetime('now')) "
+                        "ON CONFLICT(normalized_address) DO UPDATE SET "
+                        "phone = excluded.phone, updated_at = datetime('now')",
+                        pairs,
+                    )
+            if owner_map:
+                args = [(o, n) for n, o in owner_map.items()]
+                if USE_POSTGRES:
+                    from psycopg2.extras import execute_batch
+                    cur = conn._conn.cursor()
+                    try:
+                        execute_batch(
+                            cur,
+                            "UPDATE hot_vendor_properties SET current_owner = %s "
+                            "WHERE normalized_address = %s "
+                            "AND (current_owner IS NULL OR current_owner = '')",
+                            args,
+                            page_size=500,
+                        )
+                    finally:
+                        cur.close()
+                else:
+                    conn._conn.executemany(
                         "UPDATE hot_vendor_properties SET current_owner = ? "
                         "WHERE normalized_address = ? "
                         "AND (current_owner IS NULL OR current_owner = '')",
-                        (owner, norm)
+                        args,
                     )
-                    try:
-                        owners_filled += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-                    except Exception:
-                        pass
             conn.commit()
         except Exception:
             conn.rollback()
@@ -1315,7 +1370,7 @@ def register_hot_vendors_routes(app):
         conn = get_db()
         try:
             upload_id = _create_upload_row(conn, meta)
-            _insert_property_rows(conn, upload_id, rows)
+            _insert_property_rows(conn, upload_id, rows, default_suburb=suburb)
             conn.commit()
         finally:
             conn.close()
