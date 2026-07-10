@@ -44,10 +44,13 @@ _UNIT_PREFIX_RE = re.compile(r'^\d+\s*/\s*')
 _LETTER_SUFFIX_RE = re.compile(r'^(\d+)[A-Za-z]+(\s+)')
 INSERT_CHUNK = 50
 # ±10 house numbers = ~5 dwellings on the same side — close enough that
-# "your neighbour at N just sold" rings true on the doorstep. The old
-# ±30 mailed houses up to ~15 doors down as "neighbours", which reads
-# false to the recipient and burns the letter's credibility.
+# "your neighbour at N just sold" rings true on the doorstep. But on
+# sparsely-mapped streets a hard ±10 cap found NOBODY and the pipeline
+# recommended zero addresses. So ±10 is the PREFERRED radius (true
+# neighbours, always picked closest-first), and we widen to ±30 only when
+# ±10 can't supply enough targets — degrades gracefully instead of empty.
 NEIGHBOUR_MAX_DISTANCE = 10
+NEIGHBOUR_FALLBACK_DISTANCE = 30
 NEIGHBOUR_COUNT = 4
 OVERPASS_URL = 'https://overpass-api.de/api/interpreter'
 # 8s is enough for Overpass to respond in the common case; 18s used to
@@ -250,7 +253,10 @@ def _real_neighbours(conn, source_addr, source_suburb, has_hv,
         if num_c % 2 != src_parity:
             return
         d = abs(num_c - src_num)
-        if d == 0 or d > max_distance:
+        # Collect up to the FALLBACK ceiling; the closest-first selection
+        # at the end prefers true (≤max_distance) neighbours and only
+        # widens when there aren't enough of them.
+        if d == 0 or d > NEIGHBOUR_FALLBACK_DISTANCE:
             return
         candidates[n] = (d, num_c, a)
 
@@ -273,7 +279,7 @@ def _real_neighbours(conn, source_addr, source_suburb, has_hv,
         if n % 2 != src_parity:
             continue
         d = abs(n - src_num)
-        if d == 0 or d > max_distance:
+        if d == 0 or d > NEIGHBOUR_FALLBACK_DISTANCE:
             continue
         addr = f"{n} {street}"
         norm = (normalize_address(addr) or '').lower()
@@ -311,7 +317,13 @@ def _real_neighbours(conn, source_addr, source_suburb, has_hv,
     if not candidates:
         return []
     ranked = sorted(candidates.values(), key=lambda c: (c[0], c[1]))
-    return [c[2] for c in ranked[:count]]
+    # Prefer true neighbours (within ±max_distance); widen to the fallback
+    # ceiling only when ±max_distance can't supply a full set. Either way
+    # the closest are picked first, so realism is maximised and the
+    # pipeline never returns empty just because the tight radius was bare.
+    near = [c for c in ranked if c[0] <= max_distance]
+    chosen = near if len(near) >= count else ranked
+    return [c[2] for c in chosen[:count]]
 
 
 def _hot_vendors_table_exists(conn):
