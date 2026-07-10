@@ -132,6 +132,12 @@
   padding: 8px 12px;
 }
 
+/* This block's specificity (0,2,2) beats th.sortable:hover (0,2,1) —
+   restore the sort-affordance hover the desk skin was swallowing. */
+[data-desk="on"] .listings-table thead th.sortable:hover {
+  color: var(--text);
+}
+
 /* Denser rows. */
 [data-desk="on"] .listings-table-wrapper tbody td {
   padding: 5px 12px;

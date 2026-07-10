@@ -37,7 +37,10 @@
   --border: #E7E5E4;
   --text: #0C0A09;
   --text-muted: #78716C;
-  --text-faint: #A8A29E;
+  /* 4.6:1+ on every light app surface (white / #FAFAF9 / #F4F3F0).
+     The old #A8A29E sat at 2.5:1 while carrying real information
+     (desk table headers, KPI labels, meta text) — WCAG AA fail. */
+  --text-faint: #736D66;
 
   /* --- Status grammar ----------------------------------------------
      Three layers per status:
