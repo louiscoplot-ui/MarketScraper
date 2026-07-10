@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, MapPin, ChevronDown, StickyNote, Plus } from 'lucide-react'
 import StickyHScroll from './components/StickyHScroll'
+import DeskMap from './components/DeskMap'
 import { formatIsoDate } from './hooks/useListings'
 import { Button, ScoreBadge, Checkbox, Select } from './components/ui'
 import { getDeskMode } from './lib/deskFlag'
@@ -1036,150 +1037,202 @@ export default function HotVendorScoring() {
           </div>
         )}
 
-        {/* Property dossier — click an address to open. Every field the
-            score is built from, plus contact + one-click actions. */}
+        {/* Property dossier — validated design 10/07/2026. Wide overlay:
+            header band (score + address + signal chips + Log a call),
+            narrative line, then three columns — owner & outcomes ·
+            story + why-score · map + facts. One dossier, every entry
+            point (row click, future map pins, Contact today). */}
         {propDetail && (() => {
           const p = propDetail
           const money = (v) => (v || v === 0) && !Number.isNaN(Number(v)) ? `$${Number(v).toLocaleString()}` : '—'
           const cb = catBadge(p.category)
           const savedPhone = phones[p.address] ?? p.phone ?? ''
           const dirty = (phoneDraft || '').trim() !== (savedPhone || '').trim()
+          const cbSt = callbackState(callbacks[p.address])
+          const lblStyle = { fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 4 }
+          const valStyle = { fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.25 }
+          const cardS = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-card)' }
           const facts = [
             ['Type', [p.type, p.bedrooms ? `${p.bedrooms} bd` : null, p.bathrooms ? `${p.bathrooms} ba` : null].filter(Boolean).join(' · ') || '—'],
-            ['Held', p.holding_years != null ? `${p.holding_years} yrs` : '—'],
-            ['Bought', `${money(p.owner_purchase_price)}${p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}`],
-            ['Est. gain', `${money(p.owner_gain_dollars)}${p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}`],
             ['CAGR', p.cagr != null ? `${p.cagr}%` : '—'],
             ['Sales in street', p.sales_count != null ? String(p.sales_count) : '—'],
             ['Last sale', money(p.last_sale_price)],
             ['Agency', p.agency || '—'],
             ['Agent', p.agent || '—'],
           ]
-          const lblStyle = { fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 4 }
-          const valStyle = { fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--text)', lineHeight: 1.25 }
+          const comps = [
+            ['Hold length', p.hold_score], ['Property type', p.type_score],
+            ['Owner gain', p.gain_score], ['Yearly growth', p.cagr_score],
+            ['Street activity', p.freq_score], ['Untapped value', p.prof_score],
+          ].filter(([, v]) => v != null && !Number.isNaN(Number(v)))
+          const narrative = (() => {
+            if (cbSt === 'due') return { tone: 'watch', text: `Call-back due — you set a reminder for ${formatIsoDate(callbacks[p.address])}.` }
+            const bits = []
+            if (p.holding_years != null) bits.push(`${Math.round(p.holding_years)}-year hold`)
+            if (p.owner_gain_pct != null) bits.push(`an estimated +${Math.round(p.owner_gain_pct)}% untapped gain`)
+            if (!bits.length) return null
+            const street = p.sales_count ? ` ${p.sales_count} recent sale${p.sales_count !== 1 ? 's' : ''} in the street strengthen${p.sales_count === 1 ? 's' : ''} the conversation.` : ''
+            return { tone: 'accent', text: `${bits.join(' with ')} — owners in this bracket are the suburb's most likely listers.${street}` }
+          })()
           return (
             <div className="note-modal-overlay" onClick={() => setPropDetail(null)}>
-              <div className="note-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480, width: '92vw' }}>
-                {/* header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 16, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 700, width: 50, height: 50, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: cb.bg, color: cb.fg, flexShrink: 0 }}>{Math.round(p.final_score)}</span>
+              <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(960px, 96vw)', maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg)', borderRadius: 18, boxShadow: 'var(--shadow-pop)' }}>
+
+                {/* ── header band ── */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 22px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                  <div style={{ flexShrink: 0, width: 58, height: 58, borderRadius: 13, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: cb.bg }}>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 24, lineHeight: 1, color: cb.fg }}>{Math.round(p.final_score)}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 7, letterSpacing: '.1em', color: cb.fg, opacity: 0.75 }}>VENDOR</span>
+                  </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''} · rank within this suburb's list</div>
-                  </div>
-                  <button className="btn-icon" onClick={() => setPropDetail(null)} title="Close">×</button>
-                </div>
-
-                {/* narrative — why this owner, in one plain sentence (from
-                    the fields we actually have; no invented claims). */}
-                {(() => {
-                  const cbSt = callbackState(callbacks[p.address])
-                  if (cbSt === 'due') {
-                    return <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 10, padding: '9px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--status-watch-text)' }}>Call-back due — you set a reminder for {formatIsoDate(callbacks[p.address])}.</div>
-                  }
-                  const bits = []
-                  if (p.holding_years != null) bits.push(`${Math.round(p.holding_years)}-year hold`)
-                  if (p.owner_gain_pct != null) bits.push(`an estimated +${Math.round(p.owner_gain_pct)}% untapped gain`)
-                  if (!bits.length) return null
-                  const street = p.sales_count ? ` ${p.sales_count} recent sale${p.sales_count !== 1 ? 's' : ''} in the street strengthen${p.sales_count === 1 ? 's' : ''} the conversation.` : ''
-                  return (
-                    <div style={{ background: 'var(--accent-soft)', borderRadius: 10, padding: '9px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--accent)' }}>
-                      {bits.join(' with ')} — owners in this bracket are the suburb's most likely listers.{street}
+                    <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, letterSpacing: '-0.01em', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.address)}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 4, flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}{p.category ? ` · ${p.category}` : ''}</span>
+                      {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{s}</span>)}
+                      {cbSt === 'snoozed' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, background: 'var(--status-off-bg)', color: 'var(--status-off-text)', borderRadius: 999, padding: '2px 8px' }}>snoozed → {formatIsoDate(callbacks[p.address])}</span>}
                     </div>
-                  )
-                })()}
-
-                {/* contact — owner + editable phone */}
-                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
-                  <div style={lblStyle}>Owner</div>
-                  <div style={{ ...valStyle, fontSize: 15, marginBottom: 12 }}>{p.current_owner || '—'}</div>
-                  <div style={lblStyle}>Phone</div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="tel"
-                      value={phoneDraft}
-                      onChange={(e) => setPhoneDraft(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && dirty) savePhone(p.address, phoneDraft) }}
-                      placeholder="Add a phone number…"
-                      style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', outline: 'none' }}
-                    />
-                    {savedPhone && !dirty && <a href={`tel:${savedPhone}`} className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>Call</a>}
-                    {dirty && <button className="btn btn-primary btn-sm" disabled={phoneSaving} onClick={() => savePhone(p.address, phoneDraft)}>{phoneSaving ? 'Saving…' : 'Save'}</button>}
                   </div>
+                  <button onClick={() => { setStatus(p.address, 'contacted', ''); setPropDetail(null) }}
+                    style={{ flexShrink: 0, background: 'var(--score-hot)', border: 'none', color: '#fff', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '9px 16px', borderRadius: 9, cursor: 'pointer' }}>Log a call</button>
+                  <button className="btn-icon" onClick={() => setPropDetail(null)} title="Close" style={{ flexShrink: 0 }}>×</button>
                 </div>
 
-                {/* facts grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 18px', marginBottom: 14 }}>
-                  {facts.map(([k, v]) => (
-                    <div key={k} style={{ minWidth: 0 }}>
-                      <div style={lblStyle}>{k}</div>
-                      <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={String(v)}>{v}</div>
+                {/* ── narrative — why call now ── */}
+                {narrative && (
+                  <div style={{ padding: '10px 22px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, background: narrative.tone === 'watch' ? 'var(--status-watch-bg)' : 'var(--accent-soft)', color: narrative.tone === 'watch' ? 'var(--status-watch-text)' : 'var(--accent)' }}>
+                    {narrative.text}
+                  </div>
+                )}
+
+                {/* ── body: 3 columns ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 14, padding: '16px 22px 20px' }}>
+
+                  {/* col 1 · owner & action */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+                    <div style={{ ...cardS, padding: '13px 15px' }}>
+                      <div style={lblStyle}>Owner</div>
+                      <div style={{ ...valStyle, fontSize: 14.5, marginBottom: 11 }}>{titleCase(p.current_owner) || '—'}</div>
+                      <div style={lblStyle}>Phone</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="tel"
+                          value={phoneDraft}
+                          onChange={(e) => setPhoneDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && dirty) savePhone(p.address, phoneDraft) }}
+                          placeholder="Add a phone number…"
+                          style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--text)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 11px', outline: 'none' }}
+                        />
+                        {savedPhone && !dirty && <a href={`tel:${savedPhone}`} className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>Call</a>}
+                        {dirty && <button className="btn btn-primary btn-sm" disabled={phoneSaving} onClick={() => savePhone(p.address, phoneDraft)}>{phoneSaving ? 'Saving…' : 'Save'}</button>}
+                      </div>
+                      {statuses[p.address] && (
+                        <div style={{ marginTop: 11 }}>
+                          <div style={lblStyle}>Last outcome</div>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 999, padding: '3px 10px', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                            {(STATUS_OPTIONS.find(o => o.value === statuses[p.address]) || {}).label || statuses[p.address]}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                    <div style={{ ...cardS, padding: '13px 15px' }}>
+                      <div style={{ ...lblStyle, marginBottom: 9 }}>Log call outcome</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button className="btn btn-primary btn-sm" style={{ textAlign: 'left' }} onClick={() => { setStatus(p.address, 'contacted', ''); setPropDetail(null) }}>✓ Spoke to owner</button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => { setStatus(p.address, 'no_answer', ''); setPropDetail(null) }}>No answer</button>
+                          <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => { setStatus(p.address, 'declined', ''); setPropDetail(null) }}>Not interested</button>
+                        </div>
+                        <button className="btn btn-ghost btn-sm" style={{ textAlign: 'left' }} onClick={() => { setStatus(p.address, 'listed', ''); setPropDetail(null) }}>★ Appraisal booked</button>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                          ⏰ Call back on
+                          <input type="date" min={localIsoDate(null, 1)} value={callbacks[p.address] || ''}
+                            onChange={(e) => { if (e.target.value) { setStatus(p.address, 'pending', e.target.value); setPropDetail(null) } }}
+                            style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 6, padding: '4px 7px', background: 'var(--surface)', color: 'var(--text)' }} />
+                        </label>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
+                    </div>
+                  </div>
 
-                {/* Why this score — the per-property component scores the
-                    backend already computes (0-100 each). Answers "why is
-                    THIS one an 82?" instead of a black-box number. */}
-                {(() => {
-                  const comps = [
-                    ['Hold length', p.hold_score], ['Property type', p.type_score],
-                    ['Owner gain', p.gain_score], ['Yearly growth', p.cagr_score],
-                    ['Street activity', p.freq_score], ['Untapped value', p.prof_score],
-                  ].filter(([, v]) => v != null && !Number.isNaN(Number(v)))
-                  if (!comps.length) return null
-                  return (
-                    <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px 14px', marginBottom: 14 }}>
-                      <div style={{ ...lblStyle, marginBottom: 10 }}>Why this score</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 18px' }}>
-                        {comps.map(([k, v]) => (
-                          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', width: 88, flexShrink: 0 }}>{k}</span>
-                            <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 999, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, Number(v)))}%`, background: 'var(--accent)', borderRadius: 999 }} />
+                  {/* col 2 · story + why this score */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+                    <div style={{ ...cardS, padding: '13px 15px' }}>
+                      <div style={{ ...lblStyle, marginBottom: 10 }}>Property story</div>
+                      <div style={{ position: 'relative', paddingLeft: 19 }}>
+                        <div style={{ position: 'absolute', left: 5, top: 5, bottom: 5, width: 2, background: 'var(--border)' }} />
+                        <div style={{ position: 'relative', paddingBottom: 13 }}>
+                          <span style={{ position: 'absolute', left: -19, top: 3, width: 12, height: 12, borderRadius: '50%', background: 'var(--status-off)', border: '2.5px solid var(--surface)' }} />
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)' }}>{p.owner_purchase_date || 'PURCHASE'}</div>
+                          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}><strong>Purchased</strong>{p.owner_purchase_price ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}> — {money(p.owner_purchase_price)}</span> : null}</div>
+                          {p.holding_years != null && <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.holding_years}-yr hold{p.owner_gain_pct != null ? ` · est. gain +${Math.round(p.owner_gain_pct)}%` : ''}</div>}
+                        </div>
+                        <div style={{ position: 'relative' }}>
+                          <span style={{ position: 'absolute', left: -19, top: 3, width: 12, height: 12, borderRadius: '50%', background: 'var(--accent)', border: '2.5px solid var(--surface)' }} />
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)' }}>TODAY</div>
+                          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}><strong>Scored {Math.round(p.final_score)}</strong> — {p.category === 'HOT' ? 'top bracket for this suburb' : `${(p.category || '').toLowerCase()} bracket`}</div>
+                          {p.sales_count ? <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.sales_count} recent sale{p.sales_count !== 1 ? 's' : ''} in the street</div> : null}
+                        </div>
+                      </div>
+                    </div>
+                    {comps.length > 0 && (
+                      <div style={{ ...cardS, padding: '13px 15px', flex: 1 }}>
+                        <div style={{ ...lblStyle, marginBottom: 10 }}>Why this score</div>
+                        <div style={{ display: 'grid', gap: 7 }}>
+                          {comps.map(([k, v]) => (
+                            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-muted)', width: 92, flexShrink: 0 }}>{k}</span>
+                              <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 999, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.max(0, Math.min(100, Number(v)))}%`, background: 'var(--accent)', borderRadius: 999 }} />
+                              </div>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, color: 'var(--text)', width: 24, textAlign: 'right' }}>{Math.round(Number(v))}</span>
                             </div>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, fontWeight: 600, color: 'var(--text)', width: 24, textAlign: 'right' }}>{Math.round(Number(v))}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* col 3 · map + facts */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+                    <div style={{ ...cardS, overflow: 'hidden', height: 150, flex: 'none' }}>
+                      <DeskMap items={[{ address: p.address, suburb: getSuburb(p) }]} minHeight={150}
+                        colorOf={() => '#386350'} popupOf={(x) => x.address} label={getSuburb(p) || undefined} />
+                    </div>
+                    <div style={{ ...cardS, padding: '13px 15px', flex: 1 }}>
+                      <div style={{ ...lblStyle, marginBottom: 9 }}>Property facts</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={lblStyle}>Bought</div>
+                          <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{money(p.owner_purchase_price)}{p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}</div>
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={lblStyle}>Est. gain</div>
+                          <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{money(p.owner_gain_dollars)}{p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}</div>
+                        </div>
+                        {facts.map(([k, v]) => (
+                          <div key={k} style={{ minWidth: 0 }}>
+                            <div style={lblStyle}>{k}</div>
+                            <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={String(v)}>{v}</div>
                           </div>
                         ))}
                       </div>
                     </div>
-                  )
-                })()}
-
-                {sigChips(p).length > 0 && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-                    {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 9px' }}>{s}</span>)}
-                  </div>
-                )}
-
-                {noteFor(p.address) && (
-                  <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 8, padding: '10px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--status-watch-text)' }}>{noteFor(p.address)}</div>
-                )}
-
-                {/* Call outcomes — one tap logs the result. "Call back on…"
-                    snoozes the row until the chosen date; any other outcome
-                    clears a previous snooze. */}
-                <div style={{ paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ ...lblStyle, marginBottom: 8 }}>Log call outcome</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'contacted', ''); setPropDetail(null) }}>✓ Spoke to owner</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(p.address, 'no_answer', ''); setPropDetail(null) }}>No answer</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(p.address, 'declined', ''); setPropDetail(null) }}>Not interested</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(p.address, 'listed', ''); setPropDetail(null) }}>Appraisal booked</button>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-muted)' }}>
-                      Call back on
-                      <input type="date" min={localIsoDate(null, 1)} value={callbacks[p.address] || ''}
-                        onChange={(e) => { if (e.target.value) { setStatus(p.address, 'pending', e.target.value); setPropDetail(null) } }}
-                        style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 6, padding: '4px 7px', background: 'var(--surface)', color: 'var(--text)' }} />
-                    </label>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
-                    </div>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
                   </div>
                 </div>
+
+                {/* ── footer: note ── */}
+                {noteFor(p.address) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 22px 15px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
+                    <span style={{ ...lblStyle, marginBottom: 0, flexShrink: 0 }}>Note</span>
+                    <div style={{ flex: 1, fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--status-watch-text)', background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 8, padding: '7px 11px' }}>{noteFor(p.address)}</div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>Edit</button>
+                  </div>
+                )}
               </div>
             </div>
           )
