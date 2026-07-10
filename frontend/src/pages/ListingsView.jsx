@@ -56,6 +56,14 @@ export default function ListingsView({
   // outside click), so the operator can add/remove several without
   // reopening it each time.
   const [subPickerOpen, setSubPickerOpen] = useState(false)
+  // Collapsible lateral map — persisted; hiding it gives the table the
+  // full width (Status/Listed/DOM columns fit without horizontal scroll).
+  const [mapOpen, setMapOpen] = useState(() => {
+    try { return localStorage.getItem('listings_map_open') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('listings_map_open', mapOpen ? '1' : '0') } catch { /* ignore */ }
+  }, [mapOpen])
   const subPickerRef = useRef(null)
   useEffect(() => {
     if (!subPickerOpen) return
@@ -347,15 +355,21 @@ export default function ListingsView({
                 {filteredListings.length} results · {scopeCount} suburbs{selectedAgency ? ` · ${selectedAgency}` : ''} · {compact ? 'compact' : 'comfortable'} view
               </div>
             </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setMapOpen(m => !m)} title={mapOpen ? 'Hide the map — more room for columns' : 'Show the map'}
+              style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: mapOpen ? 'var(--accent)' : 'var(--text)', border: `1px solid ${mapOpen ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 8, padding: '7px 13px', background: 'var(--surface)', cursor: 'pointer' }}>
+              {mapOpen ? 'Map ⇥' : '⇤ Map'}
+            </button>
             <button onClick={() => setCompact(c => !c)} title="Toggle density"
               style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 13px', background: 'var(--surface)', cursor: 'pointer' }}>
               {compact ? 'Compact' : 'Comfortable'}
             </button>
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {suburbs.filter(s => checkedSuburbs.has(s.id)).slice(0, 8).map(s => (
               <span key={s.id} onClick={() => toggleCheckSuburb && toggleCheckSuburb(s.id)} title={`Remove ${s.name}`}
-                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid #cdddd5', borderRadius: 999, padding: '6px 12px' }}>
+                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent-soft)', borderRadius: 999, padding: '6px 12px' }}>
                 {s.name} <span style={{ opacity: 0.6 }}>×</span>
               </span>
             ))}
@@ -408,7 +422,7 @@ export default function ListingsView({
 
         {/* split: table | map */}
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <div style={{ width: '58%', minWidth: 0, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ width: mapOpen ? '72%' : '100%', minWidth: 0, borderRight: mapOpen ? '1px solid var(--border)' : 'none', display: 'flex', flexDirection: 'column' }}>
             {/* Full classic table — all columns + editable price/dates +
                 note + external link + delete — styled editorially by the
                 [data-desk] CSS. Horizontal scroll via StickyHScroll keeps
@@ -446,10 +460,14 @@ export default function ListingsView({
             </div>
             <StickyHScroll targetRef={wrapperRef} />
           </div>
-          {/* real map — MapLibre + free OSM tiles, exact per-address pins */}
-          <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-            <DeskMap items={filteredListings} label={`Perth metro · ${filteredListings.length} listings`} />
-          </div>
+          {/* real map — MapLibre + free OSM tiles, exact per-address pins.
+              Collapsible: at laptop widths the map was hiding key columns
+              (Status/Listed/DOM), so the agent can trade it for table room. */}
+          {mapOpen && (
+            <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+              <DeskMap items={filteredListings} label={`Perth metro · ${filteredListings.length} listings`} />
+            </div>
+          )}
         </div>
 
         {detail && <PropertyDetail listing={detail} calcDOM={calcDOM} formatIsoDate={formatIsoDate} onClose={() => setDetail(null)} />}

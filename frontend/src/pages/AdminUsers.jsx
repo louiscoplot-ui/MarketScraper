@@ -8,6 +8,15 @@ import { useState, useEffect, useRef } from 'react'
 import { apiJson, getAccessKey, setAccessKey, readCache, writeCache, BACKEND_DIRECT } from '../lib/api'
 import { Select, Checkbox } from '../components/ui'
 
+// Agent Profile inputs sit outside .admin-form-grid (whose CSS carries the
+// padding/border), so without this they render browser-default and clash
+// with every other field on the page.
+const profileInputStyle = {
+  padding: '8px 11px', border: '1px solid var(--border)', borderRadius: 8,
+  fontSize: 13, fontFamily: 'var(--font-ui)', color: 'var(--text)',
+  background: 'var(--surface)', outline: 'none', width: '100%', boxSizing: 'border-box',
+}
+
 // Self-contained "set / change password" card for the current user.
 // Writes via the existing auth-required POST /api/users/me/set-password
 // (the gate resolves the caller from their access_key — no way to set a
@@ -716,25 +725,28 @@ export default function AdminUsers() {
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
             These details appear on prospecting letters. Empty fields fall back to server env vars.
           </p>
+          {/* These inputs live outside .admin-form-grid, so they'd render
+              browser-default (no padding/border) without this — match the
+              grid inputs' look via a shared inline style. */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input
-              type="text" placeholder="Agency Name"
+              type="text" placeholder="Agency Name" style={profileInputStyle}
               value={profileDraft.agency_name}
               onChange={(e) => setProfileDraft({ ...profileDraft, agency_name: e.target.value })}
             />
             <input
-              type="text" placeholder="Agent Name"
+              type="text" placeholder="Agent Name" style={profileInputStyle}
               value={profileDraft.agent_name}
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_name: e.target.value })}
               required
             />
             <input
-              type="tel" placeholder="Phone"
+              type="tel" placeholder="Phone" style={profileInputStyle}
               value={profileDraft.agent_phone}
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_phone: e.target.value })}
             />
             <input
-              type="email" placeholder="Email"
+              type="email" placeholder="Email" style={profileInputStyle}
               value={profileDraft.agent_email}
               onChange={(e) => setProfileDraft({ ...profileDraft, agent_email: e.target.value })}
             />

@@ -4,7 +4,7 @@
 // No API key, no cost. Pins are coloured by the status grammar; the map
 // fits its bounds as pins resolve. Falls back gracefully: rows that can't
 // be geocoded are simply skipped.
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { geocode } from '../lib/geocode'
@@ -51,6 +51,10 @@ export default function DeskMap({
   const markersRef = useRef([])
   const lastSigRef = useRef(null)
   const runIdRef = useRef(0)
+  // Offline / blocked CDN → the canvas stays blank grey with no
+  // explanation. Track tile errors so we can say "Map unavailable"
+  // instead; a later successful tile load clears it (network came back).
+  const [tilesDown, setTilesDown] = useState(false)
 
   // Init map once.
   useEffect(() => {
@@ -63,6 +67,16 @@ export default function DeskMap({
       attributionControl: true,
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.on('error', (e) => {
+      // MapLibre reports failed tile fetches here; anything else (style
+      // warnings etc.) is ignored so we don't cry wolf.
+      if (e && e.error && /tile|fetch|network|failed/i.test(String(e.error.message || e.error))) {
+        setTilesDown(true)
+      }
+    })
+    map.on('sourcedata', (e) => {
+      if (e.isSourceLoaded) setTilesDown(false)
+    })
     mapRef.current = map
     return () => { try { map.remove() } catch {} ; mapRef.current = null }
   }, [])
@@ -131,6 +145,12 @@ export default function DeskMap({
       {label && (
         <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#9a978f', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px' }}>
           {label}
+        </div>
+      )}
+      {tilesDown && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--surface)', pointerEvents: 'none' }}>
+          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>Map unavailable</div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>Tiles couldn't load — check your connection.</div>
         </div>
       )}
     </div>

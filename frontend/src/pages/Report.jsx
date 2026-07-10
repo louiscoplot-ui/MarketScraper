@@ -166,7 +166,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       { l: 'Avg days on market', v: dm.avg ?? '—', c: 'var(--text)' },
       { l: 'Stale (60+ days)', v: dm.stale_count || 0, c: 'var(--status-alert)' },
     ]
-    const share = (report.market_share || []).slice(0, 9)
+    const share = (report.market_share || []).filter(a => (a.agency || '').toLowerCase() !== 'unknown').slice(0, 9)
     const drops = (report.price_drops || []).slice(0, 12)
     // Real map: geocode each covered suburb to its centroid (free, cached).
     const mapSuburbs = (report.suburbs || []).slice(0, 12).map(x => Array.isArray(x)
@@ -254,6 +254,10 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 popupOf={(x) => `${x.name}${x.total != null ? ` · ${x.total} listing${x.total !== 1 ? 's' : ''}` : ''}`}
               />
             </div>
+            {/* Twin of the left "Price movements" panel — when there are no
+                drops, both would show the same empty line side by side, so
+                this one disappears and the coverage map takes the column. */}
+            {drops.length > 0 && (
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
               <div style={pTitle}>Recent price changes</div>
               <div style={{ overflowY: 'auto' }}>
@@ -263,9 +267,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)' }}>{m.new_price || '—'}</span>
                   </div>
                 ))}
-                {drops.length === 0 && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No recent changes.</div>}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>

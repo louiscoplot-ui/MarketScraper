@@ -203,7 +203,10 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
   // Dashboard customization — enabled widgets (persisted) + the Customize panel.
   const [enabled, setEnabled] = useState(() => {
     try { const raw = localStorage.getItem(DASH_PREF_KEY); if (raw) return new Set(JSON.parse(raw)) } catch { /* ignore */ }
-    return new Set(DASH_WIDGETS.map(w => w.id))
+    // 'hot' (Morning signals) is OFF by default: on a small portfolio it
+    // lists the same addresses as "Contact today" right next to it —
+    // pure duplication. Still one click away in ⚙ Customize.
+    return new Set(DASH_WIDGETS.map(w => w.id).filter(id => id !== 'hot'))
   })
   const [customOpen, setCustomOpen] = useState(false)
   const [leadDetail, setLeadDetail] = useState(null)   // clicked lead → popup
@@ -350,9 +353,15 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     // If the scoped suburb has no row in the report (no listings yet, or
     // report still warming), show ZEROS with an honest tag — never the
     // whole-portfolio totals under a single-suburb header.
+    // While the report hasn't landed yet, show "—" skeletons — a
+    // confident "0 ACTIVE" during load is a lie.
+    const reportReady = !!(report && !report.error)
     let counts = r.summary || {}
     let countsScopeLabel = scopeAll ? `${suburbsList.length} suburbs` : scope
-    if (!scopeAll) {
+    if (!reportReady) {
+      counts = { active: '—', under_offer: '—', sold: '—', withdrawn: '—' }
+      countsScopeLabel = 'loading…'
+    } else if (!scopeAll) {
       const entry = (r.suburbs || []).find(x => Array.isArray(x) && eq(x[0], scope))
       if (entry && entry[1]) {
         counts = entry[1]
@@ -370,7 +379,8 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     const moversAll = r.price_drops || []
     const movers = (scopeAll ? moversAll : moversAll.filter(m => eq(m.suburb, scope))).slice(0, 12)
     const dm = r.dom || {}
-    const share = (r.market_share || []).slice(0, 10)
+    // 'Unknown' agency is scrape noise, not a competitor — drop it.
+    const share = (r.market_share || []).filter(a => (a.agency || '').toLowerCase() !== 'unknown').slice(0, 10)
     const maxShare = Math.max(1, ...share.map(a => a.pct || 0))
     const apDue = (appraisalsList || []).filter(a => (a.status || 'active') === 'active')
       .sort((a, b) => String(a.next_followup || '~').localeCompare(String(b.next_followup || '~'))).slice(0, 20)
@@ -448,7 +458,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 <div style={{ ...card, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   {titleRow('Contact today', leads.length)}
                   {leads.length === 0 ? emptyLine('Nothing to action — the feed fills as the nightly scrapes run.') : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', minHeight: 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', minHeight: 0, paddingBottom: 12, WebkitMaskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)', maskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)' }}>
                       {leads.map((l, i) => (
                         <button key={`${l.view}-${l.address}-${i}`} onClick={() => setLeadDetail(l)}
                           style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', cursor: 'pointer', minWidth: 0 }}>

@@ -710,8 +710,12 @@ export default function RentalView({ selectedNames } = {}) {
       }}>
         <div>
           <h2 style={{
-            margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)',
-            letterSpacing: -0.3,
+            // Desk mode uses the editorial serif headline every other page
+            // has (Prospecting, Pipeline, Report) — Rental was the last
+            // page still wearing the classic bold-sans h2.
+            ...(getDeskMode() === 'desk'
+              ? { margin: '0 0 4px', fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text)' }
+              : { margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)', letterSpacing: -0.3 }),
           }}>
             Rental{(() => {
               // Header reflects the multi-select state:
@@ -730,6 +734,7 @@ export default function RentalView({ selectedNames } = {}) {
           <div style={{
             marginTop: 6, fontSize: 12, color: 'var(--text-muted)',
             display: 'flex', gap: 14, flexWrap: 'wrap',
+            ...(getDeskMode() === 'desk' ? { fontFamily: 'var(--font-mono)' } : {}),
           }}>
             <span><strong style={{ color: 'var(--text)' }}>{counts.avail}</strong> for rent</span>
             <span style={{ color: 'var(--border)' }}>·</span>
