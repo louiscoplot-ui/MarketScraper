@@ -370,11 +370,40 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         countsScopeLabel = `${scope} · no report data yet`
       }
     }
+    // 7-day deltas from the nightly market_snapshots already in the report
+    // payload — per suburb: newest row vs the newest row ≥7 days older,
+    // summed across the scope. No extra fetch, no layout change: each
+    // tile just gains a small ▲/▼ marker.
+    const delta7 = (() => {
+      if (!reportReady) return {}
+      const snaps = (r.snapshots || []).filter(s => scopeAll || eq(s.suburb_name, scope))
+      if (snaps.length === 0) return {}
+      const bySub = {}
+      snaps.forEach(s => { (bySub[s.suburb_id] = bySub[s.suburb_id] || []).push(s) })
+      const sum = { active: 0, under_offer: 0, sold: 0, withdrawn: 0 }
+      let havePast = false
+      Object.values(bySub).forEach(rows => {
+        rows.sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)))
+        const cur = rows[rows.length - 1]
+        const target = new Date(cur.snapshot_date)
+        target.setDate(target.getDate() - 7)
+        const targetIso = target.toISOString().slice(0, 10)
+        let base = null
+        rows.forEach(row => { if (String(row.snapshot_date) <= targetIso) base = row })
+        if (!base || base === cur) return
+        havePast = true
+        sum.active += (cur.active_count || 0) - (base.active_count || 0)
+        sum.under_offer += (cur.under_offer_count || 0) - (base.under_offer_count || 0)
+        sum.sold += (cur.sold_count || 0) - (base.sold_count || 0)
+        sum.withdrawn += (cur.withdrawn_count || 0) - (base.withdrawn_count || 0)
+      })
+      return havePast ? sum : {}
+    })()
     const marketTiles = [
-      { l: 'Active', v: counts.active || 0, c: 'var(--status-good)' },
-      { l: 'Under offer', v: counts.under_offer || 0, c: 'var(--status-watch)' },
-      { l: 'Sold', v: counts.sold || 0, c: 'var(--status-info)' },
-      { l: 'Withdrawn', v: counts.withdrawn || 0, c: 'var(--status-alert)' },
+      { l: 'Active', v: counts.active || 0, c: 'var(--status-good)', d: delta7.active },
+      { l: 'Under offer', v: counts.under_offer || 0, c: 'var(--status-watch)', d: delta7.under_offer },
+      { l: 'Sold', v: counts.sold || 0, c: 'var(--status-info)', d: delta7.sold },
+      { l: 'Withdrawn', v: counts.withdrawn || 0, c: 'var(--status-alert)', d: delta7.withdrawn },
     ]
     const moversAll = r.price_drops || []
     const movers = (scopeAll ? moversAll : moversAll.filter(m => eq(m.suburb, scope))).slice(0, 12)
@@ -512,6 +541,12 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
                           <span style={{ fontFamily: 'var(--font-display)', fontSize: 26, letterSpacing: '-0.02em', lineHeight: 0.9, color: 'var(--text)' }}>{t.v}</span>
                           <span style={{ width: 8, height: 8, borderRadius: 2, background: t.c }} />
+                          {typeof t.d === 'number' && t.d !== 0 && (
+                            <span title={`${t.d > 0 ? '+' : ''}${t.d} vs 7 days ago`}
+                              style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', cursor: 'default' }}>
+                              {t.d > 0 ? `▲${t.d}` : `▼${-t.d}`}<span style={{ color: 'var(--text-faint)' }}> 7d</span>
+                            </span>
+                          )}
                         </div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 7 }}>{t.l}</div>
                       </div>

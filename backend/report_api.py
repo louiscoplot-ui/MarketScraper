@@ -262,7 +262,12 @@ def market_report():
             'reiwa_url': pc.get('reiwa_url'),
         })
 
-    snapshots = get_market_snapshots(suburb_ids=suburb_ids, limit=90)
+    # 90 rows is ~5 days across an 18-suburb portfolio (one row per suburb
+    # per night) — too short for the Dashboard's 7-day deltas. Scale the
+    # window to the scope: 120 nights x suburb count, capped for payload
+    # size (rows are 9 small columns; 2200 rows ≈ a few hundred KB).
+    snap_limit = min(2200, 120 * max(1, len(suburb_ids) if suburb_ids else 20))
+    snapshots = get_market_snapshots(suburb_ids=suburb_ids, limit=snap_limit)
 
     report = {
         'generated_at': datetime.utcnow().isoformat(),
