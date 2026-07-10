@@ -21,8 +21,8 @@ import os
 import secrets
 import logging
 import re
-from datetime import datetime
-from flask import request, jsonify
+from datetime import datetime, timedelta
+from flask import request, jsonify, g
 
 from database import get_db, USE_POSTGRES
 
@@ -58,26 +58,60 @@ def get_current_user():
     key = request.headers.get('X-Access-Key') or request.args.get('access_key')
     if not key:
         return None
+    # Memoize per request: get_current_user is resolved 2-4× per /api/* call
+    # (before_request gate + resolve_request_scope + route). Each used to be
+    # a fresh Neon connection + SELECT + UPDATE + COMMIT. Cache the result on
+    # flask.g so the DB is hit at most once per request.
+    try:
+        if getattr(g, '_cur_user_key', None) == key:
+            return g._cur_user
+    except Exception:
+        pass
+
     conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM users WHERE access_key = ?", (key,)
-    ).fetchone()
-    if row:
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE access_key = ?", (key,)
+        ).fetchone()
+        if row:
+            # Throttle the last_seen write — a bump on EVERY request meant a
+            # write-per-API-call. Only write when the stored value is stale
+            # (>2 min), which is plenty for "recently active" display.
+            try:
+                prev = row['last_seen']
+                stale = True
+                if prev:
+                    try:
+                        stale = (datetime.utcnow() - datetime.fromisoformat(str(prev)[:26])) > timedelta(minutes=2)
+                    except (ValueError, TypeError):
+                        stale = True
+                if stale:
+                    conn.execute(
+                        "UPDATE users SET last_seen = ? WHERE id = ?",
+                        (datetime.utcnow().isoformat(), row['id'])
+                    )
+                    conn.commit()
+            except Exception:
+                pass
+    finally:
+        conn.close()
+
+    if row is None:
         try:
-            conn.execute(
-                "UPDATE users SET last_seen = ? WHERE id = ?",
-                (datetime.utcnow().isoformat(), row['id'])
-            )
-            conn.commit()
+            g._cur_user_key = key
+            g._cur_user = None
         except Exception:
             pass
-    conn.close()
-    if row is None:
         return None
     user = dict(row)
     seed_email = os.environ.get('ADMIN_EMAIL', '').strip().lower()
     if seed_email and (user.get('email') or '').strip().lower() == seed_email:
         user['role'] = 'admin'
+    try:
+        g._cur_user_key = key
+        g._cur_user = user
+    except Exception:
+        pass
     return user
 
 
