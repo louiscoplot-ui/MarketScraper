@@ -218,6 +218,11 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
   })
   const [customOpen, setCustomOpen] = useState(false)
   const [leadDetail, setLeadDetail] = useState(null)   // clicked lead → popup
+  // Market-state comparison window: 'week' (7d) or 'month' (30d). Persisted.
+  const [statePeriod, setStatePeriod] = useState(() => {
+    try { return localStorage.getItem('dash_market_period') === 'month' ? 'month' : 'week' } catch { return 'week' }
+  })
+  const setPeriod = (p) => { setStatePeriod(p); try { localStorage.setItem('dash_market_period', p) } catch { /* ignore */ } }
   const toggleWidget = (id) => setEnabled(prev => {
     const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id)
     try { localStorage.setItem(DASH_PREF_KEY, JSON.stringify([...n])) } catch { /* ignore */ }
@@ -378,23 +383,25 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         countsScopeLabel = `${scope} · no report data yet`
       }
     }
-    // 7-day deltas from the nightly market_snapshots already in the report
-    // payload — per suburb: newest row vs the newest row ≥7 days older,
-    // summed across the scope. No extra fetch, no layout change: each
-    // tile just gains a small ▲/▼ marker.
-    const delta7 = (() => {
+    // Deltas from the nightly market_snapshots already in the report
+    // payload — per suburb: newest row vs the newest row ≥N days older,
+    // summed across the scope. `days` = 7 (week) or 30 (month). No extra
+    // fetch. Sold is intentionally excluded from the tiles: the scrape
+    // keeps a rolling ~200 recent sales per suburb, so its count is a
+    // fixed backlog, not a market movement — a delta there is meaningless.
+    const computeDelta = (days) => {
       if (!reportReady) return {}
       const snaps = (r.snapshots || []).filter(s => scopeAll || eq(s.suburb_name, scope))
       if (snaps.length === 0) return {}
       const bySub = {}
       snaps.forEach(s => { (bySub[s.suburb_id] = bySub[s.suburb_id] || []).push(s) })
-      const sum = { active: 0, under_offer: 0, sold: 0, withdrawn: 0 }
+      const sum = { active: 0, under_offer: 0, withdrawn: 0 }
       let havePast = false
       Object.values(bySub).forEach(rows => {
         rows.sort((a, b) => String(a.snapshot_date).localeCompare(String(b.snapshot_date)))
         const cur = rows[rows.length - 1]
         const target = new Date(cur.snapshot_date)
-        target.setDate(target.getDate() - 7)
+        target.setDate(target.getDate() - days)
         const targetIso = target.toISOString().slice(0, 10)
         let base = null
         rows.forEach(row => { if (String(row.snapshot_date) <= targetIso) base = row })
@@ -402,16 +409,17 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         havePast = true
         sum.active += (cur.active_count || 0) - (base.active_count || 0)
         sum.under_offer += (cur.under_offer_count || 0) - (base.under_offer_count || 0)
-        sum.sold += (cur.sold_count || 0) - (base.sold_count || 0)
         sum.withdrawn += (cur.withdrawn_count || 0) - (base.withdrawn_count || 0)
       })
       return havePast ? sum : {}
-    })()
+    }
+    const delta = computeDelta(statePeriod === 'month' ? 30 : 7)
+    const periodWord = statePeriod === 'month' ? 'vs last month' : 'vs last week'
     const marketTiles = [
-      { l: 'Active', v: counts.active || 0, c: 'var(--status-good)', ct: 'var(--status-good-text)', d: delta7.active },
-      { l: 'Under offer', v: counts.under_offer || 0, c: 'var(--status-watch)', ct: 'var(--status-watch-text)', d: delta7.under_offer },
-      { l: 'Sold', v: counts.sold || 0, c: 'var(--status-info)', ct: 'var(--status-info-text)', d: delta7.sold },
-      { l: 'Withdrawn', v: counts.withdrawn || 0, c: 'var(--status-alert)', ct: 'var(--status-alert-text)', d: delta7.withdrawn },
+      { l: 'Active', v: counts.active || 0, c: 'var(--status-good)', ct: 'var(--status-good-text)', d: delta.active },
+      { l: 'Under offer', v: counts.under_offer || 0, c: 'var(--status-watch)', ct: 'var(--status-watch-text)', d: delta.under_offer },
+      { l: 'Sold', v: counts.sold || 0, c: 'var(--status-info)', ct: 'var(--status-info-text)', skip: true },
+      { l: 'Withdrawn', v: counts.withdrawn || 0, c: 'var(--status-alert)', ct: 'var(--status-alert-text)', d: delta.withdrawn },
     ]
     const moversAll = r.price_drops || []
     const movers = (scopeAll ? moversAll : moversAll.filter(m => eq(m.suburb, scope))).slice(0, 12)
@@ -542,7 +550,21 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
             <div style={colStyle}>
               {W('market', (
                 <div style={card}>
-                  {titleRow('Market state', countsScopeLabel)}
+                  {/* header with a Week / Month segmented toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+                    <div style={{ ...panelTitle, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      Market state <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--text-faint)' }}>· {countsScopeLabel}</span>
+                    </div>
+                    <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
+                      {[['week', 'Week'], ['month', 'Month']].map(([k, lab]) => {
+                        const on = statePeriod === k
+                        return (
+                          <button key={k} onClick={() => setPeriod(k)}
+                            style={{ fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, padding: '4px 11px', border: 'none', cursor: 'pointer', background: on ? 'var(--accent-soft)' : 'var(--surface)', color: on ? 'var(--accent)' : 'var(--text-muted)' }}>{lab}</button>
+                        )
+                      })}
+                    </div>
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
                     {marketTiles.map(t => {
                       const hasD = typeof t.d === 'number'
@@ -556,15 +578,17 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                         </div>
                         {/* the count */}
                         <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, letterSpacing: '-0.02em', lineHeight: 1.05, color: 'var(--text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{t.v}</div>
-                        {/* explicit week-over-week change — arrow + count + plain words */}
-                        {hasD ? (
+                        {/* change vs the selected window — arrow + count + plain words */}
+                        {t.skip ? (
+                          <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>latest sales on file</div>
+                        ) : hasD ? (
                           t.d === 0 ? (
-                            <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>No change this week</div>
+                            <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>No change {periodWord.replace('vs ', '')}</div>
                           ) : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5 }}>
                               <span aria-hidden style={{ color: t.ct, fontWeight: 700, fontSize: 12, lineHeight: 1 }}>{up ? '↑' : '↓'}</span>
                               <span style={{ color: t.ct, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{Math.abs(t.d)}</span>
-                              <span style={{ color: 'var(--text-faint)' }}>vs last week</span>
+                              <span style={{ color: 'var(--text-faint)' }}>{periodWord}</span>
                             </div>
                           )
                         ) : (
