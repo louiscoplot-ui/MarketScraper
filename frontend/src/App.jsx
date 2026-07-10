@@ -1081,7 +1081,7 @@ function App() {
               selectedStatuses={selectedStatuses} toggleStatus={toggleStatus} statusColors={statusColors}
               selectedAgency={selectedAgency} setSelectedAgency={setSelectedAgency} uniqueAgencies={uniqueAgencies}
               selectedAgent={selectedAgent} setSelectedAgent={setSelectedAgent} uniqueAgents={uniqueAgents}
-              filteredListings={filteredListings} suburbs={suburbs} checkedSuburbs={checkedSuburbs}
+              filteredListings={filteredListings} allListings={listings} suburbs={suburbs} checkedSuburbs={checkedSuburbs}
               toggleCheckSuburb={toggleCheckSuburb} selectAllCheck={selectAllCheck} deselectAllCheck={deselectAllCheck}
               sortField={sortField} sortDir={sortDir} toggleSort={toggleSort}
               calcDOM={calcDOM} formatIsoDate={formatIsoDate}

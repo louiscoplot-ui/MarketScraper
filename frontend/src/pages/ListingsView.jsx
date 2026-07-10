@@ -35,7 +35,7 @@ export default function ListingsView({
   selectedStatuses, toggleStatus, statusColors,
   selectedAgency, setSelectedAgency, uniqueAgencies,
   selectedAgent, setSelectedAgent, uniqueAgents,
-  filteredListings, suburbs, checkedSuburbs,
+  filteredListings, allListings, suburbs, checkedSuburbs,
   toggleCheckSuburb, selectAllCheck, deselectAllCheck,
   sortField, sortDir, toggleSort,
   calcDOM, formatIsoDate, deleteListing, updateListing, mirrorListing,
@@ -465,12 +465,13 @@ export default function ListingsView({
               (Status/Listed/DOM), so the agent can trade it for table room. */}
           {mapOpen && (
             <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-              <DeskMap items={filteredListings} label={`Perth metro · ${filteredListings.length} listings`} />
+              <DeskMap items={filteredListings} label={`Perth metro · ${filteredListings.length} listings`}
+                domOf={(l) => calcDOM(l)} onSelect={(l) => setDetail(l)} />
             </div>
           )}
         </div>
 
-        {detail && <PropertyDetail listing={detail} calcDOM={calcDOM} formatIsoDate={formatIsoDate} onClose={() => setDetail(null)} />}
+        {detail && <PropertyDetail listing={detail} listings={allListings || filteredListings} calcDOM={calcDOM} formatIsoDate={formatIsoDate} onClose={() => setDetail(null)} />}
 
         {noteEditing && (
           <div className="note-modal-overlay" onClick={closeNote}>
@@ -669,6 +670,7 @@ export default function ListingsView({
       {detail && (
         <PropertyDetail
           listing={detail}
+          listings={allListings || filteredListings}
           calcDOM={calcDOM}
           formatIsoDate={formatIsoDate}
           onClose={() => setDetail(null)}

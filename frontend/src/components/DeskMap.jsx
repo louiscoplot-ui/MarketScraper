@@ -44,7 +44,13 @@ export default function DeskMap({
   statusOf = (i) => i.status,
   colorOf,
   popupOf,
+  // Rich pin cards (used when popupOf is not given): price + facts line,
+  // and an optional click-through to the property dossier.
+  priceOf = (i) => i.price_text || i.sold_price || i.price || i.rent || i.original_price || '',
+  domOf = (i) => (i.days_on_market ?? i.dom ?? null),
+  onSelect,
   max = 250,
+  minHeight = 220,
 }) {
   const elRef = useRef(null)
   const mapRef = useRef(null)
@@ -107,22 +113,113 @@ export default function DeskMap({
     const list = list0
     const bounds = new maplibregl.LngLatBounds()
     let placed = 0
+    // Listings that geocode to the SAME point (units in one building,
+    // strata blocks) share one marker: the dot becomes a count badge and
+    // the card lists every unit. Key = coords to ~1m precision.
+    const groups = new Map()
+
+    const colorFor = (it) => (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
+
+    // Rich pin card — address + facts line + serif price per item; rows
+    // click through to the dossier when the parent wires onSelect.
+    const buildCard = (its) => {
+      const wrap = document.createElement('div')
+      wrap.style.cssText = 'font-family:var(--font-ui);min-width:220px;max-width:300px;max-height:240px;overflow-y:auto'
+      if (its.length > 1) {
+        const head = document.createElement('div')
+        head.style.cssText = 'font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-faint);padding:2px 4px 7px;border-bottom:1px solid var(--border);margin-bottom:2px'
+        head.textContent = `${its.length} listings at this point`
+        wrap.appendChild(head)
+      }
+      its.forEach((it, i) => {
+        const row = document.createElement('div')
+        row.style.cssText = `display:flex;align-items:center;gap:10px;padding:7px 4px;${i < its.length - 1 ? 'border-bottom:1px solid var(--border);' : ''}${onSelect ? 'cursor:pointer;border-radius:6px;' : ''}`
+        const left = document.createElement('div')
+        left.style.cssText = 'min-width:0;flex:1'
+        const addr = document.createElement('div')
+        addr.style.cssText = 'font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+        addr.textContent = addressOf(it) || '—'
+        const dom = domOf(it)
+        const facts = [
+          suburbOf(it),
+          it.bedrooms != null ? `${it.bedrooms} bd` : (it.beds != null ? `${it.beds} bd` : null),
+          it.land_size || null,
+        ].filter(Boolean).join(' · ')
+        const sub = document.createElement('div')
+        sub.style.cssText = 'font-family:var(--font-mono);font-size:10px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis'
+        sub.innerHTML = ''
+        const dot = document.createElement('span')
+        dot.style.cssText = `display:inline-block;width:7px;height:7px;border-radius:50%;background:${colorFor(it)};margin-right:5px;vertical-align:0`
+        sub.appendChild(dot)
+        sub.appendChild(document.createTextNode(facts))
+        if (dom != null) {
+          const d = document.createElement('span')
+          d.style.cssText = `font-weight:600;color:${dom >= 60 ? 'var(--status-alert-text)' : 'var(--text-muted)'}`
+          d.textContent = `${facts ? ' · ' : ''}${dom} DOM`
+          sub.appendChild(d)
+        }
+        left.appendChild(addr); left.appendChild(sub)
+        if (onSelect) {
+          const open = document.createElement('div')
+          open.style.cssText = 'font-size:10.5px;font-weight:600;color:var(--accent);margin-top:1px'
+          open.textContent = 'Open dossier →'
+          left.appendChild(open)
+        }
+        row.appendChild(left)
+        const price = String(priceOf(it) || '').trim()
+        if (price) {
+          const p = document.createElement('span')
+          p.style.cssText = "flex:none;font-family:var(--font-display),Georgia,serif;font-size:15px;color:var(--text)"
+          p.textContent = price
+          row.appendChild(p)
+        }
+        if (onSelect) {
+          row.addEventListener('mouseenter', () => { row.style.background = 'var(--surface-hover)' })
+          row.addEventListener('mouseleave', () => { row.style.background = 'transparent' })
+          row.addEventListener('click', () => onSelect(it))
+        }
+        wrap.appendChild(row)
+      })
+      return wrap
+    }
+
+    const renderGroup = (g) => {
+      const its = g.items
+      if (its.length === 1) {
+        g.el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${colorFor(its[0])};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.35);cursor:pointer`
+        g.el.textContent = ''
+      } else {
+        // Count badge — several properties share this exact point.
+        g.el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#386350;border:2.5px solid #fff;box-shadow:0 1px 6px rgba(15,23,42,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--font-mono),monospace;font-size:10px;font-weight:700'
+        g.el.textContent = String(its.length)
+      }
+      if (popupOf) {
+        g.popup.setText(its.map(popupOf).join(' · '))
+      } else {
+        g.popup.setDOMContent(buildCard(its))
+      }
+    }
 
     const place = (it, c) => {
       if (cancelled() || !c) return
-      const el = document.createElement('div')
-      const color = (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
-      el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${color};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.35);cursor:pointer`
-      const popupText = popupOf ? popupOf(it) : `${addressOf(it)}${suburbOf(it) ? ' · ' + suburbOf(it) : ''}`
-      const popup = new maplibregl.Popup({ offset: 13, closeButton: false }).setText(popupText)
-      const mk = new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).setPopup(popup).addTo(map)
-      markersRef.current.push(mk)
-      bounds.extend([c.lng, c.lat])
-      placed++
-      // Re-fit as pins land (debounced by count) so the view tracks results.
-      if (placed === 4 || (placed > 4 && placed % 12 === 0)) {
-        try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {}
+      const key = `${c.lng.toFixed(5)},${c.lat.toFixed(5)}`
+      let g = groups.get(key)
+      if (!g) {
+        const el = document.createElement('div')
+        const popup = new maplibregl.Popup({ offset: 15, closeButton: false, maxWidth: '320px' })
+        const mk = new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).setPopup(popup).addTo(map)
+        g = { items: [], el, popup }
+        groups.set(key, g)
+        markersRef.current.push(mk)
+        bounds.extend([c.lng, c.lat])
+        placed++
+        // Re-fit as pins land (debounced by count) so the view tracks results.
+        if (placed === 4 || (placed > 4 && placed % 12 === 0)) {
+          try { map.fitBounds(bounds, { padding: 48, maxZoom: 15, duration: 500 }) } catch {}
+        }
       }
+      g.items.push(it)
+      renderGroup(g)
     }
 
     // Fire every lookup at once — the geocoder's own worker pool throttles
@@ -140,7 +237,7 @@ export default function DeskMap({
   }, [items, max])
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 220 }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight }}>
       <div ref={elRef} style={{ position: 'absolute', inset: 0 }} />
       {label && (
         <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 1, fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.12em', textTransform: 'uppercase', color: '#9a978f', background: 'rgba(255,255,255,.82)', border: '1px solid var(--border)', borderRadius: 6, padding: '5px 10px' }}>
