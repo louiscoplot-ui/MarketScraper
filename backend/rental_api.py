@@ -493,9 +493,6 @@ def register_rental_routes(app):
             return jsonify({'error': 'Unauthenticated — provide X-Access-Key'}), 401
         if scope is False:
             return jsonify({'error': 'Rental access not granted'}), 403
-        # Only an admin may auto-create a rental suburb from a sheet that
-        # isn't set up yet — a non-admin must never mint global suburbs.
-        is_admin = (user.get('role') or '').lower() == 'admin'
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded. Use multipart field "file".'}), 400
         f = request.files['file']
@@ -534,33 +531,14 @@ def register_rental_routes(app):
             'date_leased', 'url',
         )
 
-        VALID_STATUSES = ('new', 'active', 'leased')
-
         inserted = 0
         enriched = 0
         skipped = 0
         suburbs_seen = []
         skipped_suburbs = []   # sheets for suburbs not tracked / out of scope
-        added_suburbs = []     # suburbs auto-created this import (admin only)
         sheet_errors = []      # sheets that errored — kept non-fatal
         conn = get_db()
         try:
-            # Self-healing cleanup: purge garbage rows a previous, unfiltered
-            # import ingested from the RP Data export — agency sub-total rows
-            # (status = an agency name) and "Total, <suburb>" summary rows.
-            # Bounded to the known garbage shapes; real listings always carry
-            # New/Active/Leased and a street address.
-            try:
-                conn.execute(
-                    "DELETE FROM rental_listings WHERE "
-                    "(status IS NOT NULL AND TRIM(status) <> '' "
-                    " AND LOWER(TRIM(status)) NOT IN ('new','active','leased')) "
-                    "OR LOWER(address) LIKE 'total,%' OR LOWER(address) LIKE 'total %' "
-                    "OR LOWER(address) LIKE 'subtotal%'"
-                )
-                conn.commit()
-            except Exception:
-                conn.rollback()
             # Single source of truth for "a suburb this caller may import
             # into" = the active rental_suburbs allowlist, already filtered
             # to the caller's scope by _allowed_rental_suburb_rows. A sheet
@@ -577,38 +555,12 @@ def register_rental_routes(app):
                 # Non-data sheets (SUMMARY, blank names) — ignore quietly.
                 if not sname or sname.upper() == 'SUMMARY':
                     continue
-                # Suburb not set up in SuburbDesk. Admin → auto-create the
-                # rental suburb (active) so the sheet imports and the suburb
-                # appears everywhere immediately; non-admin → skip (must not
-                # mint global suburbs). This is what lets a weekly RP Data
-                # export carrying 6-7 extra suburbs onboard them hands-free.
+                # Out-of-scope / not-in-SuburbDesk suburb → skip the whole
+                # sheet cleanly and record it for the toast. Never fatal,
+                # never creates a suburb.
                 if sname.lower() not in allowed_names:
-                    if is_admin:
-                        try:
-                            existing_sub = conn.execute(
-                                "SELECT id, active FROM rental_suburbs WHERE LOWER(name) = LOWER(?)",
-                                (sname,)
-                            ).fetchone()
-                            if existing_sub is None:
-                                conn.execute(
-                                    "INSERT INTO rental_suburbs (name, active) VALUES (?, 1)",
-                                    (sname,)
-                                )
-                            elif not dict(existing_sub).get('active'):
-                                conn.execute(
-                                    "UPDATE rental_suburbs SET active = 1 WHERE id = ?",
-                                    (dict(existing_sub)['id'],)
-                                )
-                            conn.commit()
-                            allowed_names.add(sname.lower())
-                            added_suburbs.append(sname)
-                        except Exception as e:
-                            conn.rollback()
-                            sheet_errors.append(f"{sname}: could not create ({e})")
-                            continue
-                    else:
-                        skipped_suburbs.append(sname)
-                        continue
+                    skipped_suburbs.append(sname)
+                    continue
 
                 # Each in-scope sheet is its own unit of work: commit on
                 # success, roll back + continue on any error, so one bad
@@ -644,21 +596,6 @@ def register_rental_routes(app):
                         addr = cell('address')
                         sub = cell('suburb') or sname
                         if not addr or not sub:
-                            skipped += 1
-                            continue
-                        # Reject NON-LISTING rows the RP Data export mixes in:
-                        #   • agency sub-total rows — status holds an agency
-                        #     name (not New/Active/Leased)
-                        #   • "Total, <suburb>" / "Subtotal" summary rows
-                        # These used to be ingested (any non-empty address
-                        # passed) and stuck forever (merge-only import),
-                        # producing the garbage rows in the rental table.
-                        st = cell('status').strip().lower()
-                        if st and st not in VALID_STATUSES:
-                            skipped += 1
-                            continue
-                        al = addr.lower()
-                        if al.startswith('total,') or al.startswith('total ') or al.startswith('subtotal'):
                             skipped += 1
                             continue
                         # Belt-and-braces: a stray row carrying a different,
@@ -815,12 +752,6 @@ def register_rental_routes(app):
         if inserted:
             parts.append(f"{inserted} new listing{'' if inserted == 1 else 's'} added")
         summary = ' · '.join(parts) if parts else 'No new owner details to add'
-        if added_suburbs:
-            shown_a = ', '.join(added_suburbs[:6])
-            more_a = f" +{len(added_suburbs) - 6} more" if len(added_suburbs) > 6 else ''
-            na = len(added_suburbs)
-            summary += (f". {na} new suburb{'' if na == 1 else 's'} added to "
-                        f"SuburbDesk ({shown_a}{more_a}).")
         if skipped_suburbs:
             shown = ', '.join(skipped_suburbs[:6])
             more = f" +{len(skipped_suburbs) - 6} more" if len(skipped_suburbs) > 6 else ''
@@ -834,7 +765,6 @@ def register_rental_routes(app):
             'skipped': skipped,
             'suburbs': suburbs_seen,
             'skipped_suburbs': skipped_suburbs,
-            'added_suburbs': added_suburbs,
             'sheet_errors': sheet_errors,
             'summary': summary,
         })
