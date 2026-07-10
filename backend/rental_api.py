@@ -593,8 +593,27 @@ def register_rental_routes(app):
                             v = row[idx]
                             return '' if v is None else str(v).strip()
 
+                        # Each suburb sheet is: [header][listings][blank row]
+                        # [agency/agent recap table]. STOP at the first fully
+                        # blank separator row — everything after it is the
+                        # recap (agency names land in Status, counts in
+                        # Address), the garbage a plain `continue` ingested.
+                        # NOT keyed on empty address: some real listings have
+                        # a withheld street address but still carry Status +
+                        # Suburb + price, so they are NOT blank.
+                        if all(c is None or str(c).strip() == '' for c in row):
+                            break
+                        # Belt-and-braces: the recap header ("Agency | Active |
+                        # New | Leased | Total | …") if a blank row is missing.
+                        if cell('status').strip().lower() == 'agency':
+                            break
+
                         addr = cell('address')
                         sub = cell('suburb') or sname
+                        # An address-withheld row can't be keyed uniquely on
+                        # (address, suburb) — skip it (unchanged behaviour),
+                        # but only AFTER the blank/recap breaks above so the
+                        # recap can never be reached.
                         if not addr or not sub:
                             skipped += 1
                             continue
