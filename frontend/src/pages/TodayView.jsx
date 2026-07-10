@@ -408,10 +408,10 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
       return havePast ? sum : {}
     })()
     const marketTiles = [
-      { l: 'Active', v: counts.active || 0, c: 'var(--status-good)', d: delta7.active },
-      { l: 'Under offer', v: counts.under_offer || 0, c: 'var(--status-watch)', d: delta7.under_offer },
-      { l: 'Sold', v: counts.sold || 0, c: 'var(--status-info)', d: delta7.sold },
-      { l: 'Withdrawn', v: counts.withdrawn || 0, c: 'var(--status-alert)', d: delta7.withdrawn },
+      { l: 'Active', v: counts.active || 0, c: 'var(--status-good)', ct: 'var(--status-good-text)', d: delta7.active },
+      { l: 'Under offer', v: counts.under_offer || 0, c: 'var(--status-watch)', ct: 'var(--status-watch-text)', d: delta7.under_offer },
+      { l: 'Sold', v: counts.sold || 0, c: 'var(--status-info)', ct: 'var(--status-info-text)', d: delta7.sold },
+      { l: 'Withdrawn', v: counts.withdrawn || 0, c: 'var(--status-alert)', ct: 'var(--status-alert-text)', d: delta7.withdrawn },
     ]
     const moversAll = r.price_drops || []
     const movers = (scopeAll ? moversAll : moversAll.filter(m => eq(m.suburb, scope))).slice(0, 12)
@@ -544,21 +544,34 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 <div style={card}>
                   {titleRow('Market state', countsScopeLabel)}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
-                    {marketTiles.map(t => (
-                      <div key={t.l} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 11, padding: '12px 13px' }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                          <span style={{ fontFamily: 'var(--font-display)', fontSize: 26, letterSpacing: '-0.02em', lineHeight: 0.9, color: 'var(--text)' }}>{t.v}</span>
-                          <span style={{ width: 8, height: 8, borderRadius: 2, background: t.c }} />
-                          {typeof t.d === 'number' && t.d !== 0 && (
-                            <span title={`${t.d > 0 ? '+' : ''}${t.d} vs 7 days ago`}
-                              style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', cursor: 'default' }}>
-                              {t.d > 0 ? `▲${t.d}` : `▼${-t.d}`}<span style={{ color: 'var(--text-faint)' }}> 7d</span>
-                            </span>
-                          )}
+                    {marketTiles.map(t => {
+                      const hasD = typeof t.d === 'number'
+                      const up = (t.d || 0) > 0
+                      return (
+                      <div key={t.l} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '13px 14px' }}>
+                        {/* label + status dot on top — reads before the number */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: t.c, flexShrink: 0 }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{t.l}</span>
                         </div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: 7 }}>{t.l}</div>
+                        {/* the count */}
+                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, letterSpacing: '-0.02em', lineHeight: 1.05, color: 'var(--text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{t.v}</div>
+                        {/* explicit week-over-week change — arrow + count + plain words */}
+                        {hasD ? (
+                          t.d === 0 ? (
+                            <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>No change this week</div>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5 }}>
+                              <span aria-hidden style={{ color: t.ct, fontWeight: 700, fontSize: 12, lineHeight: 1 }}>{up ? '↑' : '↓'}</span>
+                              <span style={{ color: t.ct, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{Math.abs(t.d)}</span>
+                              <span style={{ color: 'var(--text-faint)' }}>vs last week</span>
+                            </div>
+                          )
+                        ) : (
+                          reportReady && <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>Trend building…</div>
+                        )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               ))}
