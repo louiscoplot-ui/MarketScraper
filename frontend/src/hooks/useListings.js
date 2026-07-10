@@ -24,16 +24,26 @@ function realDate(l) {
 }
 
 
-export function calcDOM(listing) {
-  const dateStr = listing.listing_date
+// Parse a date that may be DD/MM/YYYY (REIWA) or ISO — used for BOTH ends
+// of the DOM window so sold_date/withdrawn_date aren't misparsed by a raw
+// `new Date()` (which reads DD/MM/YYYY as MM/DD, swapping day and month).
+function parseListingDate(dateStr) {
   if (!dateStr) return null
-  let start
-  const ddmm = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (ddmm) start = new Date(parseInt(ddmm[3]), parseInt(ddmm[2]) - 1, parseInt(ddmm[1]))
-  else start = new Date(dateStr)
-  if (isNaN(start.getTime())) return null
-  const end = listing.status === 'sold' && listing.sold_date
-    ? new Date(listing.sold_date) : new Date()
+  const ddmm = String(dateStr).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  const d = ddmm
+    ? new Date(parseInt(ddmm[3]), parseInt(ddmm[2]) - 1, parseInt(ddmm[1]))
+    : new Date(dateStr)
+  return isNaN(d.getTime()) ? null : d
+}
+
+export function calcDOM(listing) {
+  const start = parseListingDate(listing.listing_date)
+  if (!start) return null
+  // Freeze DOM at the exit date for finished campaigns — a sold OR
+  // withdrawn listing's DOM must stop growing, not keep counting to today.
+  let end = new Date()
+  if (listing.status === 'sold' && listing.sold_date) end = parseListingDate(listing.sold_date) || end
+  else if (listing.status === 'withdrawn' && listing.withdrawn_date) end = parseListingDate(listing.withdrawn_date) || end
   return Math.max(0, Math.floor((end - start) / (1000 * 60 * 60 * 24)))
 }
 

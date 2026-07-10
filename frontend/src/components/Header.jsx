@@ -6,6 +6,7 @@
 
 import { useState } from 'react'
 import { getTheme, toggleTheme } from '../lib/themeFlag'
+import { BACKEND_DIRECT } from '../lib/api'
 
 // 4-block grid mark — same source as brand/logo.svg, inlined so the
 // header doesn't need a network round-trip to render.
@@ -130,7 +131,9 @@ export default function Header({
     if (selectedAgency) params.set('agency', selectedAgency)
     setIsExporting(true)
     try {
-      const resp = await fetch(`/api/listings/export?${params.toString()}`)
+      // Direct to Render — the first export of the day builds a cold
+      // lru_cache (~30s) and would 504 through Vercel's 25s edge proxy.
+      const resp = await fetch(`${BACKEND_DIRECT}/api/listings/export?${params.toString()}`)
       if (!resp.ok) throw new Error(await resp.text())
       const blob = await resp.blob()
       const url = URL.createObjectURL(blob)
