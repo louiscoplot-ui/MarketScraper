@@ -300,13 +300,25 @@ def get_suburbs(allowed_ids=None):
     suburbs). An empty list returns no rows — the user has nothing
     assigned yet."""
     conn = get_db()
+    # One grouped scan of listings joined to suburbs, instead of 4 correlated
+    # COUNT subqueries PER suburb (60 counts for 15 suburbs) on the sidebar's
+    # mount fetch. Same output columns, far fewer passes over listings.
     base = (
         "SELECT s.*, "
-        "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'active') as active_count, "
-        "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'under_offer') as under_offer_count, "
-        "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'sold') as sold_count, "
-        "(SELECT COUNT(*) FROM listings WHERE suburb_id = s.id AND status = 'withdrawn') as withdrawn_count "
-        "FROM suburbs s WHERE s.active = 1"
+        "COALESCE(c.active_count, 0) as active_count, "
+        "COALESCE(c.under_offer_count, 0) as under_offer_count, "
+        "COALESCE(c.sold_count, 0) as sold_count, "
+        "COALESCE(c.withdrawn_count, 0) as withdrawn_count "
+        "FROM suburbs s "
+        "LEFT JOIN ("
+        "  SELECT suburb_id, "
+        "    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_count, "
+        "    SUM(CASE WHEN status = 'under_offer' THEN 1 ELSE 0 END) as under_offer_count, "
+        "    SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold_count, "
+        "    SUM(CASE WHEN status = 'withdrawn' THEN 1 ELSE 0 END) as withdrawn_count "
+        "  FROM listings GROUP BY suburb_id"
+        ") c ON c.suburb_id = s.id "
+        "WHERE s.active = 1"
     )
     params = []
     if allowed_ids is not None:
@@ -350,7 +362,15 @@ def get_listings(suburb_id=None, suburb_ids=None, status=None, statuses=None):
     elif status:
         query += " AND l.status = ?"
         params.append(status)
-    query += " ORDER BY l.listing_date DESC, l.last_seen DESC, l.address ASC"
+    # listing_date is TEXT in DD/MM/YYYY — a plain DESC sorts it
+    # lexically (31/01/2020 before 01/12/2025), so the "newest first"
+    # order was wrong. Reformat zero-padded DD/MM/YYYY to YYYYMMDD for the
+    # sort; anything else falls back to last_seen (a reliable ISO stamp).
+    query += (
+        " ORDER BY CASE WHEN l.listing_date LIKE '__/__/____' "
+        "THEN SUBSTR(l.listing_date,7,4)||SUBSTR(l.listing_date,4,2)||SUBSTR(l.listing_date,1,2) "
+        "ELSE '' END DESC, l.last_seen DESC, l.address ASC"
+    )
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
