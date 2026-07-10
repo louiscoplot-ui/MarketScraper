@@ -10,9 +10,29 @@
 // under [data-desk="on"] and never leak into classic.
 
 const MODE_KEY = 'sd_desk_mode'   // 'desk' | 'classic'
-const TONE_KEY = 'sd_desk_tone'   // one of DESK_TONES
+const TONE_KEY = 'sd_desk_tone'   // one of DESK_TONES, or 'custom'
+const CUSTOM_KEY = 'sd_desk_custom_color'  // '#rrggbb' picked by the operator
 
 export const DESK_TONES = ['ink', 'forest', 'slate', 'bone']
+
+// 'custom' is a valid tone value on top of the 4 presets: the rail
+// derives a full palette from the stored colour at render time
+// (Rail.jsx paletteFromColor), guaranteeing WCAG AA text contrast on
+// any background the operator picks.
+export const DEFAULT_CUSTOM_COLOR = '#123322'
+
+export function getDeskCustomColor() {
+  try {
+    const v = localStorage.getItem(CUSTOM_KEY)
+    return /^#[0-9a-fA-F]{6}$/.test(v || '') ? v : DEFAULT_CUSTOM_COLOR
+  } catch { return DEFAULT_CUSTOM_COLOR }
+}
+
+export function setDeskCustomColor(hex) {
+  try {
+    if (/^#[0-9a-fA-F]{6}$/.test(hex || '')) localStorage.setItem(CUSTOM_KEY, hex)
+  } catch {}
+}
 
 // Vercel PREVIEW deployments (branch / per-commit URLs) — NOT the prod
 // alias market-scraper.vercel.app, NOT suburbdesk.com, NOT localhost.
@@ -48,12 +68,13 @@ export function toggleDeskMode() {
 export function getDeskTone() {
   try {
     const t = localStorage.getItem(TONE_KEY)
-    return DESK_TONES.includes(t) ? t : 'ink'
+    return (DESK_TONES.includes(t) || t === 'custom') ? t : 'ink'
   } catch { return 'ink' }
 }
 
 export function setDeskTone(t) {
-  try { localStorage.setItem(TONE_KEY, DESK_TONES.includes(t) ? t : 'ink') } catch {}
+  const valid = DESK_TONES.includes(t) || t === 'custom'
+  try { localStorage.setItem(TONE_KEY, valid ? t : 'ink') } catch {}
   applyDesk()
 }
 

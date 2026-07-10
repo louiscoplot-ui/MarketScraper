@@ -8,8 +8,8 @@
 //
 // Colour = information: the 4 tone palettes below are copied verbatim
 // from the handoff's palette(tone); nothing is invented here.
-import { useState } from 'react'
-import { DESK_TONES } from '../lib/deskFlag'
+import { useMemo, useState } from 'react'
+import { DESK_TONES, getDeskCustomColor, setDeskCustomColor } from '../lib/deskFlag'
 
 // Tone palettes — verbatim from SuburbDeskRail.dc.html palette(tone).
 const PALETTES = {
@@ -21,6 +21,109 @@ const PALETTES = {
 
 const MONO = "'JetBrains Mono', ui-monospace, monospace"
 const UI = "'Inter', system-ui, sans-serif"
+
+// ---------------------------------------------------------------------
+// Custom tone — derive a full rail palette from ONE operator-picked
+// background colour, with WCAG-AA text contrast guaranteed on any pick.
+// All ratios are computed against BOTH ends of the generated gradient,
+// so the worst-case end is what must pass.
+// ---------------------------------------------------------------------
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+function rgbToHex([r, g, b]) {
+  const c = (v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')
+  return `#${c(r)}${c(g)}${c(b)}`
+}
+// WCAG 2.x relative luminance.
+function luminance(hex) {
+  const [r, g, b] = hexToRgb(hex).map(v => {
+    const s = v / 255
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+function contrast(a, b) {
+  const la = luminance(a); const lb = luminance(b)
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la]
+  return (hi + 0.05) / (lo + 0.05)
+}
+// Linear mix of two hex colours: t=0 → a, t=1 → b.
+function mixHex(a, b, t) {
+  const ra = hexToRgb(a); const rb = hexToRgb(b)
+  return rgbToHex(ra.map((v, i) => v + (rb[i] - v) * t))
+}
+// Pull `color` toward `toward` (the palette's max-contrast pole) until
+// it clears `min` contrast against every bg in `bgs`. Binary search on
+// the mix amount; falls back to the pole itself (always the best case).
+function ensureContrast(color, bgs, min, toward) {
+  const worst = (c) => Math.min(...bgs.map(bg => contrast(c, bg)))
+  if (worst(color) >= min) return color
+  let lo = 0; let hi = 1; let best = toward
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) / 2
+    const cand = mixHex(color, toward, mid)
+    if (worst(cand) >= min) { best = cand; hi = mid } else { lo = mid }
+  }
+  return best
+}
+// rgba() helper over a hex pole — used for the non-text surfaces
+// (separators, hover, chips) so they read as a tint of the text pole
+// on any background.
+function alphaOf(hex, a) {
+  const [r, g, b] = hexToRgb(hex)
+  return `rgba(${r},${g},${b},${a})`
+}
+
+export function paletteFromColor(base) {
+  // Text pole picked FIRST, against the flat base colour: max(white,
+  // black) is mathematically ≥ 4.58:1 on any colour, so AA always has a
+  // winner. THEN the gradient is built in the pole's favourable
+  // direction (darker bottom under light text, lighter bottom under
+  // dark text) so neither gradient end can dip below the base's ratio.
+  const lightText = contrast('#FFFFFF', base) >= contrast('#000000', base)
+  const pole = lightText ? '#FFFFFF' : '#000000'
+  const bottom = mixHex(base, pole === '#FFFFFF' ? '#000000' : '#FFFFFF', 0.14)
+  const bgs = [base, bottom]
+  const fg = ensureContrast(lightText ? '#F7F7F5' : '#0C0A09', bgs, 4.5, pole)
+
+  // Secondary text tokens — mixed toward the bg for hierarchy, then
+  // pushed back toward the pole until they clear AA (4.6 leaves margin
+  // for the translucent chip surfaces they sometimes sit on).
+  const muted = ensureContrast(mixHex(fg, base, 0.35), bgs, 4.6, pole)
+  const faint = ensureContrast(mixHex(fg, base, 0.5), bgs, 4.6, pole)
+
+  // Brand accent — light green on dark rails, deep green on light ones;
+  // must clear 3:1 (non-text UI) or it snaps toward the text pole.
+  const accent = ensureContrast(lightText ? '#7fbfa1' : '#386350', bgs, 3, pole)
+  const accentText = ensureContrast(lightText ? '#a6dabf' : '#2D5040', bgs, 4.6, pole)
+  const hotText = ensureContrast(lightText ? '#f0a8cc' : '#9D174D', bgs, 4.6, pole)
+
+  return {
+    bg: `linear-gradient(178deg, ${base} 0%, ${bottom} 100%)`,
+    fg,
+    muted,
+    faint,
+    line: alphaOf(pole, lightText ? 0.08 : 0.1),
+    sbg: alphaOf(pole, 0.05),
+    sbd: alphaOf(pole, lightText ? 0.09 : 0.12),
+    stext: muted,
+    activeBg: alphaOf(accent === fg ? pole : accent, 0.22),
+    hover: alphaOf(pole, 0.06),
+    mark: accent,
+    imark: alphaOf(pole, 0.2),
+    atext: fg,
+    bon: alphaOf(accent === fg ? pole : accent, 0.2),
+    bonf: accentText,
+    boff: alphaOf(pole, 0.07),
+    bofff: muted,
+    hotb: alphaOf(hotText, 0.18),
+    hotf: hotText,
+    uname: fg,
+    usub: muted,
+  }
+}
 
 // Metallic 4-square mark — the brand moment (gradient reserved for the
 // logo, never the data UI). Matches brand/logo.svg geometry.
@@ -56,8 +159,20 @@ export default function Rail({
   view, onNavigate, me, counts = {},
   tone, onTone, onExit,
 }) {
-  const p = PALETTES[tone] || PALETTES.ink
+  // Custom tone: full palette derived from the picked colour with AA
+  // text contrast guaranteed (see paletteFromColor). Presets unchanged.
+  const [customColor, setCustomColorState] = useState(getDeskCustomColor)
+  const p = useMemo(
+    () => (tone === 'custom' ? paletteFromColor(customColor) : (PALETTES[tone] || PALETTES.ink)),
+    [tone, customColor]
+  )
   const [hovered, setHovered] = useState(null)
+  const pickCustom = (hex) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return
+    setCustomColorState(hex)
+    setDeskCustomColor(hex)
+    onTone('custom')
+  }
 
   const isAdmin = !!me && (me.role || '').toLowerCase() === 'admin'
   const hasRental = isAdmin || !!(me && me.rental_access)
@@ -191,6 +306,33 @@ export default function Rail({
                 />
               )
             })}
+            {/* Custom colour — native picker disguised as a 5th swatch.
+                Text auto-adapts (light/dark) to the picked background via
+                WCAG luminance so any colour stays AA-readable. */}
+            <label
+              title="Custom colour"
+              aria-label="Custom rail colour"
+              style={{
+                width: 16, height: 16, borderRadius: 5, cursor: 'pointer',
+                position: 'relative', overflow: 'hidden', display: 'inline-block',
+                background: tone === 'custom'
+                  ? customColor
+                  : 'conic-gradient(#e05252,#e0b152,#7fbfa1,#5285e0,#b152e0,#e05252)',
+                border: tone === 'custom' ? `1.5px solid ${p.mark}` : `1px solid ${p.sbd}`,
+                boxShadow: tone === 'custom' ? `0 0 0 2px ${p.mark}44` : 'none',
+              }}
+            >
+              <input
+                type="color"
+                value={customColor}
+                onChange={e => pickCustom(e.target.value)}
+                onClick={() => { if (tone !== 'custom') onTone('custom') }}
+                style={{
+                  position: 'absolute', inset: 0, width: '100%', height: '100%',
+                  opacity: 0, cursor: 'pointer', padding: 0, border: 'none',
+                }}
+              />
+            </label>
           </div>
         </div>
         <button
