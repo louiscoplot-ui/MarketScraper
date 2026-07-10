@@ -108,12 +108,17 @@ def record_market_snapshot(suburb_id, name, new_count):
     logged, never raised: a snapshot failure must not fail a scrape."""
     try:
         snap_conn = get_db()
-        snap_rows = snap_conn.execute(
-            "SELECT status, price_text, listing_date, first_seen "
-            "FROM listings WHERE suburb_id = ?",
-            (suburb_id,)
-        ).fetchall()
-        snap_conn.close()
+        try:
+            snap_rows = snap_conn.execute(
+                "SELECT status, price_text, listing_date, first_seen "
+                "FROM listings WHERE suburb_id = ?",
+                (suburb_id,)
+            ).fetchall()
+        finally:
+            # Close even if execute() raises — a leaked Neon connection on
+            # every transient SQL error exhausts the quota (a documented
+            # cause of overnight data gaps).
+            snap_conn.close()
 
         snap_active = [r for r in snap_rows if r['status'] == 'active']
         snap_uo = [r for r in snap_rows if r['status'] == 'under_offer']
@@ -127,7 +132,14 @@ def record_market_snapshot(suburb_id, name, new_count):
             if p and p >= 100000:
                 snap_prices.append(p)
         snap_prices.sort()
-        median_p = snap_prices[len(snap_prices)//2] if snap_prices else None
+        # True median: average the two middle values on an even count
+        # (picking n//2 alone biased the "median asking" tile upward).
+        if snap_prices:
+            n = len(snap_prices)
+            median_p = (snap_prices[n // 2] if n % 2
+                        else round((snap_prices[n // 2 - 1] + snap_prices[n // 2]) / 2))
+        else:
+            median_p = None
 
         snap_doms = []
         for r in snap_active:
@@ -186,6 +198,11 @@ def run_scrape_all(suburbs):
 
 def run_scrape(suburb_id, slug, name):
     """Execute the scraping process for a single suburb."""
+    # Clear any stale cancel flag on entry — otherwise a cancel that landed
+    # after the previous run's last cancel-check (or a direct /api/scrape/<id>
+    # not routed through run_scrape_all) leaves the flag set, and the NEXT
+    # rescrape of this suburb aborts instantly ("cancelled") scraping nothing.
+    scrape_cancel.discard(suburb_id)
     log_id = create_scrape_log(suburb_id)
     scrape_jobs[suburb_id] = {
         'status': 'running',
@@ -266,12 +283,14 @@ def run_scrape(suburb_id, slug, name):
         # still serves the page with a clear SOLD or UNDER OFFER badge.
         progress_cb('Verifying disappeared listings...')
         conn = get_db()
-        db_active_rows = conn.execute(
-            "SELECT reiwa_url FROM listings WHERE suburb_id = ? "
-            "AND status IN ('active', 'under_offer') AND reiwa_url IS NOT NULL",
-            (suburb_id,)
-        ).fetchall()
-        conn.close()
+        try:
+            db_active_rows = conn.execute(
+                "SELECT reiwa_url FROM listings WHERE suburb_id = ? "
+                "AND status IN ('active', 'under_offer') AND reiwa_url IS NOT NULL",
+                (suburb_id,)
+            ).fetchall()
+        finally:
+            conn.close()  # close on error too — avoids Neon quota leak
         db_active_urls = {r['reiwa_url'].rstrip('/') for r in db_active_rows}
         seen_set = {u.rstrip('/') for u in (forsale_urls + sold_urls)}
         candidates = list(db_active_urls - seen_set)
