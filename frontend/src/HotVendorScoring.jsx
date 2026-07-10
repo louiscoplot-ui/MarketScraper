@@ -36,10 +36,27 @@ const CAT_FILTERS = [
 const STATUS_OPTIONS = [
   { value: '', label: '—' },
   { value: 'contacted', label: 'Called / Contacted' },
+  { value: 'no_answer', label: 'No answer' },
   { value: 'listed', label: 'Listed / Appraised' },
   { value: 'pending', label: 'Considering / Pending' },
   { value: 'declined', label: 'Not interested' },
 ]
+
+// Local (Perth) YYYY-MM-DD — toISOString alone is UTC and would flip the
+// date around 8am Perth time.
+function localIsoDate(base, plusDays = 0) {
+  const d = base ? new Date(base) : new Date()
+  d.setDate(d.getDate() + plusDays)
+  const t = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return t.toISOString().slice(0, 10)
+}
+
+// Snooze state for a row: 'due' (callback date reached), 'snoozed'
+// (future date), or null.
+function callbackState(dateStr) {
+  if (!dateStr) return null
+  return dateStr <= localIsoDate() ? 'due' : 'snoozed'
+}
 
 // Display-only: RP Data ships addresses in ALL CAPS. Title-case them
 // for the UI without ever touching the stored value.
@@ -165,6 +182,8 @@ export default function HotVendorScoring() {
   }, [compact])
   const [statuses, setStatuses] = useState({})
   const [notes, setNotes] = useState({})
+  // Call-back dates (snooze) — keyed by raw address like statuses/phones.
+  const [callbacks, setCallbacks] = useState({})
   // Property dossier popup (desk) — opens when the operator clicks an
   // address; shows every field the score is built from + contact.
   const [propDetail, setPropDetail] = useState(null)
@@ -538,10 +557,11 @@ export default function HotVendorScoring() {
   // side join against hot_vendor_property_status). Re-runs on new
   // uploads; notes survive across re-uploads keyed on normalized address.
   useEffect(() => {
-    if (!data) { setStatuses({}); setNotes({}); setPhones({}); setSelectedSuburbs(new Set()); return }
+    if (!data) { setStatuses({}); setNotes({}); setPhones({}); setCallbacks({}); setSelectedSuburbs(new Set()); return }
     const nextS = {}
     const nextN = {}
     const nextP = {}
+    const nextC = {}
     for (const p of data.properties || []) {
       if (p.user_status) nextS[p.address] = p.user_status
       if (p.user_note) nextN[p.address] = p.user_note
@@ -549,10 +569,12 @@ export default function HotVendorScoring() {
       // phones is keyed by raw address, so a stale map showed suburb A's
       // hand-typed number on a same-named address in suburb B.
       if (p.phone) nextP[p.address] = p.phone
+      if (p.callback_date) nextC[p.address] = p.callback_date
     }
     setStatuses(nextS)
     setNotes(nextN)
     setPhones(nextP)
+    setCallbacks(nextC)
     setSelectedSuburbs(new Set())
   }, [data])
 
@@ -708,19 +730,32 @@ export default function HotVendorScoring() {
     }
   }
 
-  const setStatus = async (address, status) => {
+  // callbackDate: undefined = leave the snooze untouched (plain status
+  // change) · '' = clear it · 'YYYY-MM-DD' = snooze until that date.
+  const setStatus = async (address, status, callbackDate) => {
     let previous
+    let prevCb
     setStatuses(prev => {
       previous = prev[address]
       const next = { ...prev }
       if (status) next[address] = status; else delete next[address]
       return next
     })
+    if (callbackDate !== undefined) {
+      setCallbacks(prev => {
+        prevCb = prev[address]
+        const next = { ...prev }
+        if (callbackDate) next[address] = callbackDate; else delete next[address]
+        return next
+      })
+    }
     try {
+      const body = { address, status }
+      if (callbackDate !== undefined) body.callback_date = callbackDate || null
       const res = await fetch(`${API}/api/hot-vendors/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, status }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`Save failed (${res.status})`)
     } catch (e) {
@@ -729,6 +764,13 @@ export default function HotVendorScoring() {
         if (previous === undefined) delete next[address]; else next[address] = previous
         return next
       })
+      if (callbackDate !== undefined) {
+        setCallbacks(prev => {
+          const next = { ...prev }
+          if (prevCb === undefined) delete next[address]; else next[address] = prevCb
+          return next
+        })
+      }
       alert(`Could not save the status: ${e.message}. Please try again.`)
     }
   }
@@ -906,7 +948,7 @@ export default function HotVendorScoring() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button onClick={() => setStatus(top.address, 'contacted')} style={{ background: 'var(--score-hot)', border: 'none', color: '#fff', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Log a call</button>
+              <button onClick={() => setStatus(top.address, 'contacted', '')} style={{ background: 'var(--score-hot)', border: 'none', color: '#fff', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Log a call</button>
               <button onClick={() => openNote(top)} style={{ background: 'var(--surface)', border: '1px solid rgba(219,39,119,.3)', color: 'var(--score-hot-text)', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, padding: '10px 16px', borderRadius: 9, cursor: 'pointer' }}>Add note</button>
             </div>
           </div>
@@ -942,13 +984,19 @@ export default function HotVendorScoring() {
             {sorted.map(p => {
               const cb = catBadge(p.category)
               const note = noteFor(p.address)
+              // Snooze: future call-back dims the row; a due one flags it.
+              const cbState = callbackState(callbacks[p.address])
               return (
-              <div key={p.rank ?? `${p.address}-${getSuburb(p) || ''}`} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)' }}>
+              <div key={p.rank ?? `${p.address}-${getSuburb(p) || ''}`} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)', opacity: cbState === 'snoozed' ? 0.55 : 1 }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
                   <button type="button" onClick={() => openDetail(p)} title="Open details"
                     style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</button>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{getSuburb(p) || ''}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {getSuburb(p) || ''}
+                    {cbState === 'due' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, background: 'var(--status-watch-bg)', color: 'var(--status-watch-text)', border: '1px solid var(--status-watch)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>call-back due</span>}
+                    {cbState === 'snoozed' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, background: 'var(--status-off-bg)', color: 'var(--status-off-text)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>snoozed → {formatIsoDate(callbacks[p.address])}</span>}
+                  </div>
                 </div>
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.current_owner || '—'}</span>
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
@@ -1089,12 +1137,29 @@ export default function HotVendorScoring() {
                   <div style={{ background: 'var(--status-watch-bg)', border: '1px solid var(--status-watch)', borderRadius: 8, padding: '10px 13px', marginBottom: 14, fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--status-watch-text)' }}>{noteFor(p.address)}</div>
                 )}
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                {/* Call outcomes — one tap logs the result. "Call back on…"
+                    snoozes the row until the chosen date; any other outcome
+                    clears a previous snooze. */}
+                <div style={{ paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ ...lblStyle, marginBottom: 8 }}>Log call outcome</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'contacted', ''); setPropDetail(null) }}>✓ Spoke to owner</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(p.address, 'no_answer', ''); setPropDetail(null) }}>No answer</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(p.address, 'declined', ''); setPropDetail(null) }}>Not interested</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setStatus(p.address, 'listed', ''); setPropDetail(null) }}>Appraisal booked</button>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-muted)' }}>
+                      Call back on
+                      <input type="date" min={localIsoDate(null, 1)} value={callbacks[p.address] || ''}
+                        onChange={(e) => { if (e.target.value) { setStatus(p.address, 'pending', e.target.value); setPropDetail(null) } }}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, border: '1px solid var(--border)', borderRadius: 6, padding: '4px 7px', background: 'var(--surface)', color: 'var(--text)' }} />
+                    </label>
                   </div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
-                  <button className="btn btn-primary btn-sm" onClick={() => { setStatus(p.address, 'contacted'); setPropDetail(null) }}>Log a call</button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { openNote(p); setPropDetail(null) }}>{noteFor(p.address) ? 'Edit note' : 'Add note'}</button>
+                  </div>
                 </div>
               </div>
             </div>

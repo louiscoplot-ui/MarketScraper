@@ -799,6 +799,15 @@ def init_db():
     except Exception:
         conn.rollback()
 
+    # Call-back date (snooze) — set by the "Call back on…" outcome. A row
+    # with a future callback_date is dimmed/sunk in the UI; when the date
+    # arrives it resurfaces with a "call-back due" badge. ISO YYYY-MM-DD.
+    try:
+        conn.execute("ALTER TABLE hot_vendor_property_status ADD COLUMN callback_date TEXT")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     # Re-upload behaviour: on the next score-csv we want UPSERT instead of
     # plain INSERT (no duplicate rows when the same suburb is re-uploaded
     # 6 / 12 months later — only the mutable fields refresh: sale_date,

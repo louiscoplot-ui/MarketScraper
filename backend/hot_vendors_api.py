@@ -142,8 +142,8 @@ _PROP_COLUMNS = [
 ]
 
 # Status values shown in the UI dropdown. 'contacted' backs the
-# "Log a call" one-click action.
-_VALID_STATUSES = {'contacted', 'listed', 'pending', 'declined', '', None}
+# "Log a call" one-click action; 'no_answer' is its couldn't-reach twin.
+_VALID_STATUSES = {'contacted', 'no_answer', 'listed', 'pending', 'declined', '', None}
 
 
 def _safe_int(v):
@@ -286,7 +286,7 @@ def _insert_property_rows(conn, upload_id, rows):
 
 
 def _fetch_status_map(conn, normalized_addresses):
-    """Return {normalized_address: (status, note, phone)} for hydration."""
+    """Return {normalized_address: (status, note, phone, callback_date)}."""
     if not normalized_addresses:
         return {}
     addrs = [a for a in normalized_addresses if a]
@@ -294,26 +294,32 @@ def _fetch_status_map(conn, normalized_addresses):
         return {}
     placeholders = ','.join(['?'] * len(addrs))
     rows = conn.execute(
-        f"SELECT normalized_address, status, note, phone FROM hot_vendor_property_status "
+        f"SELECT normalized_address, status, note, phone, callback_date "
+        f"FROM hot_vendor_property_status "
         f"WHERE normalized_address IN ({placeholders})",
         addrs
     ).fetchall()
     out = {}
     for r in rows:
         d = dict(r)
-        out[d['normalized_address']] = (d.get('status') or '', d.get('note') or '', d.get('phone') or '')
+        out[d['normalized_address']] = (
+            d.get('status') or '', d.get('note') or '',
+            d.get('phone') or '', d.get('callback_date') or '',
+        )
     return out
 
 
 def _attach_user_status(conn, properties):
-    """Mutate `properties` to include `user_status`, `user_note`, `phone`."""
+    """Mutate `properties` to include `user_status`, `user_note`, `phone`,
+    `callback_date`."""
     addrs = [normalize_address(p.get('address') or '') for p in properties]
     status_map = _fetch_status_map(conn, addrs)
     for p, na in zip(properties, addrs):
-        s, n, ph = status_map.get(na, ('', '', ''))
+        s, n, ph, cb = status_map.get(na, ('', '', '', ''))
         p['user_status'] = s
         p['user_note'] = n
         p['phone'] = ph
+        p['callback_date'] = cb
 
 
 def _build_upload_payload(conn, upload_id):
@@ -575,13 +581,32 @@ def register_hot_vendors_routes(app):
         addr = (body.get('address') or '').strip()
         status = (body.get('status') or '').strip().lower() or None
         note = (body.get('note') or '').strip() or None
+        # Snooze — "call back on…" outcome. Only touched when the key is
+        # present in the body: sending callback_date=null/'' clears it,
+        # omitting the key preserves it (so a note edit can't kill a snooze).
+        has_callback = 'callback_date' in body
+        callback_date = (body.get('callback_date') or '').strip() or None
 
         if not addr:
             return jsonify({'error': 'address required'}), 400
         if status not in _VALID_STATUSES:
             return jsonify({
-                'error': 'invalid status — use one of: contacted, listed, pending, declined, or empty',
+                'error': 'invalid status — use one of: contacted, no_answer, listed, pending, declined, or empty',
             }), 400
+        if callback_date is not None:
+            try:
+                datetime.strptime(callback_date, '%Y-%m-%d')
+            except ValueError:
+                return jsonify({'error': 'callback_date must be YYYY-MM-DD'}), 400
+
+        def _resolve_callback(conn, norm):
+            if has_callback:
+                return callback_date
+            row = conn.execute(
+                "SELECT callback_date FROM hot_vendor_property_status "
+                "WHERE normalized_address = ?", (norm,)
+            ).fetchone()
+            return (dict(row).get('callback_date') if row else None) or None
 
         norm = normalize_address(addr)
         if not norm:
@@ -605,25 +630,28 @@ def register_hot_vendors_routes(app):
                     (norm,)
                 )
             else:
+                cb = _resolve_callback(conn, norm)
                 if USE_POSTGRES:
                     conn.execute(
                         "INSERT INTO hot_vendor_property_status "
-                        "(normalized_address, status, note, updated_at) "
-                        "VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+                        "(normalized_address, status, note, callback_date, updated_at) "
+                        "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
                         "ON CONFLICT (normalized_address) DO UPDATE SET "
                         "status = EXCLUDED.status, note = EXCLUDED.note, "
+                        "callback_date = EXCLUDED.callback_date, "
                         "updated_at = CURRENT_TIMESTAMP",
-                        (norm, status, note)
+                        (norm, status, note, cb)
                     )
                 else:
                     conn.execute(
                         "INSERT INTO hot_vendor_property_status "
-                        "(normalized_address, status, note, updated_at) "
-                        "VALUES (?, ?, ?, datetime('now')) "
+                        "(normalized_address, status, note, callback_date, updated_at) "
+                        "VALUES (?, ?, ?, ?, datetime('now')) "
                         "ON CONFLICT(normalized_address) DO UPDATE SET "
                         "status = excluded.status, note = excluded.note, "
+                        "callback_date = excluded.callback_date, "
                         "updated_at = datetime('now')",
-                        (norm, status, note)
+                        (norm, status, note, cb)
                     )
             conn.commit()
         finally:
@@ -634,6 +662,7 @@ def register_hot_vendors_routes(app):
             'normalized_address': norm,
             'status': status or '',
             'note': note or '',
+            'callback_date': (callback_date if has_callback else None) or '',
         })
 
 
