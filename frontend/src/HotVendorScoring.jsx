@@ -999,7 +999,17 @@ export default function HotVendorScoring() {
                     {cbState === 'snoozed' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, background: 'var(--status-off-bg)', color: 'var(--status-off-text)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>snoozed → {formatIsoDate(callbacks[p.address])}</span>}
                   </div>
                 </div>
-                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.current_owner || '—'}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.current_owner) || '—'}</div>
+                  {(() => {
+                    // Show the phone inline so the agent sees who's reachable
+                    // without opening each dossier. Clickable tel: link.
+                    const ph = (phones[p.address] ?? p.phone ?? '').trim()
+                    return ph
+                      ? <a href={`tel:${ph}`} onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>{ph}</a>
+                      : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)' }}>no phone</span>
+                  })()}
+                </div>
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                   {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{s}</span>)}
                 </div>
@@ -1076,7 +1086,7 @@ export default function HotVendorScoring() {
           })()
           return (
             <div className="note-modal-overlay" onClick={() => setPropDetail(null)}>
-              <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(960px, 96vw)', maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg)', borderRadius: 18, boxShadow: 'var(--shadow-pop)' }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(1180px, 97vw)', maxHeight: '92vh', overflowY: 'auto', background: 'var(--bg)', borderRadius: 18, boxShadow: 'var(--shadow-pop)' }}>
 
                 {/* ── header band ── */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 22px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
@@ -1208,16 +1218,16 @@ export default function HotVendorScoring() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px' }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={lblStyle}>Bought</div>
-                          <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{money(p.owner_purchase_price)}{p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}</div>
+                          <div style={{ ...valStyle, overflowWrap: 'anywhere' }}>{money(p.owner_purchase_price)}{p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}</div>
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={lblStyle}>Est. gain</div>
-                          <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{money(p.owner_gain_dollars)}{p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}</div>
+                          <div style={{ ...valStyle, overflowWrap: 'anywhere' }}>{money(p.owner_gain_dollars)}{p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}</div>
                         </div>
                         {facts.map(([k, v]) => (
-                          <div key={k} style={{ minWidth: 0 }}>
+                          <div key={k} style={{ minWidth: 0, gridColumn: (k === 'Agency' || k === 'Agent') ? '1 / -1' : 'auto' }}>
                             <div style={lblStyle}>{k}</div>
-                            <div style={{ ...valStyle, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={String(v)}>{v}</div>
+                            <div style={{ ...valStyle, overflowWrap: 'anywhere' }} title={String(v)}>{v}</div>
                           </div>
                         ))}
                       </div>
