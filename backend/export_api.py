@@ -49,7 +49,9 @@ def _parse_price_numeric(text):
         val *= 1_000_000
     elif suffix == 'k':
         val *= 1_000
-    return int(val) if val >= 10_000 else None
+    # round, not truncate: int(2.05 * 1_000_000) == 2049999 (float error) —
+    # "$2.05M" was exporting as $2,049,999 and skewing the SUM totals.
+    return int(round(val)) if val >= 10_000 else None
 
 
 def _parse_size_numeric(text):

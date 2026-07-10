@@ -65,7 +65,14 @@ def register_auth_routes(app):
         ).fetchone()
         conn.close()
         if not row:
-            return jsonify({'error': 'Email not found'}), 404
+            # Anti-enumeration: an unknown email returns the SAME response as
+            # a known email that has no password yet — both are steered to
+            # the magic link — so an attacker can't tell "no such account"
+            # (was a distinct 404 "Email not found") from a real one.
+            return jsonify({
+                'error': 'First-time sign-in — use the login link we email you.',
+                'need_magic_link': True,
+            }), 403
         stored = row['password_hash']
         if stored:
             if not password:
