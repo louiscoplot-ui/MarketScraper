@@ -49,11 +49,12 @@ export function getDeskMode() {
     const v = localStorage.getItem(MODE_KEY)
     if (v === 'desk') return 'desk'
     if (v === 'classic') return 'classic'
-    // No explicit choice yet → default. Preview deployments land straight
-    // in "The Morning Desk" so it's visible without hunting for the entry
-    // button; production stays classic (the redesign remains opt-in).
-    return isPreviewHost() ? 'desk' : 'classic'
-  } catch { return 'classic' }
+    // No explicit choice yet → default to "The Morning Desk" redesign
+    // everywhere (preview AND production). It's now the official UI;
+    // classic stays a one-click opt-out ("Back to classic view") that
+    // sticks once chosen. isPreviewHost() kept for any future per-host use.
+    return 'desk'
+  } catch { return 'desk' }
 }
 
 export function setDeskMode(m) {
