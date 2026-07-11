@@ -57,33 +57,64 @@ function MarketPulse({ report, suburbCount, scope }) {
     try { const v = parseInt(localStorage.getItem('mp_months') || '12', 10); return [1, 3, 6, 12].includes(v) ? v : 12 } catch { return 12 }
   })
   const pickMonths = (m) => { setMonths(m); try { localStorage.setItem('mp_months', String(m)) } catch {} }
-  // Scope-aware: the Dashboard's suburb selector drives this chart too.
-  // One suburb selected → that suburb's own median series; All → the
-  // portfolio average (previous behaviour).
+  // Scope-aware + SALES-based: the trend is the monthly median SOLD price
+  // for the selected suburb (report.sold_series). Perth's western suburbs
+  // frequently withhold the sold price, so a suburb can have too few
+  // disclosed sales to plot — we then fall back to the denser median
+  // ASKING snapshots and label the basis honestly.
   const scopeAll = !scope || scope === 'all'
+
+  // — sold series (monthly) —
+  const soldRows = ((report && report.sold_series) || []).filter(r =>
+    scopeAll || (r.suburb_name || '').toLowerCase() === scope.toLowerCase()
+  )
+  const soldMonths = [...new Set(soldRows.map(r => r.month))].sort()
+  const soldFull = soldMonths.map(mo => {
+    const rs = soldRows.filter(r => r.month === mo)
+    return {
+      dt: mo,
+      v: rs.reduce((a, b) => a + b.median_price, 0) / rs.length,
+      count: rs.reduce((a, b) => a + (b.count || 0), 0),
+    }
+  })
+
+  // — asking fallback (nightly snapshots) —
   const snaps = ((report && report.snapshots) || []).filter(s =>
     scopeAll || (s.suburb_name || '').toLowerCase() === scope.toLowerCase()
   )
-  const dates = [...new Set(snaps.map(s => s.snapshot_date))].sort()
-  const fullSeries = dates.map(dt => {
+  const snapDates = [...new Set(snaps.map(s => s.snapshot_date))].sort()
+  const askingFull = snapDates.map(dt => {
     const ps = snaps.filter(s => s.snapshot_date === dt).map(s => s.median_price).filter(Boolean)
-    return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length } : null
+    return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length, count: null } : null
   }).filter(Boolean)
-  // Window to the last N months. The cutoff is derived from the newest
-  // snapshot date (not "today") so a stale feed still shows its tail
-  // instead of an empty window.
-  const newest = fullSeries.length ? fullSeries[fullSeries.length - 1].dt : null
-  let cutoff = null
-  if (newest) {
-    const d = new Date(newest); d.setMonth(d.getMonth() - months)
-    cutoff = d.toISOString().slice(0, 10)
+
+  // Window to the last N months — cutoff derived from the newest point of
+  // the chosen series (not "today") so a stale feed still shows its tail.
+  const windowed = (arr) => {
+    if (!arr.length) return arr
+    const newest = arr[arr.length - 1].dt
+    const isMonth = newest.length === 7
+    const d = new Date(isMonth ? `${newest}-01` : newest)
+    d.setMonth(d.getMonth() - months)
+    const cutoff = d.toISOString().slice(0, isMonth ? 7 : 10)
+    return arr.filter(p => p.dt >= cutoff)
   }
-  const series = cutoff ? fullSeries.filter(p => p.dt >= cutoff) : fullSeries
+  const soldWin = windowed(soldFull)
+  const askingWin = windowed(askingFull)
+  const useSold = soldWin.length >= 2
+  const series = useSold ? soldWin : askingWin
+  const fullSeries = useSold ? soldFull : askingFull
+  const basis = useSold ? 'sold' : 'asking'
 
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '13px 16px', boxShadow: 'var(--shadow-card)' }
   const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
   const monthOf = (iso) => MP_MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
-  const dmy = (iso) => { const p = String(iso).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}` }
+  const yearOf = (iso) => String(iso).slice(0, 4)
+  // Sold points are monthly ('YYYY-MM' → "Jul 2026"); asking points are
+  // dated snapshots ('YYYY-MM-DD' → DD/MM/YYYY).
+  const ptLabel = (iso) => String(iso).length === 7
+    ? `${monthOf(iso)} ${yearOf(iso)}`
+    : (() => { const p = String(iso).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}` })()
 
   const RangeToggle = (
     <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
@@ -99,6 +130,8 @@ function MarketPulse({ report, suburbCount, scope }) {
     </div>
   )
 
+  const priceKind = basis === 'sold' ? 'median sold price' : 'median asking price'
+  const where = scopeAll ? 'All suburbs' : scope
   const Head = (
     <div style={{ marginBottom: 9 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -106,15 +139,20 @@ function MarketPulse({ report, suburbCount, scope }) {
         {RangeToggle}
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
-        {scopeAll
-          ? `All suburbs · median asking price · last ${months} month${months > 1 ? 's' : ''}`
-          : `${scope} · median asking price · last ${months} month${months > 1 ? 's' : ''}`}
+        {`${where} · ${priceKind} · last ${months} month${months > 1 ? 's' : ''}`}
       </div>
+      {/* Honest basis note: when a suburb has too few disclosed sales we
+          fall back to asking — say so, don't pretend it's sales. */}
+      {basis === 'asking' && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
+          sold prices too sparse here — showing asking instead
+        </div>
+      )}
     </div>
   )
 
   if (series.length < 2) {
-    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0' }}>{fullSeries.length >= 2 ? 'No snapshots in this window — try a longer range.' : 'The trend builds as nightly snapshots accumulate (need ≥ 2 days of data).'}</div></div>
+    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0' }}>{(soldFull.length >= 2 || askingFull.length >= 2) ? 'Not enough data in this window — try a longer range.' : 'The trend builds as sales (and nightly snapshots) accumulate.'}</div></div>
   }
 
   const vals = series.map(p => p.v)
@@ -147,7 +185,7 @@ function MarketPulse({ report, suburbCount, scope }) {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8 }}>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(cur.v)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {monthOf(series[0].dt)}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>· {dmy(cur.dt)}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>· {ptLabel(cur.dt)}{basis === 'sold' && cur.count ? ` · ${cur.count} sale${cur.count > 1 ? 's' : ''}` : ''}</span>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {/* $ axis */}

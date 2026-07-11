@@ -275,6 +275,28 @@ def market_report():
     snap_limit = min(2200, 120 * max(1, len(suburb_ids) if suburb_ids else 20))
     snapshots = get_market_snapshots(suburb_ids=suburb_ids, limit=snap_limit)
 
+    # Monthly median SOLD price per suburb — the sales-based Market pulse.
+    # Perth's western suburbs frequently withhold the sold price, so this
+    # is built ONLY from disclosed sales (sold_price parses to a plausible
+    # number) with a real sold_date; months with no disclosed sale are
+    # simply absent. Each point carries `count` so the UI can flag thin
+    # months honestly (a one-sale month is not a trend).
+    _sold_buckets = {}
+    for l in sold:
+        sd = (l.get('sold_date') or '')[:7]          # 'YYYY-MM'
+        if len(sd) != 7 or sd[4] != '-':
+            continue
+        sp = _parse_price(l.get('sold_price'))
+        if not sp:
+            continue
+        _sold_buckets.setdefault((l.get('suburb_name') or 'Unknown', sd), []).append(sp)
+    sold_series = [
+        {'suburb_name': sn, 'month': mo,
+         'median_price': round(_median(ps)), 'count': len(ps)}
+        for (sn, mo), ps in _sold_buckets.items()
+    ]
+    sold_series.sort(key=lambda x: (x['suburb_name'], x['month']))
+
     report = {
         'generated_at': datetime.utcnow().isoformat(),
         'total_listings': len(listings),
@@ -307,6 +329,7 @@ def market_report():
         'suburb_market_share': suburb_market_share,
         'price_drops': price_drops,
         'snapshots': snapshots,
+        'sold_series': sold_series,
         'stale_listings': [{
             'address': l.get('address'),
             'suburb': l.get('suburb_name'),

@@ -91,7 +91,7 @@ const SECTIONS = [
       ['What is the Dashboard?',
         'Your morning brief: what changed overnight. The top vendor signals for your suburbs, KPIs (fresh signals, hot/watch counts), the market-pulse trend, signals by suburb, and sales that just fell through — in one glance.'],
       ['What is "Market pulse"?',
-        'The median asking price over time for the selected suburb (or the average across all your suburbs when none is picked), built from the nightly market snapshots. Pick a 1 / 3 / 6 / 12-month window; the trend fills in as more days of data accumulate.'],
+        'The monthly median SOLD price over time for the selected suburb (or the average across all your suburbs when none is picked), from disclosed sales. Pick a 1 / 3 / 6 / 12-month window. Where a suburb has too few disclosed sale prices to plot — common in the western suburbs — it falls back to the median asking price and says so under the title.'],
     ],
   },
   {
