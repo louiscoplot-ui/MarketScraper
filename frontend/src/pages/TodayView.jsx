@@ -218,18 +218,18 @@ function MarketPulse({ report, suburbCount, scope }) {
   return (
     <div style={card}>
       {Head}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(headlineV)}</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 26, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(headlineV)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {ptLabel(series[0].dt)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>{hIdx != null ? `· ${ptLabel(cur.dt)}${basis === 'sold' && cur.count ? ` · ${cur.count} sale${cur.count > 1 ? 's' : ''}` : ''}` : (useSold ? `· median over ${months}M` : `· ${ptLabel(cur.dt)}`)}</span>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {/* $ axis */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 104, width: 46, flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', textAlign: 'right' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 82, width: 46, flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', textAlign: 'right' }}>
           <span>{fmtM(max)}</span><span>{fmtM((max + min) / 2)}</span><span>{fmtM(min)}</span>
         </div>
         {/* chart */}
-        <div style={{ position: 'relative', flex: 1, height: 104, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+        <div style={{ position: 'relative', flex: 1, height: 82, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
           <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
             <defs><linearGradient id="mp-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".18" /><stop offset="1" stopColor="var(--accent)" stopOpacity="0" /></linearGradient></defs>
             <line x1="0" y1="40" x2="640" y2="40" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="90" x2="640" y2="90" stroke="var(--border)" strokeWidth="1" />

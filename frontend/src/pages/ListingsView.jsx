@@ -225,6 +225,16 @@ export default function ListingsView({
   const showSold = anySold || selectedStatuses.has('sold')
   const showWithdrawn = anyWithdrawn || selectedStatuses.has('withdrawn')
 
+  // When every visible row is the same suburb (single-suburb view), the
+  // ", Claremont WA 6010" tail is redundant noise — we already know the
+  // suburb from the selection. Strip it so the street part gets the width.
+  const displayAddr = (l) => {
+    const a = String(l.address || '')
+    if (showSuburb || !l.suburb_name) return a
+    const i = a.toLowerCase().indexOf(String(l.suburb_name).toLowerCase())
+    return i > 0 ? a.slice(0, i).replace(/[,\s]+$/, '').trim() : a
+  }
+
   // Column definitions — header + body render from the same list.
   // `cell(row)` returns the cell content; the <td> wrapper is added
   // here so the key + className stay in one place.
@@ -232,11 +242,12 @@ export default function ListingsView({
     { field: 'address', label: 'Address', sortable: true, className: 'address-cell',
       cell: (l) => isDesk
         ? <a href={l.reiwa_url || '#'} onClick={(e) => { e.preventDefault(); setDetail(l) }}
-             style={{ cursor: 'pointer' }} title="Open property dossier">{l.address}</a>
+             style={{ cursor: 'pointer' }} title={l.address}>{displayAddr(l)}</a>
         : (l.reiwa_url
-            ? <a href={l.reiwa_url} target="_blank" rel="noopener">{l.address}</a>
+            ? <a href={l.reiwa_url} target="_blank" rel="noopener" title={l.address}>{displayAddr(l)}</a>
             : l.address) },
     { field: '__note', label: 'Note', sortable: false, className: 'note-cell',
+      style: isDesk ? { maxWidth: 130 } : undefined,
       cell: (l) => {
         const text = (l.note || '').trim()
         const has = !!text
@@ -284,11 +295,12 @@ export default function ListingsView({
       cell: (l) => [l.bedrooms, l.bathrooms, l.parking].map(x => x ?? '–').join('·') },
     { field: 'land_size', label: 'Land', sortable: true,
       cell: (l) => l.land_size || '-' },
-    showInternal && { field: 'internal_size', label: 'Internal', sortable: true,
+    showInternal && { field: 'internal_size', label: isDesk ? 'Int.' : 'Internal', sortable: true,
       cell: (l) => l.internal_size || '-' },
     { field: 'agency', label: 'Agency', sortable: true, className: 'agency-cell',
       cell: (l) => l.agency || '-' },
     { field: 'agent', label: 'Agent', sortable: true, className: 'agent-cell',
+      style: isDesk ? { maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } : undefined,
       cell: (l) => l.agent || '-' },
     showListed && { field: 'listing_date', label: 'Listed', sortable: true, className: 'date-cell',
       cell: (l) => (

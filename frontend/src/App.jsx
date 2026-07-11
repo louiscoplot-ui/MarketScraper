@@ -56,21 +56,37 @@ function App() {
   // overwrites — stale-while-revalidate.
   const [suburbs, setSuburbs] = useState(() => readCache(SUBURBS_CACHE) || [])
   const [suburbsLoading, setSuburbsLoading] = useState(() => (readCache(SUBURBS_CACHE) || []).length === 0)
-  const [selectedSuburbs, setSelectedSuburbs] = useState(new Set())
+  const [selectedSuburbs, setSelectedSuburbs] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem('sd_selected_suburbs') || 'null'); return Array.isArray(s) ? new Set(s) : new Set() } catch { return new Set() }
+  })
   // EXPLICIT selection semantics (same as the rental sidebar): the Set
   // holds exactly the suburbs being shown — empty = show nothing. It
   // seeds to "all" once suburbs are known (cache-synchronously below, or
   // via the effect on first-ever visit), so "Deselect all" really empties
   // the table instead of paradoxically showing everything.
-  const [checkedSuburbs, setCheckedSuburbs] = useState(
-    () => new Set((readCache(SUBURBS_CACHE) || []).map(s => s.id))
-  )
-  const checkedSeededRef = useRef((readCache(SUBURBS_CACHE) || []).length > 0)
+  // Persisted working set — a refresh must KEEP the operator's suburb
+  // selection, not revert to "all" (or empty). Restore from localStorage
+  // first; only seed to "all" when there's no saved choice yet.
+  const readSavedChecked = () => {
+    try { const s = JSON.parse(localStorage.getItem('sd_checked_suburbs') || 'null'); return Array.isArray(s) && s.length ? s : null } catch { return null }
+  }
+  const [checkedSuburbs, setCheckedSuburbs] = useState(() => {
+    const saved = readSavedChecked()
+    if (saved) return new Set(saved)
+    return new Set((readCache(SUBURBS_CACHE) || []).map(s => s.id))
+  })
+  const checkedSeededRef = useRef(readSavedChecked() != null || (readCache(SUBURBS_CACHE) || []).length > 0)
   useEffect(() => {
     if (checkedSeededRef.current || suburbs.length === 0) return
     checkedSeededRef.current = true
     setCheckedSuburbs(new Set(suburbs.map(s => s.id)))
   }, [suburbs])
+  useEffect(() => {
+    try { localStorage.setItem('sd_checked_suburbs', JSON.stringify([...checkedSuburbs])) } catch {}
+  }, [checkedSuburbs])
+  useEffect(() => {
+    try { localStorage.setItem('sd_selected_suburbs', JSON.stringify([...selectedSuburbs])) } catch {}
+  }, [selectedSuburbs])
   const [selectedStatuses, setSelectedStatuses] = useState(new Set(['active', 'under_offer']))
   const [newSuburb, setNewSuburb] = useState('')
   const [suggestions, setSuggestions] = useState([])

@@ -91,13 +91,15 @@ async function lookup(address, suburb, postcode) {
   // sensible one; validation just reorders, it no longer empties the map.
   const houses = feats.filter(f => f.properties && f.properties.housenumber && matches(f.properties, suburb, postcode))
   const inSuburb = feats.filter(f => matches(f.properties, suburb, postcode))
-  const perthAny = feats.filter(f => inPerth(coordOf(f)))
-  // precise = a real house-number hit. Everything else is a suburb/street
-  // fallback (often the suburb centroid) — the map must NOT treat those as
-  // exact, or a dozen unlocated addresses stack on one point and look like
-  // a building. Flag it so the caller can render/place them honestly.
+  // precise = a real house-number hit in the right suburb. inSuburb = a
+  // suburb/street match (approximate, but still LOCAL to the suburb).
+  // We deliberately DROP the old "any Perth result" fallback: it pinned
+  // unmatched addresses onto same-named streets in OTHER suburbs (Stirling
+  // Highway spans a dozen), scattering far-flung outliers that forced the
+  // map to zoom out until the real cluster was invisible. No pin beats a
+  // wrong-suburb pin.
   const precise = houses[0]
-  const pick = precise || inSuburb[0] || perthAny[0]
+  const pick = precise || inSuburb[0]
   const c = coordOf(pick)
   if (Array.isArray(c) && c.length === 2) return { lng: c[0], lat: c[1], precise: !!precise }
   return null
