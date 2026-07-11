@@ -555,11 +555,15 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
           // clipping (overflowY auto is a no-op while everything fits).
           <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, overflowY: 'auto', overflowX: 'hidden' }}>
 
-            {/* ── Column 1 — the call list ── */}
-            {(has('leads') || has('hot')) && (
+            {/* ── Column 1 — the call list (+ price movements below) ── */}
+            {(has('leads') || has('hot') || has('movers')) && (
             <div style={colStyle}>
               {W('leads', (
-                <div style={{ ...card, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                // flex-grow proportional to fullness (capped at 6): when
+                // both Contact today and Price movements are full they split
+                // the column 50/50; when one is sparse the fuller one takes
+                // the freed space — neither is ever removed.
+                <div style={{ ...card, flex: `${Math.max(1, Math.min(leads.length, 6))} 1 0`, minHeight: 120, display: 'flex', flexDirection: 'column' }}>
                   {titleRow('Contact today', leads.length)}
                   {leads.length === 0 ? emptyLine('Nothing to action — the feed fills as the nightly scrapes run.') : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, overflowY: 'auto', minHeight: 0, paddingBottom: 12, WebkitMaskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)', maskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)' }}>
@@ -608,11 +612,36 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                   </div>
                 </div>
               ))}
+              {W('movers', (
+                // Shares the column with Contact today — flex-grow tracks
+                // its own fullness (capped 6) so a full movers list claims
+                // its half but a 1-row list stays compact.
+                <div style={{ ...card, flex: `${Math.max(1, Math.min(movers.length, 6))} 1 0`, minHeight: movers.length ? 110 : 0, display: 'flex', flexDirection: 'column' }}>
+                  {titleRow('Price movements', movers.length || null)}
+                  {movers.length === 0 ? emptyLine('No recent price changes.') : (
+                    <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', minHeight: 0 }}>
+                      {movers.map((m, i) => {
+                        const cut = (m.delta_amount ?? 0) < 0
+                        const pct = m.delta_pct != null && Math.abs(m.delta_pct) <= 200 ? Math.abs(Math.round(m.delta_pct)) : null
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · {m.old_price || '—'} → {m.new_price || '—'}</div>
+                            </div>
+                            {pct != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {pct}%</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
             )}
 
             {/* ── Column 2 — market ── */}
-            {(has('market') || has('pulse') || has('movers')) && (
+            {(has('market') || has('pulse')) && (
             <div style={colStyle}>
               {W('market', (
                 <div style={card}>
@@ -668,28 +697,6 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 </div>
               ))}
               {W('pulse', <MarketPulse report={report} suburbCount={suburbs.length} scope={scope} />)}
-              {W('movers', (
-                <div style={card}>
-                  {titleRow('Price movements', movers.length || null)}
-                  {movers.length === 0 ? emptyLine('No recent price changes.') : (
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      {movers.map((m, i) => {
-                        const cut = (m.delta_amount ?? 0) < 0
-                        const pct = m.delta_pct != null && Math.abs(m.delta_pct) <= 200 ? Math.abs(Math.round(m.delta_pct)) : null
-                        return (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div>
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · {m.old_price || '—'} → {m.new_price || '—'}</div>
-                            </div>
-                            {pct != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {pct}%</span>}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              ))}
             </div>
             )}
 
