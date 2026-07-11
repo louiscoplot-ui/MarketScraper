@@ -58,38 +58,49 @@ function MarketPulse({ report, suburbCount, scope }) {
     try { const v = parseInt(localStorage.getItem('mp_months') || '12', 10); return [1, 3, 6, 12].includes(v) ? v : 12 } catch { return 12 }
   })
   const pickMonths = (m) => { setMonths(m); try { localStorage.setItem('mp_months', String(m)) } catch {} }
-  // Price basis — explicit Sold / Asking toggle. Default 'sold'; when a
-  // suburb has too few disclosed sales the Sold view shows an empty state
-  // pointing at Asking (no silent switch, so the toggle stays truthful).
-  // Default to Asking: REIWA rarely publishes the sale price in these
-  // suburbs (listings say "Contact agent"), so the Sold series is often
-  // empty. Asking (nightly medians) is the dense, reliable trend.
+  // Price basis — explicit Sold / Asking toggle. Default 'sold': the whole
+  // product is built on the scrape, so sold prices (from the scraped sold
+  // listings) are the headline signal. Asking stays one click away.
   const [basisPref, setBasisPref] = useState(() => {
-    try { const v = localStorage.getItem('mp_basis'); return v === 'sold' ? 'sold' : 'asking' } catch { return 'asking' }
+    try { const v = localStorage.getItem('mp_basis'); return v === 'asking' ? 'asking' : 'sold' } catch { return 'sold' }
   })
   const pickBasis = (b) => { setBasisPref(b); try { localStorage.setItem('mp_basis', b) } catch {} }
-  // Scope-aware + SALES-based: the trend is the monthly median SOLD price
-  // for the selected suburb (report.sold_series). Perth's western suburbs
-  // frequently withhold the sold price, so a suburb can have too few
-  // disclosed sales to plot — we then fall back to the denser median
-  // ASKING snapshots and label the basis honestly.
   const scopeAll = !scope || scope === 'all'
+  const median = (arr) => {
+    if (!arr.length) return 0
+    const s = [...arr].sort((a, b) => a - b)
+    const m = Math.floor(s.length / 2)
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+  }
 
-  // — sold series (monthly) —
-  const soldRows = ((report && report.sold_series) || []).filter(r =>
+  // — sold: RAW price points from the scraped sold listings —
+  const soldRaw = ((report && report.sold_series) || []).filter(r =>
     scopeAll || (r.suburb_name || '').toLowerCase() === scope.toLowerCase()
   )
-  const soldMonths = [...new Set(soldRows.map(r => r.month))].sort()
-  const soldFull = soldMonths.map(mo => {
-    const rs = soldRows.filter(r => r.month === mo)
-    return {
-      dt: mo,
-      v: rs.reduce((a, b) => a + b.median_price, 0) / rs.length,
-      count: rs.reduce((a, b) => a + (b.count || 0), 0),
-    }
+  // Window cutoff (YYYY-MM) from the newest sold month, so a lagging feed
+  // still shows its tail instead of an empty window.
+  const soldAllMonths = [...new Set(soldRaw.map(r => r.month))].sort()
+  const soldNewest = soldAllMonths[soldAllMonths.length - 1] || null
+  let soldCutoff = null
+  if (soldNewest) {
+    const d = new Date(`${soldNewest}-01`); d.setMonth(d.getMonth() - months)
+    soldCutoff = d.toISOString().slice(0, 7)
+  }
+  const soldRawWin = soldCutoff ? soldRaw.filter(r => r.month >= soldCutoff) : soldRaw
+  // Monthly medians (the chart) — recomputed from the raw prices each render.
+  const soldWin = [...new Set(soldRawWin.map(r => r.month))].sort().map(mo => {
+    const ps = soldRawWin.filter(r => r.month === mo).map(r => r.price)
+    return { dt: mo, v: median(ps), count: ps.length }
   })
+  const soldFull = soldWin
+  // Median over the WHOLE selected window — THIS is the headline, so it
+  // changes with 1/3/6/12M (that's what "median over the last N months"
+  // means, computed from every sale in the window).
+  const soldWinMedian = median(soldRawWin.map(r => r.price))
+  const soldWinCount = soldRawWin.length
+  const soldWinDisclosed = soldRawWin.reduce((a, r) => a + (r.disclosed || 0), 0)
 
-  // — asking fallback (nightly snapshots) —
+  // — asking (nightly snapshots) —
   const snaps = ((report && report.snapshots) || []).filter(s =>
     scopeAll || (s.suburb_name || '').toLowerCase() === scope.toLowerCase()
   )
@@ -98,20 +109,13 @@ function MarketPulse({ report, suburbCount, scope }) {
     const ps = snaps.filter(s => s.snapshot_date === dt).map(s => s.median_price).filter(Boolean)
     return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length, count: null } : null
   }).filter(Boolean)
-
-  // Window to the last N months — cutoff derived from the newest point of
-  // the chosen series (not "today") so a stale feed still shows its tail.
-  const windowed = (arr) => {
-    if (!arr.length) return arr
-    const newest = arr[arr.length - 1].dt
-    const isMonth = newest.length === 7
-    const d = new Date(isMonth ? `${newest}-01` : newest)
-    d.setMonth(d.getMonth() - months)
-    const cutoff = d.toISOString().slice(0, isMonth ? 7 : 10)
-    return arr.filter(p => p.dt >= cutoff)
-  }
-  const soldWin = windowed(soldFull)
-  const askingWin = windowed(askingFull)
+  const askingWin = (() => {
+    if (!askingFull.length) return askingFull
+    const newest = askingFull[askingFull.length - 1].dt
+    const d = new Date(newest); d.setMonth(d.getMonth() - months)
+    const cutoff = d.toISOString().slice(0, 10)
+    return askingFull.filter(p => p.dt >= cutoff)
+  })()
   const useSold = basisPref === 'sold'
   const series = useSold ? soldWin : askingWin
   const fullSeries = useSold ? soldFull : askingFull
@@ -143,8 +147,6 @@ function MarketPulse({ report, suburbCount, scope }) {
     </div>
   )
 
-  // Sold view = median of DISCLOSED sale prices only (no fabrication).
-  const soldTotal = soldWin.reduce((a, p) => a + (p.count || 0), 0)
   const priceKind = basis === 'sold' ? 'median sold price' : 'median asking price'
   const where = scopeAll ? 'All suburbs' : scope
   const Head = (
@@ -160,21 +162,19 @@ function MarketPulse({ report, suburbCount, scope }) {
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
         {`${where} · ${priceKind} · last ${months} month${months > 1 ? 's' : ''}`}
       </div>
-      {basis === 'sold' && soldTotal > 0 && (
+      {basis === 'sold' && soldWinCount > 0 && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
-          {soldTotal} sale{soldTotal > 1 ? 's' : ''} with a published price
+          {`${soldWinCount} sold in window`}{soldWinDisclosed < soldWinCount ? ` · ${soldWinDisclosed} at published sale price, rest at last listed` : ' · at published sale price'}
         </div>
       )}
     </div>
   )
 
   if (series.length < 2) {
-    // Honest empty states — sold-price data is genuinely scarce here
-    // (REIWA lists "Contact agent"), it's not a loading glitch.
     const msg = basis === 'sold'
       ? (askingWin.length >= 2
-          ? 'No published sale prices in this window — most agents don\'t disclose them here. Switch to Asking for the price trend.'
-          : 'No published sale prices yet — REIWA rarely lists them for these suburbs. Import RP Data to fill sold prices in.')
+          ? 'Not enough sold listings with a price in this window — try a longer range, or Asking.'
+          : 'No priced sold listings yet — the trend builds as the scraper logs sales with a price.')
       : 'The asking trend builds as nightly snapshots accumulate.'
     return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0', lineHeight: 1.5 }}>{msg}</div></div>
   }
@@ -190,8 +190,14 @@ function MarketPulse({ report, suburbCount, scope }) {
   // refresh in the background, scope change) leaving `hi` past the end.
   const hIdx = hi == null ? null : Math.min(hi, n - 1)
   const cur = hIdx != null ? series[hIdx] : series[n - 1]
+  // Headline (not hovering): the median over the WHOLE window for sold —
+  // so it genuinely changes with 1/3/6/12M — or the latest snapshot for
+  // asking. Hovering a point shows that point's own value.
+  const headlineV = hIdx != null ? cur.v : (useSold ? soldWinMedian : series[n - 1].v)
+  // Trend = first vs last month of the visible series.
   const first = series[0].v
-  const deltaPct = first ? ((cur.v - first) / first) * 100 : 0
+  const last = series[n - 1].v
+  const deltaPct = first ? ((last - first) / first) * 100 : 0
   const up = deltaPct >= 0
   const labelIdx = n <= 6 ? series.map((_, i) => i) : [0, Math.floor(n / 3), Math.floor(2 * n / 3), n - 1]
   const hx = hIdx != null ? (X(hIdx) / 640) * 100 : null
@@ -207,9 +213,9 @@ function MarketPulse({ report, suburbCount, scope }) {
     <div style={card}>
       {Head}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(cur.v)}</span>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(headlineV)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {ptLabel(series[0].dt)}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>· {ptLabel(cur.dt)}{basis === 'sold' && cur.count ? ` · ${cur.count} sale${cur.count > 1 ? 's' : ''}` : ''}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>{hIdx != null ? `· ${ptLabel(cur.dt)}${basis === 'sold' && cur.count ? ` · ${cur.count} sale${cur.count > 1 ? 's' : ''}` : ''}` : (useSold ? `· median over ${months}M` : `· ${ptLabel(cur.dt)}`)}</span>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {/* $ axis */}
