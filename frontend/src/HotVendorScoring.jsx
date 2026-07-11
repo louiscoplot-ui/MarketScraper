@@ -982,18 +982,6 @@ export default function HotVendorScoring() {
                 )}
               </div>
             )}
-            {/* Search — filters by address OR owner as you type. */}
-            <div style={{ position: 'relative' }}>
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search address or owner…"
-                style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: search ? '9px 34px' : '9px 14px 9px 34px', width: 240, outline: 'none' }}
-              />
-              <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', display: 'flex' }}><Search size={13} strokeWidth={2} aria-hidden="true" /></span>
-              {search && <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{sorted.length}</div>}
-            </div>
           </div>
         </div>
 
@@ -1023,7 +1011,10 @@ export default function HotVendorScoring() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {/* Filter pills + search on ONE row, directly above the table so
+            the search sits right where it acts. Search pushed to the far
+            right (marginLeft:auto). */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {CHIPS.map(c => {
             const on = filter === c.key
             return (
@@ -1033,6 +1024,18 @@ export default function HotVendorScoring() {
               </button>
             )
           })}
+          {/* Search — filters by address OR owner as you type. */}
+          <div style={{ position: 'relative', marginLeft: 'auto' }}>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search address or owner…"
+              style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: search ? '8px 34px' : '8px 14px 8px 34px', width: 260, outline: 'none' }}
+            />
+            <span style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none', display: 'flex' }}><Search size={13} strokeWidth={2} aria-hidden="true" /></span>
+            {search && <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{sorted.length}</div>}
+          </div>
         </div>
 
         <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
