@@ -559,18 +559,18 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 <div className="trend-card">
                   <span className="trend-val">{latestActive}</span>
                   <span className="trend-label">Active Listings</span>
-                  {activeDelta !== null && <span className={`trend-delta ${activeDelta > 0 ? 'up' : activeDelta < 0 ? 'down' : ''}`}>{fmtDelta(activeDelta)} vs prev</span>}
+                  {activeDelta !== null && <span className={`trend-delta ${activeDelta > 0 ? 'up' : activeDelta < 0 ? 'down' : ''}`}>{fmtDelta(activeDelta)} vs prev. snapshot</span>}
                 </div>
                 <div className="trend-card">
                   <span className="trend-val">{latestUO}</span>
                   <span className="trend-label">Under Offer</span>
-                  {uoDelta !== null && <span className={`trend-delta ${uoDelta > 0 ? 'up' : uoDelta < 0 ? 'down' : ''}`}>{fmtDelta(uoDelta)} vs prev</span>}
+                  {uoDelta !== null && <span className={`trend-delta ${uoDelta > 0 ? 'up' : uoDelta < 0 ? 'down' : ''}`}>{fmtDelta(uoDelta)} vs prev. snapshot</span>}
                 </div>
                 {latestMedian && (
                   <div className="trend-card">
                     <span className="trend-val">${latestMedian.toLocaleString('en-AU')}</span>
                     <span className="trend-label" title="Average of each suburb's median asking price">Median Price (avg across suburbs)</span>
-                    {medianDeltaPct !== null && <span className={`trend-delta ${medianDeltaPct > 0 ? 'up' : medianDeltaPct < 0 ? 'down' : ''}`}>{medianDeltaPct > 0 ? '+' : ''}{medianDeltaPct.toFixed(1)}% vs prev</span>}
+                    {medianDeltaPct !== null && <span className={`trend-delta ${medianDeltaPct > 0 ? 'up' : medianDeltaPct < 0 ? 'down' : ''}`}>{medianDeltaPct > 0 ? '+' : ''}{medianDeltaPct.toFixed(1)}% vs prev. snapshot</span>}
                   </div>
                 )}
               </div>

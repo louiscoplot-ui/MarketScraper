@@ -613,11 +613,16 @@ export default function HotVendorScoring() {
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [suburbDropdownOpen])
 
-  const filtered = useMemo(() => {
+  // Everything EXCEPT the category filter. The KPI tiles, avg score and the
+  // category chips summarise this scope (suburb + type + search), so their
+  // numbers track what you're actually looking at rather than the whole
+  // report — the previous report-wide counts disagreed with the visible
+  // table the moment any filter was applied. The category filter itself only
+  // narrows the table below (`filtered`).
+  const scoped = useMemo(() => {
     const q = search.trim().toLowerCase()
     const subFilter = selectedSuburbs.size > 0
     return properties.filter(p => {
-      if (filter !== 'ALL' && p.category !== filter) return false
       if (typeFilter === 'HOUSE' && p.type !== 'House') return false
       if (typeFilter === 'APARTMENT' && p.type !== 'Apartment') return false
       if (subFilter) {
@@ -631,7 +636,11 @@ export default function HotVendorScoring() {
       }
       return true
     })
-  }, [properties, filter, typeFilter, search, selectedSuburbs])
+  }, [properties, typeFilter, search, selectedSuburbs])
+
+  const filtered = useMemo(() =>
+    filter === 'ALL' ? scoped : scoped.filter(p => p.category === filter),
+    [scoped, filter])
 
   const sorted = useMemo(() => {
     const cmp = SORT_FIELDS[sort.field] || SORT_FIELDS.rank
@@ -642,14 +651,14 @@ export default function HotVendorScoring() {
 
   const counts = useMemo(() => {
     const c = { HOT: 0, WARM: 0, MEDIUM: 0, LOW: 0 }
-    for (const p of properties) {
+    for (const p of scoped) {
       if (c[p.category] !== undefined) c[p.category]++
     }
     return c
-  }, [properties])
+  }, [scoped])
 
-  const avgScore = properties.length
-    ? properties.reduce((s, p) => s + (p.final_score || 0), 0) / properties.length
+  const avgScore = scoped.length
+    ? scoped.reduce((s, p) => s + (p.final_score || 0), 0) / scoped.length
     : 0
 
   const toggleSort = (field) => {
@@ -876,7 +885,7 @@ export default function HotVendorScoring() {
       { l: 'Hot', v: counts.HOT, c: 'var(--score-hot)' },
       { l: 'Warm', v: counts.WARM, c: 'var(--score-warm)' },
       { l: 'Medium', v: counts.MEDIUM, c: 'var(--score-medium)' },
-      { l: 'Total scored', v: properties.length, c: 'var(--status-off)' },
+      { l: 'Total scored', v: scoped.length, c: 'var(--status-off)' },
     ]
     const sigChips = (p) => {
       const out = []
@@ -885,7 +894,7 @@ export default function HotVendorScoring() {
       if (p.sales_count) out.push(`sold ${p.sales_count}×`)
       return out.slice(0, 2)
     }
-    const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
+    const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? scoped.length : (counts[c.key] || 0) }))
     // Status column 170px — the native <select> sizes to its longest
     // option (~165px at 12px + padding) and overflowed the previous 132px.
     const GRID = '46px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.15fr) 170px 140px'
@@ -903,7 +912,7 @@ export default function HotVendorScoring() {
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 4px', color: 'var(--text)' }}>Hot Vendors</h2>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{properties.length} owners scored · avg {Math.round(avgScore)}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{scoped.length} owners scored · avg {Math.round(avgScore)}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {/* Excel export — same background job + polling flow as classic. */}
