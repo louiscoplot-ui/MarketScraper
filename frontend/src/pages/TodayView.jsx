@@ -317,7 +317,7 @@ function buildLeads(report, items, fallenList, suburb) {
   return [...seen.values()].sort((a, b) => b.weight - a.weight)
 }
 
-export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], report }) {
+export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], report, openDossier }) {
   const [scope, setScope] = useState('all')   // desk dashboard scope selector
   const [brief, setBrief] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -584,6 +584,21 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     )
     const emptyLine = (t) => <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '8px 0' }}>{t}</div>
     const go = (v) => setView && setView(v)
+    // Clicking a lead opens the full property dossier (same overlay as the
+    // Prospecting table). openDossier matches the address to the scraped
+    // listing for full facts + comparables; the fields mapped here are only a
+    // fallback for when that listing isn't in the loaded set. Fall back to the
+    // lightweight popup if openDossier wasn't wired.
+    const openLead = (l) => {
+      if (!openDossier) return setLeadDetail(l)
+      const d = l.detail || {}
+      const status = d.kind === 'Withdrawn' ? 'withdrawn' : 'active'
+      openDossier({
+        address: l.address, suburb: l.suburb, suburb_name: l.suburb,
+        status, agent: d.agent, agency: d.agency, reiwa_url: d.reiwa_url,
+        listing_date: d.listing_date, price_text: d.new_price || d.price,
+      })
+    }
     // The desk widgets are styled inline, which can't express :hover /
     // :focus-visible (and desk.css is shared shell CSS): hover is applied
     // by hand, keyboard focus relies on the browser's default outline —
@@ -673,7 +688,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                   {leads.length === 0 ? emptyLine('Nothing to action — the feed fills as the nightly scrapes run.') : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, overflowY: 'auto', minHeight: 0, paddingBottom: 12, WebkitMaskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)', maskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)' }}>
                       {leads.map((l, i) => (
-                        <button key={`${l.view}-${l.address}-${i}`} onClick={() => setLeadDetail(l)}
+                        <button key={`${l.view}-${l.address}-${i}`} onClick={() => openLead(l)}
                           {...hoverFx({ background: 'var(--surface-hover)' }, { background: 'var(--bg)' })}
                           style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: '6px 11px', cursor: 'pointer', minWidth: 0 }}>
                           <span style={{ width: 8, height: 8, borderRadius: '50%', background: TONE_TEXT[l.tone], flexShrink: 0 }} />
@@ -729,19 +744,16 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                         const cut = (m.delta_amount ?? 0) < 0
                         const pct = m.delta_pct != null && Math.abs(m.delta_pct) <= 200 ? Math.abs(Math.round(m.delta_pct)) : null
                         const when = m.changed_at ? (formatIsoDate(m.changed_at) || '') : ''
-                        // Click → same quick-info popup as the leads (price,
-                        // date, agent, Open on REIWA) for fast follow-up.
-                        const open = () => setLeadDetail({
-                          address: m.address, suburb: m.suburb,
-                          tone: cut ? 'watch' : 'off',
-                          reason: pct != null ? `${cut ? '▼' : '▲'} ${pct}% price ${cut ? 'drop' : 'rise'}` : 'Price change',
-                          view: 'report',
-                          detail: {
-                            old_price: m.old_price, new_price: m.new_price,
-                            delta_pct: m.delta_pct,
-                            date: m.changed_at, dateLabel: 'Price changed',
-                            agency: m.agency, agent: m.agent, reiwa_url: m.reiwa_url,
-                          },
+                        // Click → the full property dossier (same overlay as
+                        // the Prospecting table). openDossier matches the
+                        // address to the scraped listing for full facts +
+                        // comparables; the fields here are only a fallback when
+                        // that listing isn't in the loaded set.
+                        const open = () => (openDossier || setLeadDetail)({
+                          address: m.address, suburb: m.suburb, suburb_name: m.suburb,
+                          status: m.status || 'active',
+                          agent: m.agent, agency: m.agency, reiwa_url: m.reiwa_url,
+                          price_text: m.new_price, reason: pct != null ? `${cut ? '▼' : '▲'} ${pct}% price ${cut ? 'drop' : 'rise'}` : 'Price change',
                         })
                         return (
                           <button key={i} onClick={open}

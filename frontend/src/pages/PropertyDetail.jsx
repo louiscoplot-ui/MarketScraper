@@ -184,17 +184,30 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
                 </div>
               ) : comparables.map((c, i) => {
                 const sp = soldPriceOf(c)
-                return (
-                <div key={c.id || i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: i < comparables.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.address}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)' }}>{c.sold_date ? `sold ${fmtD(c.sold_date)}` : 'sold'}</div>
-                  </div>
-                  {/* Real sold price only; western-suburb sales rarely
-                      disclose, so blank reads honestly as "undisclosed". */}
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: sp ? 'var(--text)' : 'var(--text-faint)', flex: 'none' }}>{sp || 'undisclosed'}</span>
-                </div>
-              )})}
+                // Whole row is a REIWA link when we have one — even
+                // undisclosed sales matter: REIWA sometimes back-fills the
+                // sold price later, so keeping the link reachable is the point.
+                const border = i < comparables.length - 1 ? '1px solid var(--border)' : 'none'
+                const rowInner = (
+                  <>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {c.address}{c.reiwa_url && <ExternalLink size={11} style={{ flex: 'none', color: 'var(--text-faint)' }} />}
+                      </div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-muted)' }}>{c.sold_date ? `sold ${fmtD(c.sold_date)}` : 'sold'}</div>
+                    </div>
+                    {/* Real sold price only; western-suburb sales rarely
+                        disclose, so blank reads honestly as "undisclosed". */}
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: sp ? 'var(--text)' : 'var(--text-faint)', flex: 'none' }}>{sp || 'undisclosed'}</span>
+                  </>
+                )
+                const rowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: border, textDecoration: 'none' }
+                return c.reiwa_url ? (
+                  <a key={c.id || i} href={c.reiwa_url} target="_blank" rel="noopener" title="Open on REIWA" style={{ ...rowStyle, cursor: 'pointer' }}>{rowInner}</a>
+                ) : (
+                  <div key={c.id || i} style={rowStyle}>{rowInner}</div>
+                )
+              })}
             </div>
           </div>
         </div>

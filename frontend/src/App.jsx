@@ -6,6 +6,7 @@ import ListingsView from './pages/ListingsView'
 import AppraisalsView from './pages/AppraisalsView'
 import SignalsView from './pages/SignalsView'
 import TodayView from './pages/TodayView'
+import PropertyDetail from './pages/PropertyDetail'
 import FallenView from './pages/FallenView'
 import LoadingState from './components/LoadingState'
 import AdminUsers from './pages/AdminUsers'
@@ -258,6 +259,25 @@ function App() {
     uniqueAgents, uniqueAgencies, deleteListing, updateListing, mirrorListing,
     bootLoading: listingsBootLoading, soldLoadError,
   } = useListings({ checkedSuburbs, selectedStatuses, selectedAgent, selectedAgency, view })
+
+  // Rich property dossier — the SAME overlay the Prospecting table opens, but
+  // reachable from anywhere (dashboard price-movements, leads…). We match the
+  // clicked row to a real scraped listing by address (case-insensitive) so the
+  // dossier gets full facts + local comparables; when the listing isn't in the
+  // loaded set we fall back to whatever the caller already has (never fabricate
+  // — scraped data is the source of truth, we only display it).
+  const [dossier, setDossier] = useState(null)
+  const openDossier = useCallback((seed) => {
+    if (!seed) return
+    const wantAddr = String(seed.address || '').trim().toLowerCase()
+    const wantSub = String(seed.suburb || seed.suburb_name || '').trim().toLowerCase()
+    const hit = wantAddr && (listings || []).find(l => {
+      if (String(l.address || '').trim().toLowerCase() !== wantAddr) return false
+      const ls = String(l.suburb_name || l.suburb || '').trim().toLowerCase()
+      return !wantSub || !ls || ls === wantSub
+    })
+    setDossier(hit || seed)
+  }, [listings])
 
   // Clear an agent/agency filter that's no longer valid for the current
   // suburb/status scope. Otherwise selecting one suburb while a filter
@@ -1091,7 +1111,7 @@ function App() {
           )}
           {(view === 'today' || warmBackground) && (
             <div style={{ display: view === 'today' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
-              <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} />
+              <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} openDossier={openDossier} />
             </div>
           )}
           {(view === 'signals' || warmBackground) && (
@@ -1223,6 +1243,15 @@ function App() {
           ) : null}
         </main>
       </div>
+      {dossier && (
+        <PropertyDetail
+          listing={dossier}
+          listings={listings}
+          calcDOM={calcDOM}
+          formatIsoDate={formatIsoDate}
+          onClose={() => setDossier(null)}
+        />
+      )}
       <Footer />
       </div>
     </div>
