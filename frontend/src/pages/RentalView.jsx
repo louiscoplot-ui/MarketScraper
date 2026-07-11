@@ -10,6 +10,15 @@ import { apiJson, BACKEND_DIRECT, getAccessKey, readCache, writeCache } from '..
 import { formatIsoDate } from '../hooks/useListings'
 import { getDeskMode } from '../lib/deskFlag'
 
+// date_listed comes back as DD/MM/YYYY text (RP Data/REIWA source format,
+// never normalised on import) — a plain string compare sorts by day-of-
+// month first, scattering the column (23/06 before 30/06 before 08/07/2025).
+// Convert to YYYY-MM-DD for comparison only; ISO values pass through as-is.
+function dmyToSortable(s) {
+  if (!s) return ''
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s)
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : s
+}
 
 // Suburb-scoped cache key. Stale-while-revalidate — hydrate the table
 // from localStorage on suburb change, then refresh in the background
@@ -229,6 +238,17 @@ export default function RentalView({ selectedNames } = {}) {
   // in desk mode. null = follow the prop selection untouched; a Set once
   // the operator interacts with the chips.
   const [deskSelected, setDeskSelected] = useState(null)
+  // "+ add suburb" stays open while toggling (closes only on outside
+  // click) — a native <select> closed after every pick, forcing the
+  // operator to reopen it for each additional suburb.
+  const [subPickerOpen, setSubPickerOpen] = useState(false)
+  const subPickerRef = useRef(null)
+  useEffect(() => {
+    if (!subPickerOpen) return
+    const h = (e) => { if (subPickerRef.current && !subPickerRef.current.contains(e.target)) setSubPickerOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [subPickerOpen])
   const toggleDeskSuburb = (name) => {
     setDeskSelected(prev => {
       const next = new Set(prev || selectedNames || [])
@@ -342,7 +362,7 @@ export default function RentalView({ selectedNames } = {}) {
       const sa = STATUS_RANK[a.status] ?? 3
       const sb = STATUS_RANK[b.status] ?? 3
       if (sa !== sb) return sa - sb
-      return (b.date_listed || '').localeCompare(a.date_listed || '')
+      return dmyToSortable(b.date_listed).localeCompare(dmyToSortable(a.date_listed))
     })
   }
 
@@ -583,10 +603,7 @@ export default function RentalView({ selectedNames } = {}) {
       } else if (sortField === 'beds' || sortField === 'days_on_market') {
         va = Number(a[sortField] || 0); vb = Number(b[sortField] || 0)
       } else if (sortField === 'date_listed') {
-        // ISO YYYY-MM-DD sorts lexicographically; empty pushed to end
-        // when ascending, to top when descending — same convention as
-        // ListingsView's listing_date sort.
-        va = a.date_listed || ''; vb = b.date_listed || ''
+        va = dmyToSortable(a.date_listed); vb = dmyToSortable(b.date_listed)
       } else {
         va = (a[sortField] || '').toString().toLowerCase()
         vb = (b[sortField] || '').toString().toLowerCase()
@@ -1011,22 +1028,34 @@ export default function RentalView({ selectedNames } = {}) {
             </button>
           ))}
           {suburbs.some(s => !activeNames.includes(s.name)) && (
-            <select
-              value=""
-              onChange={(e) => { if (e.target.value) toggleDeskSuburb(e.target.value) }}
-              title="Add a suburb to the view"
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 11.5,
-                color: 'var(--text-muted)', background: 'var(--surface)',
-                border: '1px dashed var(--border)', borderRadius: 999,
-                padding: '5px 10px', cursor: 'pointer',
-              }}
-            >
-              <option value="">+ add suburb</option>
-              {suburbs.filter(s => !activeNames.includes(s.name)).map(s => (
-                <option key={s.id} value={s.name}>{s.name}</option>
-              ))}
-            </select>
+            <div ref={subPickerRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setSubPickerOpen(o => !o)}
+                title="Add one or more suburbs to the view"
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 11.5,
+                  color: subPickerOpen ? 'var(--accent)' : 'var(--text-muted)',
+                  background: 'var(--surface)',
+                  border: `1px dashed ${subPickerOpen ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 999,
+                  padding: '5px 10px', cursor: 'pointer',
+                }}
+              >
+                + add suburb ▾
+              </button>
+              {subPickerOpen && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 50, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-pop)', padding: 6, minWidth: 190, maxHeight: 320, overflowY: 'auto' }}>
+                  {suburbs.filter(s => !activeNames.includes(s.name)).map(s => (
+                    <button key={s.id} type="button" onClick={() => toggleDeskSuburb(s.name)}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-hover)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <button
             type="button"

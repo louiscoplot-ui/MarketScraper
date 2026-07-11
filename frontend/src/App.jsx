@@ -1060,14 +1060,11 @@ function App() {
               filters survive). Report / Rental / Admin / History stay lazy
               in the ternary below — they hang off a selection or a role, so
               there is nothing useful to prefetch blindly. */}
-          {/* Wave-2 gated like the other heavy tabs: mounting at render 0
-              fired the uploads-list + multi-MB report auto-load in the
-              same instant as the landing tab's critical fetches. */}
-          {(view === 'hot-vendors' || warmStage >= 2) && (
-            <div style={{ display: view === 'hot-vendors' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
-              <HotVendorScoring />
-            </div>
-          )}
+          {/* Always mounted from render 0, like Listings — the operator
+              needs every tab warm on open with zero wait on first click. */}
+          <div style={{ display: view === 'hot-vendors' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
+            <HotVendorScoring />
+          </div>
           {(view === 'today' || warmBackground) && (
             <div style={{ display: view === 'today' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
               <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} />

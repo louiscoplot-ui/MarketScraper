@@ -883,12 +883,12 @@ export default function HotVendorScoring() {
       if (p.holding_years != null) out.push(`${Math.round(p.holding_years)}y hold`)
       if (p.owner_gain_pct != null) out.push(`${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% gain`)
       if (p.sales_count) out.push(`${p.sales_count} street sale${p.sales_count === 1 ? '' : 's'}`)
-      return out.slice(0, 3)
+      return out.slice(0, 2)
     }
     const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
     // Status column 170px — the native <select> sizes to its longest
     // option (~165px at 12px + padding) and overflowed the previous 132px.
-    const GRID = '54px minmax(0,1.5fr) minmax(0,1.1fr) minmax(0,1fr) 170px 156px'
+    const GRID = '46px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1.15fr) 170px 140px'
     const noteFor = (a) => (notes[a] || '').trim()
     const catBadge = (cat) => cat === 'HOT' ? { bg: 'var(--score-hot-bg)', fg: 'var(--score-hot-text)' }
       : cat === 'WARM' ? { bg: 'var(--status-watch-bg)', fg: 'var(--status-watch-text)' }
@@ -1036,7 +1036,7 @@ export default function HotVendorScoring() {
         </div>
 
         <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, boxShadow: 'var(--shadow-card)', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, padding: '13px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: GRID, gap: 14, padding: '8px 16px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>
             {HV_HEAD.map(h => h.f ? (
               /* Real <button> — keyboard sortable, keeps the default focus outline. */
               <button key={h.l} type="button" onClick={() => toggleSort(h.f)} style={{ cursor: 'pointer', userSelect: 'none', background: 'none', border: 'none', padding: 0, textAlign: 'left', font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit', color: 'inherit' }}>{h.l}{sortIndicator(h.f)}</button>
@@ -1051,36 +1051,36 @@ export default function HotVendorScoring() {
               // Snooze: future call-back dims the row; a due one flags it.
               const cbState = callbackState(callbacks[p.address])
               return (
-              <div key={p.rank ?? `${p.address}-${getSuburb(p) || ''}`} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 20, alignItems: 'center', padding: '11px 20px', borderBottom: '1px solid var(--border)', opacity: cbState === 'snoozed' ? 0.55 : 1 }}>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, textAlign: 'center', padding: '5px 0', borderRadius: 8, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
+              <div key={p.rank ?? `${p.address}-${getSuburb(p) || ''}`} style={{ display: 'grid', gridTemplateColumns: GRID, gap: 14, alignItems: 'center', padding: '6px 16px', borderBottom: '1px solid var(--border)', opacity: cbState === 'snoozed' ? 0.55 : 1 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, textAlign: 'center', padding: '3px 0', borderRadius: 7, background: cb.bg, color: cb.fg }}>{Math.round(p.final_score)}</span>
                 <div style={{ minWidth: 0 }}>
                   <button type="button" onClick={() => openDetail(p)} title="Open details"
-                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.address)}</button>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.address)}</button>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
                     {getSuburb(p) || ''}
-                    {cbState === 'due' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, background: 'var(--status-watch-bg)', color: 'var(--status-watch-text)', border: '1px solid var(--status-watch)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>call-back due</span>}
-                    {cbState === 'snoozed' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, background: 'var(--status-off-bg)', color: 'var(--status-off-text)', borderRadius: 999, padding: '1px 7px', whiteSpace: 'nowrap' }}>snoozed → {formatIsoDate(callbacks[p.address])}</span>}
+                    {cbState === 'due' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, background: 'var(--status-watch-bg)', color: 'var(--status-watch-text)', border: '1px solid var(--status-watch)', borderRadius: 999, padding: '1px 6px', whiteSpace: 'nowrap' }}>call-back due</span>}
+                    {cbState === 'snoozed' && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, background: 'var(--status-off-bg)', color: 'var(--status-off-text)', borderRadius: 999, padding: '1px 6px', whiteSpace: 'nowrap' }}>snoozed → {formatIsoDate(callbacks[p.address])}</span>}
                   </div>
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.current_owner) || '—'}</div>
+                  <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{titleCase(p.current_owner) || '—'}</div>
                   {(() => {
                     // Show the phone inline so the agent sees who's reachable
                     // without opening each dossier. Clickable tel: link.
                     const ph = (phones[p.address] ?? p.phone ?? '').trim()
                     return ph
-                      ? <a href={`tel:${ph}`} onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>{ph}</a>
-                      : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-faint)' }}>no phone</span>
+                      ? <a href={`tel:${ph}`} onClick={(e) => e.stopPropagation()} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>{ph}</a>
+                      : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>no phone</span>
                   })()}
                 </div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                  {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', whiteSpace: 'nowrap' }}>{s}</span>)}
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap', overflow: 'hidden' }}>
+                  {sigChips(p).map((s, i) => <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap', flexShrink: 0 }}>{s}</span>)}
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <Select value={statuses[p.address] || ''} onChange={(e) => setStatus(p.address, e.target.value)} size="sm" options={STATUS_OPTIONS} />
                 </div>
                 <button onClick={() => openNote(p)} title={note || 'Add a note'}
-                  style={{ minWidth: 0, textAlign: 'left', background: note ? 'var(--status-watch-bg)' : 'transparent', border: note ? '1px solid var(--status-watch)' : '1px dashed var(--border)', borderRadius: 6, padding: '5px 8px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 11.5, color: note ? 'var(--status-watch-text)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  style={{ minWidth: 0, textAlign: 'left', background: note ? 'var(--status-watch-bg)' : 'transparent', border: note ? '1px solid var(--status-watch)' : '1px dashed var(--border)', borderRadius: 6, padding: '4px 7px', cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 11, color: note ? 'var(--status-watch-text)' : 'var(--text-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {note ? note : '+ note'}
                 </button>
               </div>
