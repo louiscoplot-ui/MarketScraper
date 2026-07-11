@@ -96,6 +96,25 @@ async function lookup(address, suburb, postcode) {
   return null
 }
 
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+// A burst of ~40+ lookups through only 3 workers routinely drew 429s from
+// Photon's public instance — each one silently dropped the pin (no retry),
+// which is why a 42-listing screen showed a handful of pins. Two retries
+// with backoff absorb a transient rate-limit/outage instead of giving up
+// on the first failure.
+async function lookupWithRetry(address, suburb, postcode) {
+  const delays = [500, 1500]
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await lookup(address, suburb, postcode)
+    } catch (e) {
+      if (attempt >= delays.length) throw e
+      await sleep(delays[attempt])
+    }
+  }
+}
+
 const queue = []
 let active = 0
 
@@ -103,7 +122,7 @@ function drain() {
   while (active < WORKERS && queue.length) {
     const job = queue.shift()
     active++
-    lookup(job.address, job.suburb, job.postcode)
+    lookupWithRetry(job.address, job.suburb, job.postcode)
       .then(
         out => {
           // Only definitive answers (a 200 response) reach here — a hit or
@@ -112,8 +131,9 @@ function drain() {
           job.resolve(out ?? null)
         },
         () => {
-          // Transient failure (network down, 429/5xx): resolve without
-          // caching so the address is retried on the next screen load.
+          // Transient failure survived all retries (network down, sustained
+          // 429/5xx): resolve without caching so the address is retried on
+          // the next screen load.
           job.resolve(null)
         }
       )

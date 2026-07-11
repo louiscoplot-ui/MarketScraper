@@ -9,6 +9,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { apiJson, BACKEND_DIRECT, getAccessKey, readCache, writeCache } from '../lib/api'
 import { formatIsoDate } from '../hooks/useListings'
 import { getDeskMode } from '../lib/deskFlag'
+import DeskMap from '../components/DeskMap'
 
 // date_listed comes back as DD/MM/YYYY text (RP Data/REIWA source format,
 // never normalised on import) — a plain string compare sorts by day-of-
@@ -304,6 +305,14 @@ export default function RentalView({ selectedNames } = {}) {
   useEffect(() => {
     try { localStorage.setItem('rentals_compact', compact ? '1' : '0') } catch {}
   }, [compact])
+
+  // Lateral map, same collapsible pattern as Prospecting/Sales.
+  const [mapOpen, setMapOpen] = useState(() => {
+    try { return localStorage.getItem('rentals_map_open') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('rentals_map_open', mapOpen ? '1' : '0') } catch {}
+  }, [mapOpen])
 
   // Internal suburb list — populates the standalone-mode dropdown and
   // the desk-mode suburb chips (the desk shell hides the App.jsx
@@ -934,6 +943,23 @@ export default function RentalView({ selectedNames } = {}) {
             <option value="">All Agents</option>
             {uniqueAgents.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
+          {isDesk && (
+            <button
+              type="button"
+              onClick={() => setMapOpen(m => !m)}
+              title={mapOpen ? 'Hide the map — more room for columns' : 'Show the map'}
+              onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.92)' }}
+              onMouseLeave={(e) => { e.currentTarget.style.filter = '' }}
+              style={{
+                padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                color: mapOpen ? 'var(--accent)' : 'var(--text)',
+                border: `1px solid ${mapOpen ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 6, background: 'var(--surface)', cursor: 'pointer',
+              }}
+            >
+              {mapOpen ? 'Map ⇥' : '⇤ Map'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setCompact(c => !c)}
@@ -1098,9 +1124,13 @@ export default function RentalView({ selectedNames } = {}) {
         }}>{error}</div>
       )}
 
-      {/* Table ----------------------------------------------------- */}
+      {/* Table + lateral map (desk only) ---------------------------- */}
+      <div style={{ display: 'flex', gap: 0, minHeight: 0 }}>
       <div style={{
-        border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
+        flex: (isDesk && mapOpen) ? '0 0 70%' : '1 1 100%', minWidth: 0,
+        border: '1px solid var(--border)',
+        borderRight: (isDesk && mapOpen) ? 'none' : '1px solid var(--border)',
+        borderRadius: (isDesk && mapOpen) ? '10px 0 0 10px' : 10, overflow: 'hidden',
         boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
       }}>
         {/* overflow BOTH ways + max-height so the global th{position:
@@ -1282,6 +1312,25 @@ export default function RentalView({ selectedNames } = {}) {
             </tbody>
           </table>
         </div>
+      </div>
+      {isDesk && mapOpen && (
+        <div style={{
+          flex: '0 0 30%', minWidth: 0, border: '1px solid var(--border)',
+          borderLeft: 'none', borderRadius: '0 10px 10px 0', overflow: 'hidden',
+          boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)',
+        }}>
+          <DeskMap
+            items={filtered}
+            label={`Perth metro · ${filtered.length} rentals`}
+            addressOf={(r) => r.address}
+            suburbOf={(r) => r.suburb}
+            statusOf={(r) => r.status}
+            colorOf={(r) => (r.status === 'Leased' ? '#9CA3AF' : '#16A34A')}
+            priceOf={(r) => r.price_week || r.price || ''}
+            domOf={(r) => r.days_on_market ?? null}
+          />
+        </div>
+      )}
       </div>
     </div>
   )
