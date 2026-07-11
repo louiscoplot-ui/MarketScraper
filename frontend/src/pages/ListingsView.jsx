@@ -236,12 +236,17 @@ export default function ListingsView({
           onSave={(val) => updateListing(l.id, { price_text: val })}
         />
       ) },
-    { field: 'bedrooms', label: 'Bed', sortable: true, className: 'num',
+    // Desk mode merges Bed/Bath/Car into one column (3 columns' worth of
+    // width was the single biggest reason Listed/DOM needed a horizontal
+    // scroll to reach) — classic keeps them separate + individually sortable.
+    !isDesk && { field: 'bedrooms', label: 'Bed', sortable: true, className: 'num',
       cell: (l) => l.bedrooms ?? '-' },
-    { field: 'bathrooms', label: 'Bath', sortable: true, className: 'num',
+    !isDesk && { field: 'bathrooms', label: 'Bath', sortable: true, className: 'num',
       cell: (l) => l.bathrooms ?? '-' },
-    { field: 'parking', label: 'Car', sortable: true, className: 'num',
+    !isDesk && { field: 'parking', label: 'Car', sortable: true, className: 'num',
       cell: (l) => l.parking ?? '-' },
+    isDesk && { field: '__bbc', label: 'Bd·Ba·Cr', sortable: false, className: 'num',
+      cell: (l) => [l.bedrooms, l.bathrooms, l.parking].map(x => x ?? '–').join('·') },
     { field: 'land_size', label: 'Land', sortable: true,
       cell: (l) => l.land_size || '-' },
     { field: 'internal_size', label: 'Internal', sortable: true,
@@ -292,7 +297,9 @@ export default function ListingsView({
       cell: (l) => l.listing_type
         ? <span className="type-pill">{l.listing_type}</span>
         : '-' },
-    { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
+    // Desk mode drops this — the dossier (opened from Address) already has
+    // a prominent "View on REIWA" button, so the column was pure duplication.
+    !isDesk && { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
       cell: (l) => l.reiwa_url
         ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
         : '-' },
