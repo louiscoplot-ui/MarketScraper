@@ -63,13 +63,13 @@ function MarketPulse({ report, suburbCount, scope }) {
     return ps.length ? { dt, v: ps.reduce((a, b) => a + b, 0) / ps.length } : null
   }).filter(Boolean)
 
-  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-card)' }
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '13px 16px', boxShadow: 'var(--shadow-card)' }
   const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
   const monthOf = (iso) => MP_MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
   const dmy = (iso) => { const p = String(iso).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}` }
 
   const Head = (
-    <div style={{ marginBottom: 12 }}>
+    <div style={{ marginBottom: 9 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontFamily: 'var(--font-ui)', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Market pulse</div>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)' }}>{series.length >= 2 ? 'nightly snapshots' : 'building'}</span>
@@ -113,18 +113,18 @@ function MarketPulse({ report, suburbCount, scope }) {
   return (
     <div style={card}>
       {Head}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 10 }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontSize: 30, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(cur.v)}</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8 }}>
+        <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(cur.v)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {monthOf(series[0].dt)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>· {dmy(cur.dt)}</span>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         {/* $ axis */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 118, width: 46, flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', textAlign: 'right' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: 104, width: 46, flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', textAlign: 'right' }}>
           <span>{fmtM(max)}</span><span>{fmtM((max + min) / 2)}</span><span>{fmtM(min)}</span>
         </div>
         {/* chart */}
-        <div style={{ position: 'relative', flex: 1, height: 118, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+        <div style={{ position: 'relative', flex: 1, height: 104, cursor: 'crosshair' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
           <svg viewBox="0 0 640 150" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block' }}>
             <defs><linearGradient id="mp-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".18" /><stop offset="1" stopColor="var(--accent)" stopOpacity="0" /></linearGradient></defs>
             <line x1="0" y1="40" x2="640" y2="40" stroke="var(--border)" strokeWidth="1" /><line x1="0" y1="90" x2="640" y2="90" stroke="var(--border)" strokeWidth="1" />
@@ -493,7 +493,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     })
     const W = (id, node) => has(id) ? node : null
     // Each column scrolls on its own so the PAGE never scrolls.
-    const colStyle = { display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, overflowY: 'auto', paddingRight: 4 }
+    const colStyle = { display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, overflowY: 'auto', paddingRight: 4 }
     const groupsOrder = ['Leads', 'Market', 'Trends', 'Pipeline']
 
     return (
@@ -553,7 +553,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
           // no permanent blank third of the screen, and (b) wraps columns on
           // narrow viewports — the grid then scrolls vertically instead of
           // clipping (overflowY auto is a no-op while everything fits).
-          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, overflowY: 'auto', overflowX: 'hidden' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, overflowY: 'auto', overflowX: 'hidden' }}>
 
             {/* ── Column 1 — the call list ── */}
             {(has('leads') || has('hot')) && (
@@ -562,11 +562,11 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                 <div style={{ ...card, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   {titleRow('Contact today', leads.length)}
                   {leads.length === 0 ? emptyLine('Nothing to action — the feed fills as the nightly scrapes run.') : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, overflowY: 'auto', minHeight: 0, paddingBottom: 12, WebkitMaskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)', maskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, overflowY: 'auto', minHeight: 0, paddingBottom: 12, WebkitMaskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)', maskImage: 'linear-gradient(180deg, #000 calc(100% - 18px), transparent)' }}>
                       {leads.map((l, i) => (
                         <button key={`${l.view}-${l.address}-${i}`} onClick={() => setLeadDetail(l)}
                           {...hoverFx({ background: 'var(--surface-hover)' }, { background: 'var(--bg)' })}
-                          style={{ display: 'flex', alignItems: 'center', gap: 11, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 12px', cursor: 'pointer', minWidth: 0 }}>
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 9, padding: '6px 11px', cursor: 'pointer', minWidth: 0 }}>
                           <span style={{ width: 8, height: 8, borderRadius: '50%', background: TONE_TEXT[l.tone], flexShrink: 0 }} />
                           <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.address}</div>
@@ -633,19 +633,19 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                       })}
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 9 }}>
                     {marketTiles.map(t => {
                       const hasD = typeof t.d === 'number'
                       const up = (t.d || 0) > 0
                       return (
-                      <div key={t.l} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, padding: '13px 14px' }}>
+                      <div key={t.l} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 11, padding: '10px 12px' }}>
                         {/* label + status dot on top — reads before the number */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ width: 7, height: 7, borderRadius: '50%', background: t.c, flexShrink: 0 }} />
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{t.l}</span>
                         </div>
                         {/* the count */}
-                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, letterSpacing: '-0.02em', lineHeight: 1.05, color: 'var(--text)', marginTop: 4, fontVariantNumeric: 'tabular-nums' }}>{t.v}</div>
+                        <div style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', lineHeight: 1.05, color: 'var(--text)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{t.v}</div>
                         {/* change vs the selected window — arrow + count + plain words */}
                         {t.skip ? (
                           reportReady && <div style={{ marginTop: 5, fontFamily: 'var(--font-ui)', fontSize: 11.5, color: 'var(--text-faint)' }}>latest sales on file</div>
@@ -714,7 +714,7 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
               {W('bySuburb', (
                 <div style={card}>
                   {titleRow('Brief signals by suburb')}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {bars.length === 0 ? emptyLine('No signals yet.') : bars.map(b => (
                       <div key={b.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text)', width: 104, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
