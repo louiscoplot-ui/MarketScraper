@@ -1237,6 +1237,51 @@ def pipeline_letter_download(id):
         conn.close()
         return jsonify({'error': 'Not authorised for that suburb'}), 403
 
+    # Calling user's identity for the signature/footer. Built up here (before
+    # the orphan branch) so both letter paths share it. Falls back to env vars
+    # then '' inside the renderer when a field is empty.
+    from admin_api import get_current_user
+    me = get_current_user() or {}
+    user_profile = {
+        'agency_name': me.get('agency_name'),
+        'agent_name': me.get('agent_name'),
+        'agent_phone': me.get('agent_phone'),
+        'agent_email': me.get('agent_email'),
+    }
+
+    # Withdrawn-orphan leads (LOOP-2) get the withdrawn-specific letter — the
+    # "your listing came off the market, here's what's changed" body — NOT the
+    # neighbour-sold prospecting letter. For an orphan the source IS the target
+    # (its own withdrawn listing), so render_letter_docx would cite the
+    # recipient's own address as a nearby comp. Branch before the enrich/gather
+    # that only the comp letter needs.
+    if (entry.get('status') or '') == 'withdrawn_orphan':
+        lrow = conn.execute(
+            "SELECT l.id FROM listings l JOIN suburbs s ON s.id = l.suburb_id "
+            "WHERE lower(l.address) = lower(?) AND lower(s.name) = lower(?) "
+            "AND l.status = 'withdrawn' ORDER BY l.id DESC LIMIT 1",
+            (target_address, source_suburb)
+        ).fetchone()
+        if lrow:
+            conn.close()
+            from signals.withdrawn_orphan import build_orphan_letter
+            doc, filename = build_orphan_letter(dict(lrow)['id'], user_profile=user_profile)
+            if doc is not None:
+                buf = BytesIO()
+                doc.save(buf)
+                buf.seek(0)
+                return send_file(
+                    buf,
+                    mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    as_attachment=True,
+                    download_name=filename,
+                )
+            # Listing no longer an eligible orphan (relisted/purged) — re-open a
+            # connection and fall through to the generic letter so the button
+            # never dead-ends.
+            conn = get_db()
+        # lrow None → keep the open connection and fall through.
+
     # Now safe — caller has access to this suburb, so enriching the
     # owner names for THIS suburb only is in scope.
     _enrich_owner_names(conn, source_suburb)
@@ -1259,17 +1304,8 @@ def pipeline_letter_download(id):
                 owner_name = n
                 break
 
-    # Pass the calling user's profile so the signature/footer reflects
-    # their agency + contact details. Falls back to env vars then '' inside
-    # the renderer if a field is empty.
-    from admin_api import get_current_user
-    me = get_current_user() or {}
-    user_profile = {
-        'agency_name': me.get('agency_name'),
-        'agent_name': me.get('agent_name'),
-        'agent_phone': me.get('agent_phone'),
-        'agent_email': me.get('agent_email'),
-    }
+    # user_profile was built above (shared with the orphan branch) so the
+    # signature/footer reflects the caller's agency + contact details.
     doc = render_letter_docx(target_address, owner_name, source_suburb, sources, user_profile=user_profile)
 
     buf = BytesIO()

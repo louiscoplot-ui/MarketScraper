@@ -138,9 +138,11 @@ def process_withdrawn_orphans():
             'suburbs_covered': sorted(suburbs)}
 
 
-def build_orphan_letter(listing_id):
+def build_orphan_letter(listing_id, user_profile=None):
     """Render the withdrawn-orphan .docx for one listing. Returns (Document,
-    safe_filename) or (None, None) if the listing isn't an eligible orphan."""
+    safe_filename) or (None, None) if the listing isn't an eligible orphan.
+    user_profile (agency/agent identity) flows into the signature block; None
+    falls back to env vars — matches the single-agent signals route."""
     from pipeline_letter import render_withdrawn_letter_docx
     conn = get_db()
     try:
@@ -165,6 +167,7 @@ def build_orphan_letter(listing_id):
         days_withdrawn=days,
         active_count=active_count,
         median_text=median_text,
+        user_profile=user_profile,
     )
     safe = ''.join(c for c in (row['address'] or 'letter')
                    if c.isalnum() or c in (' ', '-')).strip().replace(' ', '_')[:60]

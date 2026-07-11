@@ -6,7 +6,12 @@ import { Button, Chip, Select, Spinner } from '../components/ui'
 import { getDeskMode } from '../lib/deskFlag'
 
 // Kanban column order + accents (status grammar) for the desk board.
+// `withdrawn_orphan` is the entry status the LOOP-2 cron writes for expired-
+// mandate leads. It MUST have a column or those leads land in pipeline_tracking
+// but render nowhere on the board (invisible until manually moved). Kept first
+// as a distinct source — its Letter button pulls the withdrawn-specific letter.
 const PIPE_STAGES = [
+  { key: 'withdrawn_orphan', label: 'Withdrawn orphans', accent: 'var(--status-watch)', next: 'Send the withdrawn letter' },
   { key: 'sent', label: 'To send', accent: 'var(--status-info)', next: 'Send / drop the letter' },
   { key: 'responded', label: 'Responded', accent: 'var(--status-watch)', next: 'Book the appraisal' },
   { key: 'appraisal_booked', label: 'Appraisal booked', accent: 'var(--status-good)', next: 'Prepare the proposal' },
@@ -34,6 +39,7 @@ const RECENT_SALES_CACHE_KEY = (suburb, days) => `pipeline_recent_${(suburb || '
 // appraisal_booked / listing_signed = good (green, progressing / won),
 // no_response = off (grey, dead).
 const PIPE_STATUS = {
+  withdrawn_orphan: { label: 'Withdrawn orphan', status: 'watch' },
   sent: { label: 'To send', status: 'info' },
   responded: { label: 'Responded', status: 'watch' },
   appraisal_booked: { label: 'Appraisal booked', status: 'good' },
