@@ -358,24 +358,35 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
   const [fallenList, setFallenList] = useState(() => readCache('dash_fallen') || [])
   const [appraisalsList, setAppraisalsList] = useState(() => readCache('dash_appraisals') || [])
 
-  const fetchBrief = useCallback(async () => {
+  const fetchBrief = useCallback(async (attempt = 0) => {
     // Stale-while-revalidate: the brief is computed live server-side
     // (heavy, worse on a cold Render dyno), so a fresh fetch every visit
     // felt slow. Paint the last cached brief instantly, then refresh in
     // the background. Cache is access-key-scoped (readCache/writeCache).
     const cached = readCache('brief_today')
     if (cached) { setBrief(cached); setLoading(false) }
-    else { setLoading(true) }
+    else if (attempt === 0) { setLoading(true) }
     setError('')
     try {
       // Deadline so a stalled cold-start socket can't hang the spinner
-      // forever — the finally below only runs if the promise settles.
+      // forever.
       const d = await apiJson('/api/brief/today', { signal: AbortSignal.timeout(30000) })
       setBrief(d)
       if (d && !d.error) writeCache('brief_today', d)
+      setLoading(false)
     } catch (e) {
-      if (!cached) setError(e.message || 'Could not load your brief')
-    } finally {
+      // AbortSignal.timeout throws a TimeoutError, but iOS Safari surfaces
+      // it as an AbortError whose message is the literal "Fetch is aborted"
+      // — dumping that raw string read like a crash. A cold Render dyno
+      // routinely blows a single 30s deadline, so retry ONCE automatically
+      // (the dyno is warm by then) before showing a friendly, retryable
+      // message. Never surface the browser's raw abort text.
+      const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError'
+        || /abort|timed out|timeout/i.test(String(e.message || '')))
+      if (timedOut && attempt < 1) { fetchBrief(attempt + 1); return }
+      if (!cached) setError(timedOut
+        ? 'The server is waking up — this can take a few seconds on the first load.'
+        : 'Could not load your brief.')
       setLoading(false)
     }
   }, [])
@@ -669,7 +680,13 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
         {loading ? (
           <div style={{ color: 'var(--text-muted)', padding: 24, display: 'flex', alignItems: 'center', gap: 10 }}><Spinner size={16} muted inline /> Loading your brief…</div>
         ) : error ? (
-          <div style={{ color: 'var(--status-alert-text)', padding: 24 }}>{error}</div>
+          <div style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ color: 'var(--status-alert-text)' }}>{error}</span>
+            <button onClick={() => fetchBrief()}
+              style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
+              Retry
+            </button>
+          </div>
         ) : enabled.size === 0 ? (
           <div style={{ color: 'var(--text-muted)', padding: 24, fontFamily: 'var(--font-mono)', fontSize: 12.5 }}>No widgets enabled — click ⚙ Customize to add some.</div>
         ) : (
