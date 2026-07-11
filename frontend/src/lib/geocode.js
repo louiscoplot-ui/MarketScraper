@@ -16,7 +16,9 @@
 
 // v4 — transient failures no longer cached; bump flushes caches already
 // poisoned with nulls from past Photon outages/429s (v3 kept them forever).
-const CACHE_PREFIX = 'sd_geo_v4_'
+// v5 — entries now carry a `precise` flag (house-number hit vs suburb
+// fallback); bump re-geocodes v4 entries so imprecise pins stop stacking.
+const CACHE_PREFIX = 'sd_geo_v5_'
 const PERTH = { lat: -31.9505, lon: 115.8605 }
 const WORKERS = 3
 
@@ -90,9 +92,14 @@ async function lookup(address, suburb, postcode) {
   const houses = feats.filter(f => f.properties && f.properties.housenumber && matches(f.properties, suburb, postcode))
   const inSuburb = feats.filter(f => matches(f.properties, suburb, postcode))
   const perthAny = feats.filter(f => inPerth(coordOf(f)))
-  const pick = houses[0] || inSuburb[0] || perthAny[0]
+  // precise = a real house-number hit. Everything else is a suburb/street
+  // fallback (often the suburb centroid) — the map must NOT treat those as
+  // exact, or a dozen unlocated addresses stack on one point and look like
+  // a building. Flag it so the caller can render/place them honestly.
+  const precise = houses[0]
+  const pick = precise || inSuburb[0] || perthAny[0]
   const c = coordOf(pick)
-  if (Array.isArray(c) && c.length === 2) return { lng: c[0], lat: c[1] }
+  if (Array.isArray(c) && c.length === 2) return { lng: c[0], lat: c[1], precise: !!precise }
   return null
 }
 

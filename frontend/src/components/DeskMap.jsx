@@ -135,12 +135,25 @@ export default function DeskMap({
 
     const colorFor = (it) => (colorOf && colorOf(it)) || STATUS_COLOR[statusOf(it)] || '#9CA3AF'
 
+    // Approximate pins (geocoder returned the suburb centroid, not the
+    // house) used to all land on the exact same point → a dozen unrelated
+    // addresses stacked into a fake "building" cluster. Spread each one by a
+    // small deterministic offset (~±400m, stable per address) so they sit
+    // apart within the suburb, and render them hollow so it's clear they're
+    // approximate, not exact.
+    const jitter = (addr) => {
+      let h = 0; const s = String(addr || '')
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffffffff
+      const a = (h & 0xffff) / 0xffff, b = ((h >>> 16) & 0xffff) / 0xffff
+      return [(a - 0.5) * 0.008, (b - 0.5) * 0.008]   // ±0.004° ≈ ±400 m
+    }
+
     // Rich pin card — address + facts line + serif price per item; rows
     // click through to the dossier when the parent wires onSelect.
     // MapLibre's .maplibregl-popup-content background is a fixed white,
     // so colours here are explicit light-theme hex (all ≥4.5:1 on white)
     // — theme tokens would paint near-white text on it under dark presets.
-    const buildCard = (its) => {
+    const buildCard = (its, approx) => {
       const wrap = document.createElement('div')
       wrap.style.cssText = 'font-family:var(--font-ui);min-width:220px;max-width:300px;max-height:240px;overflow-y:auto'
       if (its.length > 1) {
@@ -148,6 +161,12 @@ export default function DeskMap({
         head.style.cssText = 'font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#736D66;padding:2px 4px 7px;border-bottom:1px solid #E7E5E4;margin-bottom:2px'
         head.textContent = `${its.length} listings at this point`
         wrap.appendChild(head)
+      } else if (approx) {
+        // Honest: this pin is a suburb-level approximation, not the house.
+        const note = document.createElement('div')
+        note.style.cssText = 'font-family:var(--font-mono);font-size:9.5px;color:#92400E;padding:2px 4px 6px'
+        note.textContent = 'Approximate location — exact address not found'
+        wrap.appendChild(note)
       }
       its.forEach((it, i) => {
         const row = document.createElement('div')
@@ -204,32 +223,46 @@ export default function DeskMap({
     const renderGroup = (g) => {
       const its = g.items
       if (its.length === 1) {
-        g.el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${colorFor(its[0])};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.35);cursor:pointer`
+        if (g.precise === false) {
+          // Approximate: hollow ring (dashed), no solid fill — reads as
+          // "somewhere in this suburb", not an exact address.
+          g.el.style.cssText = `width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.6);border:2px dashed ${colorFor(its[0])};box-shadow:0 1px 3px rgba(15,23,42,.2);cursor:pointer`
+        } else {
+          g.el.style.cssText = `width:13px;height:13px;border-radius:50%;background:${colorFor(its[0])};border:2.5px solid #fff;box-shadow:0 1px 5px rgba(15,23,42,.35);cursor:pointer`
+        }
         g.el.textContent = ''
       } else {
-        // Count badge — several properties share this exact point.
+        // Count badge — several properties share this EXACT point (real
+        // strata/building; only precise pins ever group).
         g.el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#386350;border:2.5px solid #fff;box-shadow:0 1px 6px rgba(15,23,42,.4);cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-family:var(--font-mono),monospace;font-size:10px;font-weight:700'
         g.el.textContent = String(its.length)
       }
       if (popupOf) {
         g.popup.setText(its.map(popupOf).join(' · '))
       } else {
-        g.popup.setDOMContent(buildCard(its))
+        g.popup.setDOMContent(buildCard(its, g.precise === false))
       }
     }
 
     const place = (it, c) => {
       if (cancelled() || !c) return
-      const key = `${c.lng.toFixed(5)},${c.lat.toFixed(5)}`
+      // precise !== false → exact house pin (default for legacy string coords).
+      const precise = c.precise !== false
+      let lng = c.lng, lat = c.lat
+      if (!precise) {
+        const [dx, dy] = jitter(addressOf(it) || '')
+        lng += dx; lat += dy   // spread approximate pins so they don't stack
+      }
+      const key = `${lng.toFixed(5)},${lat.toFixed(5)}`
       let g = groups.get(key)
       if (!g) {
         const el = document.createElement('div')
         const popup = new maplibregl.Popup({ offset: 15, closeButton: false, maxWidth: '320px' })
-        const mk = new maplibregl.Marker({ element: el }).setLngLat([c.lng, c.lat]).setPopup(popup).addTo(map)
-        g = { items: [], el, popup }
+        const mk = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).setPopup(popup).addTo(map)
+        g = { items: [], el, popup, precise }
         groups.set(key, g)
         markersRef.current.push(mk)
-        bounds.extend([c.lng, c.lat])
+        bounds.extend([lng, lat])
         placed++
         // Re-fit as pins land (debounced by count) so the view tracks
         // results — unless the user has taken the camera.
