@@ -74,6 +74,37 @@ export default function ListingsView({
   useEffect(() => {
     try { localStorage.setItem('listings_map_open', mapOpen ? '1' : '0') } catch { /* ignore */ }
   }, [mapOpen])
+  // Draggable table|map divider — the fraction of width given to the
+  // TABLE (0.40–0.94). Persisted, so the operator sets it once and the
+  // Listed/DOM columns stay in view. Default leans table-heavy.
+  const splitRef = useRef(null)
+  const [tableSplit, setTableSplit] = useState(() => {
+    try { const v = parseFloat(localStorage.getItem('listings_table_split') || '0.72'); return (v >= 0.4 && v <= 0.94) ? v : 0.72 } catch { return 0.72 }
+  })
+  const tableSplitRef = useRef(tableSplit)
+  useEffect(() => { tableSplitRef.current = tableSplit }, [tableSplit])
+  const [splitHover, setSplitHover] = useState(false)
+  const startSplitResize = (e) => {
+    e.preventDefault()
+    const onMove = (ev) => {
+      const el = splitRef.current; if (!el) return
+      const r = el.getBoundingClientRect()
+      if (!r.width) return
+      const frac = Math.max(0.4, Math.min(0.94, (ev.clientX - r.left) / r.width))
+      setTableSplit(frac)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      try { localStorage.setItem('listings_table_split', String(tableSplitRef.current)) } catch {}
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
   const subPickerRef = useRef(null)
   useEffect(() => {
     if (!subPickerOpen) return
@@ -174,6 +205,10 @@ export default function ListingsView({
   // to spot land vs house vs apartment differences at a glance.
   const showSuburb = filteredListings.length > 0
     && !filteredListings.every(l => l.suburb_name === filteredListings[0].suburb_name)
+  // Internal size is blank for most REIWA listings — when NO row in the
+  // current set has it, the column is pure dead width; drop it so the
+  // meaningful columns (Listed/DOM/Status) fit without scrolling.
+  const showInternal = filteredListings.some(l => l.internal_size)
 
   // Smart column visibility — hide a date column when BOTH:
   //   (a) the filter excludes its status (e.g. Withdrawn off), AND
@@ -249,7 +284,7 @@ export default function ListingsView({
       cell: (l) => [l.bedrooms, l.bathrooms, l.parking].map(x => x ?? '–').join('·') },
     { field: 'land_size', label: 'Land', sortable: true,
       cell: (l) => l.land_size || '-' },
-    { field: 'internal_size', label: 'Internal', sortable: true,
+    showInternal && { field: 'internal_size', label: 'Internal', sortable: true,
       cell: (l) => l.internal_size || '-' },
     { field: 'agency', label: 'Agency', sortable: true, className: 'agency-cell',
       cell: (l) => l.agency || '-' },
@@ -445,9 +480,9 @@ export default function ListingsView({
           </div>
         </div>
 
-        {/* split: table | map */}
-        <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <div style={{ width: mapOpen ? '72%' : '100%', minWidth: 0, borderRight: mapOpen ? '1px solid var(--border)' : 'none', display: 'flex', flexDirection: 'column' }}>
+        {/* split: table | draggable divider | map */}
+        <div ref={splitRef} style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+          <div style={{ width: mapOpen ? `${(tableSplit * 100).toFixed(1)}%` : '100%', minWidth: 0, borderRight: mapOpen ? '1px solid var(--border)' : 'none', display: 'flex', flexDirection: 'column' }}>
             {/* Full classic table — all columns + editable price/dates +
                 note + external link + delete — styled editorially by the
                 [data-desk] CSS. Horizontal scroll via StickyHScroll keeps
@@ -485,11 +520,23 @@ export default function ListingsView({
             </div>
             <StickyHScroll targetRef={wrapperRef} />
           </div>
-          {/* real map — MapLibre + free OSM tiles, exact per-address pins.
-              Collapsible: at laptop widths the map was hiding key columns
-              (Status/Listed/DOM), so the agent can trade it for table room. */}
+          {/* draggable divider — set exactly how much room the map gets */}
           {mapOpen && (
-            <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            <div
+              onMouseDown={startSplitResize}
+              onMouseEnter={() => setSplitHover(true)}
+              onMouseLeave={() => setSplitHover(false)}
+              title="Drag to resize the map"
+              style={{ width: 10, flexShrink: 0, cursor: 'col-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', background: (splitHover ? 'var(--surface-hover)' : 'transparent') }}>
+              <div style={{ width: 4, height: 42, borderRadius: 999, background: splitHover ? 'var(--accent)' : 'var(--border)' }} />
+            </div>
+          )}
+          {/* real map — MapLibre + free OSM tiles, exact per-address pins.
+              Collapsible + resizable: at laptop widths the map was hiding
+              key columns (Status/Listed/DOM), so the agent trades room via
+              the divider or hides it entirely. */}
+          {mapOpen && (
+            <div style={{ width: `${((1 - tableSplit) * 100).toFixed(1)}%`, minWidth: 0, minHeight: 0 }}>
               <DeskMap items={filteredListings} label={`Perth metro · ${filteredListings.length} listings`}
                 domOf={(l) => calcDOM(l)} onSelect={(l) => setDetail(l)} />
             </div>

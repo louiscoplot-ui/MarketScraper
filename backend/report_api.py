@@ -275,17 +275,13 @@ def market_report():
     snap_limit = min(2200, 120 * max(1, len(suburb_ids) if suburb_ids else 20))
     snapshots = get_market_snapshots(suburb_ids=suburb_ids, limit=snap_limit)
 
-    # Monthly median price per suburb of the properties that SOLD — the
-    # sales-based Market pulse. It reflects the full rolling sold backlog
-    # (~200/suburb), not just the rare disclosed sale prices:
-    #   • price  = the disclosed sold_price when REIWA/RP Data published it,
-    #              else the property's last advertised price (price_text).
-    #     Perth's western suburbs almost never publish the sale price, so
-    #     without this fallback the series was empty despite 200 sales.
-    #   • month  = the real sold_date, else the month the listing was last
-    #              seen (≈ when it left the market as sold).
-    # `disclosed` counts how many of each month's sales carried a real sold
-    # price, so the UI can be honest about the mix.
+    # Monthly median SOLD price per suburb — the sales-based Market pulse.
+    # HONEST by construction: built ONLY from sales whose price was actually
+    # disclosed (sold_price parses to a real number). Perth's western
+    # suburbs list "Contact agent"/"Contact form" and REIWA rarely publishes
+    # the sale price, so most suburbs will legitimately have little or no
+    # data here — the UI says so rather than faking a median from advertised
+    # prices. `disclosed` == count (kept for the frontend's wording).
     def _ym(s):
         """Year-month 'YYYY-MM' from an ISO ('YYYY-MM-DD…') or AU
         ('DD/MM/YYYY') date string; None if unparseable."""
@@ -299,23 +295,18 @@ def market_report():
 
     _sold_buckets = {}
     for l in sold:
+        price = _parse_price(l.get('sold_price'))
+        if not price:
+            continue          # no real sale price → not a data point
         mo = _ym(l.get('sold_date')) or _ym(l.get('last_seen'))
         if not mo:
             continue
-        disclosed = _parse_price(l.get('sold_price'))
-        price = disclosed or _parse_price(l.get('price_text'))
-        if not price:
-            continue
-        key = (l.get('suburb_name') or 'Unknown', mo)
-        b = _sold_buckets.setdefault(key, {'prices': [], 'disclosed': 0})
-        b['prices'].append(price)
-        if disclosed:
-            b['disclosed'] += 1
+        _sold_buckets.setdefault((l.get('suburb_name') or 'Unknown', mo), []).append(price)
     sold_series = [
         {'suburb_name': sn, 'month': mo,
-         'median_price': round(_median(b['prices'])),
-         'count': len(b['prices']), 'disclosed': b['disclosed']}
-        for (sn, mo), b in _sold_buckets.items()
+         'median_price': round(_median(ps)),
+         'count': len(ps), 'disclosed': len(ps)}
+        for (sn, mo), ps in _sold_buckets.items()
     ]
     sold_series.sort(key=lambda x: (x['suburb_name'], x['month']))
 

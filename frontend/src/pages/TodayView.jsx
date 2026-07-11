@@ -61,8 +61,11 @@ function MarketPulse({ report, suburbCount, scope }) {
   // Price basis — explicit Sold / Asking toggle. Default 'sold'; when a
   // suburb has too few disclosed sales the Sold view shows an empty state
   // pointing at Asking (no silent switch, so the toggle stays truthful).
+  // Default to Asking: REIWA rarely publishes the sale price in these
+  // suburbs (listings say "Contact agent"), so the Sold series is often
+  // empty. Asking (nightly medians) is the dense, reliable trend.
   const [basisPref, setBasisPref] = useState(() => {
-    try { const v = localStorage.getItem('mp_basis'); return v === 'asking' ? 'asking' : 'sold' } catch { return 'sold' }
+    try { const v = localStorage.getItem('mp_basis'); return v === 'sold' ? 'sold' : 'asking' } catch { return 'asking' }
   })
   const pickBasis = (b) => { setBasisPref(b); try { localStorage.setItem('mp_basis', b) } catch {} }
   // Scope-aware + SALES-based: the trend is the monthly median SOLD price
@@ -140,11 +143,9 @@ function MarketPulse({ report, suburbCount, scope }) {
     </div>
   )
 
-  // Sold view is priced off the properties that sold — disclosed sale
-  // price where published, else their last advertised price.
-  const soldDisclosed = soldWin.reduce((a, p) => a + (p.disclosed || 0), 0)
+  // Sold view = median of DISCLOSED sale prices only (no fabrication).
   const soldTotal = soldWin.reduce((a, p) => a + (p.count || 0), 0)
-  const priceKind = basis === 'sold' ? 'median price · sold listings' : 'median asking price'
+  const priceKind = basis === 'sold' ? 'median sold price' : 'median asking price'
   const where = scopeAll ? 'All suburbs' : scope
   const Head = (
     <div style={{ marginBottom: 9 }}>
@@ -159,26 +160,23 @@ function MarketPulse({ report, suburbCount, scope }) {
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
         {`${where} · ${priceKind} · last ${months} month${months > 1 ? 's' : ''}`}
       </div>
-      {/* Honest data-mix note: most western-suburb sales don't publish the
-          price, so the sold median leans on last advertised price. */}
       {basis === 'sold' && soldTotal > 0 && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
-          {soldDisclosed === soldTotal
-            ? `${soldTotal} sold · all at disclosed sale price`
-            : `${soldTotal} sold · ${soldDisclosed} at disclosed price, rest at last advertised`}
-        </div>
-      )}
-      {basis === 'sold' && soldWin.length < 2 && askingWin.length >= 2 && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
-          not enough sold data in this window — try a longer range or Asking
+          {soldTotal} sale{soldTotal > 1 ? 's' : ''} with a published price
         </div>
       )}
     </div>
   )
 
   if (series.length < 2) {
-    const other = basis === 'sold' ? askingWin : soldWin
-    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0' }}>{other.length >= 2 ? `Not enough ${basis === 'sold' ? 'disclosed sales' : 'asking data'} in this window — try ${basis === 'sold' ? 'Asking' : 'Sold'} or a longer range.` : 'The trend builds as sales (and nightly snapshots) accumulate.'}</div></div>
+    // Honest empty states — sold-price data is genuinely scarce here
+    // (REIWA lists "Contact agent"), it's not a loading glitch.
+    const msg = basis === 'sold'
+      ? (askingWin.length >= 2
+          ? 'No published sale prices in this window — most agents don\'t disclose them here. Switch to Asking for the price trend.'
+          : 'No published sale prices yet — REIWA rarely lists them for these suburbs. Import RP Data to fill sold prices in.')
+      : 'The asking trend builds as nightly snapshots accumulate.'
+    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0', lineHeight: 1.5 }}>{msg}</div></div>
   }
 
   const vals = series.map(p => p.v)
