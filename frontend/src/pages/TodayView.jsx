@@ -67,16 +67,22 @@ function MarketPulse({ report, suburbCount, scope }) {
   const pickBasis = (b) => { setBasisPref(b); try { localStorage.setItem('mp_basis', b) } catch {} }
   const scopeAll = !scope || scope === 'all'
   const median = (arr) => {
-    if (!arr.length) return 0
-    const s = [...arr].sort((a, b) => a - b)
+    const nums = arr.map(Number).filter(Number.isFinite)
+    if (!nums.length) return 0
+    const s = nums.sort((a, b) => a - b)
     const m = Math.floor(s.length / 2)
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
   }
 
   // — sold: RAW price points from the scraped sold listings —
-  const soldRaw = ((report && report.sold_series) || []).filter(r =>
-    scopeAll || (r.suburb_name || '').toLowerCase() === scope.toLowerCase()
-  )
+  // Only ever keep REAL numeric prices: a point whose price is a word
+  // ("Contact form"), null, or NaN is dropped, so the median never blows
+  // up to NaN. `r.price ?? r.median_price` also tolerates an older backend
+  // payload during a rolling deploy (monthly aggregates carry median_price).
+  const soldRaw = ((report && report.sold_series) || [])
+    .filter(r => scopeAll || (r.suburb_name || '').toLowerCase() === scope.toLowerCase())
+    .map(r => ({ ...r, price: Number(r.price ?? r.median_price) }))
+    .filter(r => Number.isFinite(r.price) && r.price > 0)
   // Window cutoff (YYYY-MM) from the newest sold month, so a lagging feed
   // still shows its tail instead of an empty window.
   const soldAllMonths = [...new Set(soldRaw.map(r => r.month))].sort()
@@ -122,7 +128,7 @@ function MarketPulse({ report, suburbCount, scope }) {
   const basis = basisPref
 
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '13px 16px', boxShadow: 'var(--shadow-card)' }
-  const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
+  const fmtM = (v) => !Number.isFinite(v) || v <= 0 ? '—' : (v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`)
   const monthOf = (iso) => MP_MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
   // Always DD/MM style, never American. Sold points are monthly
   // ('YYYY-MM' → MM/YYYY); asking points are dated ('YYYY-MM-DD' →
