@@ -1060,11 +1060,19 @@ function App() {
               filters survive). Report / Rental / Admin / History stay lazy
               in the ternary below — they hang off a selection or a role, so
               there is nothing useful to prefetch blindly. */}
-          {/* Always mounted from render 0, like Listings — the operator
-              needs every tab warm on open with zero wait on first click. */}
-          <div style={{ display: view === 'hot-vendors' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
-            <HotVendorScoring />
-          </div>
+          {/* Background-warmed in wave 1 (warmBackground, ~2s after first
+              paint) — NOT render 0: mounting it immediately fired the
+              uploads-list + multi-MB report auto-load in the same instant
+              as the landing tab's critical fetches, starving the cold
+              Render dyno and slowing the whole app. Wave 1 still means it's
+              warm well before the operator clicks the tab (instant switch),
+              it just yields the first connection-capped responses to the
+              tab actually on screen. */}
+          {(view === 'hot-vendors' || warmBackground) && (
+            <div style={{ display: view === 'hot-vendors' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
+              <HotVendorScoring />
+            </div>
+          )}
           {(view === 'today' || warmBackground) && (
             <div style={{ display: view === 'today' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
               <TodayView setView={setView} saleFallenCount={saleFallenCount} suburbs={suburbs} report={report} />
@@ -1098,7 +1106,7 @@ function App() {
               access so non-rental users never fire those fetches. */}
           {!!me && ((me.role || '').toLowerCase() === 'admin' || !!me.rental_access) && (view === 'rentals' || warmStage >= 2) && (
             <div style={{ display: view === 'rentals' ? 'block' : 'none', height: isDesk ? '100%' : undefined }}>
-              <RentalView selectedNames={rentalShownNames} />
+              <RentalView selectedNames={rentalShownNames} active={view === 'rentals'} />
             </div>
           )}
           {/* Listings is the landing tab (default view) — always mounted so

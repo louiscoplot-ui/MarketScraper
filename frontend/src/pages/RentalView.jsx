@@ -223,7 +223,7 @@ function SkeletonRows({ count = 5, cols = COLS.length }) {
 }
 
 
-export default function RentalView({ selectedNames } = {}) {
+export default function RentalView({ selectedNames, active = true } = {}) {
   // App.jsx drives the suburb selection by passing an array of names
   // (multi-select). When the array is missing / not an array, the
   // component falls back to a self-contained mode with a single-suburb
@@ -596,16 +596,10 @@ export default function RentalView({ selectedNames } = {}) {
     const arr = [...filteredBase]
     const dir = sortDir === 'asc' ? 1 : -1
     arr.sort((a, b) => {
-      // When viewing ALL suburbs in the DEFAULT order, group by suburb
-      // first so rows for the same suburb sit together (easy
-      // navigation). Once the operator clicks a column header the
-      // grouping is dropped — a global "Price ↓" that was silently
-      // regrouped by suburb read as a broken sort.
-      if (!viewSuburb && !userSorted) {
-        const sa = (a.suburb || '').toLowerCase(), sb = (b.suburb || '').toLowerCase()
-        if (sa < sb) return -1
-        if (sa > sb) return 1
-      }
+      // Sort strictly by the active column (default: date_listed desc, so
+      // the freshest listings lead on load) — NO implicit suburb grouping.
+      // Grouping by suburb first used to override the date order entirely
+      // on multi-suburb views, which read as "not sorted by Listed".
       let va, vb
       if (sortField === 'price_week') {
         va = _priceToInt(a.price_week); vb = _priceToInt(b.price_week)
@@ -1313,7 +1307,7 @@ export default function RentalView({ selectedNames } = {}) {
           </table>
         </div>
       </div>
-      {isDesk && mapOpen && (
+      {isDesk && mapOpen && active && (
         <div style={{
           flex: '0 0 30%', minWidth: 0, border: '1px solid var(--border)',
           borderLeft: 'none', borderRadius: '0 10px 10px 0', overflow: 'hidden',
