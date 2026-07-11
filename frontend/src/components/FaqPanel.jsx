@@ -89,9 +89,9 @@ const SECTIONS = [
     label: 'Dashboard',
     items: [
       ['What is the Dashboard?',
-        'Your morning brief: what changed overnight. The top vendor signals for your suburbs, KPIs (fresh signals, hot/watch counts), the metro market-pulse trend, signals by suburb, and sales that just fell through — in one glance.'],
+        'Your morning brief: what changed overnight. The top vendor signals for your suburbs, KPIs (fresh signals, hot/watch counts), the market-pulse trend, signals by suburb, and sales that just fell through — in one glance.'],
       ['What is "Market pulse"?',
-        'The metro median asking price over time, built from the nightly market snapshots. The trend fills in as more days of data accumulate.'],
+        'The median asking price over time for the selected suburb (or the average across all your suburbs when none is picked), built from the nightly market snapshots. Pick a 1 / 3 / 6 / 12-month window; the trend fills in as more days of data accumulate.'],
     ],
   },
   {
