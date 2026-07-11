@@ -176,7 +176,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       { l: 'Active', v: sm.active || 0, c: 'var(--status-good)' },
       { l: 'Under Offer', v: sm.under_offer || 0, c: 'var(--status-watch)' },
       { l: 'Sold', v: sm.sold || 0, c: 'var(--status-info)' },
-      { l: 'Median price', v: pr.median ? abbrevMoney(pr.median) : '—', c: 'var(--accent)' },
+      { l: 'Median asking', v: pr.median ? abbrevMoney(pr.median) : '—', c: 'var(--accent)' },
       { l: 'Avg days on market', v: dm.avg ?? '—', c: 'var(--text)' },
       { l: 'Stale (60+ days)', v: dm.stale_count || 0, c: 'var(--status-alert)' },
     ]

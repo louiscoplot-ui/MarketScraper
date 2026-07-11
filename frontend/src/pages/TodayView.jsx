@@ -153,7 +153,12 @@ function MarketPulse({ report, suburbCount, scope }) {
     </div>
   )
 
-  const priceKind = basis === 'sold' ? 'median sold price' : 'median asking price'
+  // Asking series is a mean of each suburb's snapshot median (askingFull L114-117),
+  // so it's only a true median when a SINGLE suburb is in scope. Label it
+  // honestly across suburbs. Sold is a real pooled median in both scopes.
+  const priceKind = basis === 'sold'
+    ? 'median sold price'
+    : (scopeAll ? 'avg of suburb median asking prices' : 'median asking price')
   const where = scopeAll ? 'All suburbs' : scope
   const Head = (
     <div style={{ marginBottom: 9 }}>

@@ -881,8 +881,8 @@ export default function HotVendorScoring() {
     const sigChips = (p) => {
       const out = []
       if (p.holding_years != null) out.push(`${Math.round(p.holding_years)}y hold`)
-      if (p.owner_gain_pct != null) out.push(`${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% gain`)
-      if (p.sales_count) out.push(`${p.sales_count} street sale${p.sales_count === 1 ? '' : 's'}`)
+      if (p.owner_gain_pct != null) out.push(`${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% prior gain`)
+      if (p.sales_count) out.push(`sold ${p.sales_count}×`)
       return out.slice(0, 2)
     }
     const CHIPS = CAT_FILTERS.map(c => ({ key: c.key, label: c.label, dot: c.dot, n: c.key === 'ALL' ? properties.length : (counts[c.key] || 0) }))
@@ -1131,7 +1131,7 @@ export default function HotVendorScoring() {
           const facts = [
             ['Type', [p.type, p.bedrooms ? `${p.bedrooms} bd` : null, p.bathrooms ? `${p.bathrooms} ba` : null].filter(Boolean).join(' · ') || '—'],
             ['CAGR', p.cagr != null ? `${p.cagr}%` : '—'],
-            ['Sales in street', p.sales_count != null ? String(p.sales_count) : '—'],
+            ['Times sold', p.sales_count != null ? String(p.sales_count) : '—'],
             ['Last sale', money(p.last_sale_price)],
             ['Agency', p.agency || '—'],
             ['Agent', p.agent || '—'],
@@ -1139,15 +1139,15 @@ export default function HotVendorScoring() {
           const comps = [
             ['Hold length', p.hold_score], ['Property type', p.type_score],
             ['Owner gain', p.gain_score], ['Yearly growth', p.cagr_score],
-            ['Street activity', p.freq_score], ['Untapped value', p.prof_score],
+            ['Resale frequency', p.freq_score], ['Untapped value', p.prof_score],
           ].filter(([, v]) => v != null && !Number.isNaN(Number(v)))
           const narrative = (() => {
             if (cbSt === 'due') return { tone: 'watch', text: `Call-back due — you set a reminder for ${formatIsoDate(callbacks[p.address])}.` }
             const bits = []
             if (p.holding_years != null) bits.push(`${Math.round(p.holding_years)}-year hold`)
-            if (p.owner_gain_pct != null) bits.push(`an estimated ${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% untapped gain`)
+            if (p.owner_gain_pct != null) bits.push(`a ${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}% gain booked by the previous owner`)
             if (!bits.length) return null
-            const street = p.sales_count ? ` ${p.sales_count} recent sale${p.sales_count !== 1 ? 's' : ''} in the street strengthen${p.sales_count === 1 ? 's' : ''} the conversation.` : ''
+            const street = p.sales_count ? ` It has changed hands ${p.sales_count} time${p.sales_count !== 1 ? 's' : ''} on record.` : ''
             return { tone: 'accent', text: `${bits.join(' with ')} — owners in this bracket are the suburb's most likely listers.${street}` }
           })()
           return (
@@ -1245,13 +1245,13 @@ export default function HotVendorScoring() {
                           <span style={{ position: 'absolute', left: -19, top: 3, width: 12, height: 12, borderRadius: '50%', background: 'var(--status-off)', border: '2.5px solid var(--surface)' }} />
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)' }}>{p.owner_purchase_date || 'PURCHASE'}</div>
                           <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}><strong>Purchased</strong>{p.owner_purchase_price ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}> — {money(p.owner_purchase_price)}</span> : null}</div>
-                          {p.holding_years != null && <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.holding_years}-yr hold{p.owner_gain_pct != null ? ` · est. gain ${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}%` : ''}</div>}
+                          {p.holding_years != null && <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.holding_years}-yr hold{p.owner_gain_pct != null ? ` · prior owner gain ${p.owner_gain_pct >= 0 ? '+' : ''}${Math.round(p.owner_gain_pct)}%` : ''}</div>}
                         </div>
                         <div style={{ position: 'relative' }}>
                           <span style={{ position: 'absolute', left: -19, top: 3, width: 12, height: 12, borderRadius: '50%', background: 'var(--accent)', border: '2.5px solid var(--surface)' }} />
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)' }}>TODAY</div>
                           <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)' }}><strong>Scored {Math.round(p.final_score)}</strong> — {p.category === 'HOT' ? 'top bracket for this suburb' : `${(p.category || '').toLowerCase()} bracket`}</div>
-                          {p.sales_count ? <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>{p.sales_count} recent sale{p.sales_count !== 1 ? 's' : ''} in the street</div> : null}
+                          {p.sales_count ? <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>sold {p.sales_count} time{p.sales_count !== 1 ? 's' : ''} on record</div> : null}
                         </div>
                       </div>
                     </div>
@@ -1287,7 +1287,7 @@ export default function HotVendorScoring() {
                           <div style={{ ...valStyle, overflowWrap: 'anywhere' }}>{money(p.owner_purchase_price)}{p.owner_purchase_date ? ` · ${p.owner_purchase_date}` : ''}</div>
                         </div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={lblStyle}>Est. gain</div>
+                          <div style={lblStyle}>Prior owner gain</div>
                           <div style={{ ...valStyle, overflowWrap: 'anywhere' }}>{money(p.owner_gain_dollars)}{p.owner_gain_pct != null ? ` · ${Math.round(p.owner_gain_pct)}%` : ''}</div>
                         </div>
                         {facts.map(([k, v]) => (

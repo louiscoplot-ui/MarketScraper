@@ -214,10 +214,14 @@ def market_report():
             for name, count in suburb_market_share[sn].items()
         ], key=lambda x: x['count'], reverse=True)
 
-    # Cap to the 15 most-recent price changes — older ones drop off so
-    # the agent's eye stays on what's actively moving. ORDER BY changed_at
-    # DESC in get_price_changes() means we take the freshest 15.
-    price_changes = get_price_changes(suburb_ids=suburb_ids, limit=15)
+    # Cap the recent-changes pull, but scale it with the number of scoped
+    # suburbs. get_price_changes applies a single ORDER BY changed_at DESC
+    # LIMIT over the whole suburb_ids IN (...) set, so a flat 15 let one busy
+    # suburb evict every other suburb's movements — a per-suburb-scoped view
+    # then showed nothing for an evicted suburb. ~15 per suburb keeps each one
+    # represented; the frontend still scopes + slices to the active suburb.
+    n_scope = len(suburb_ids) if suburb_ids else 8
+    price_changes = get_price_changes(suburb_ids=suburb_ids, limit=15 * n_scope)
     price_drops = []
     for pc in price_changes:
         old_p = _parse_price(pc.get('old_price'))

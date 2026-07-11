@@ -16,17 +16,6 @@ const sigKey = (status, suburb, minScore) => `signals_${status}_${suburb || 'all
 // Pin colours come from DeskMap's STATUS_COLOR — one place to retune.
 const SIGNAL_HEX = { alert: STATUS_COLOR.withdrawn, watch: STATUS_COLOR.under_offer, off: STATUS_COLOR.Leased }
 
-// Deterministic pin position from a string — no Math.random so pins are
-// stable across renders. Keeps the placeholder map (mock 06) tidy.
-function pinPos(seed, i) {
-  const s = String(seed || i)
-  let h = 0
-  for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) & 0xffff
-  const top = 18 + (h % 64)
-  const left = 14 + ((h >> 4) % 70)
-  return { top: `${top}%`, left: `${left}%` }
-}
-
 const STATUS_LABELS = { new: 'New', actioned: 'Actioned', dismissed: 'Dismissed' }
 
 // Score → status grammar. A high score is a hot lead: alert (red) ≥ 60,
