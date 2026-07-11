@@ -728,14 +728,31 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
                       {movers.map((m, i) => {
                         const cut = (m.delta_amount ?? 0) < 0
                         const pct = m.delta_pct != null && Math.abs(m.delta_pct) <= 200 ? Math.abs(Math.round(m.delta_pct)) : null
+                        const when = m.changed_at ? (formatIsoDate(m.changed_at) || '') : ''
+                        // Click → same quick-info popup as the leads (price,
+                        // date, agent, Open on REIWA) for fast follow-up.
+                        const open = () => setLeadDetail({
+                          address: m.address, suburb: m.suburb,
+                          tone: cut ? 'watch' : 'off',
+                          reason: pct != null ? `${cut ? '▼' : '▲'} ${pct}% price ${cut ? 'drop' : 'rise'}` : 'Price change',
+                          view: 'report',
+                          detail: {
+                            old_price: m.old_price, new_price: m.new_price,
+                            delta_pct: m.delta_pct,
+                            date: m.changed_at, dateLabel: 'Price changed',
+                            agency: m.agency, agent: m.agent, reiwa_url: m.reiwa_url,
+                          },
+                        })
                         return (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                          <button key={i} onClick={open}
+                            {...hoverFx({ background: 'var(--surface-hover)' }, { background: 'transparent' })}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 6px', borderBottom: '1px solid var(--border)', background: 'transparent', border: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', width: '100%' }}>
                             <div style={{ minWidth: 0, flex: 1 }}>
                               <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div>
-                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · {m.old_price || '—'} → {m.new_price || '—'}</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.suburb} · {m.old_price || '—'} → {m.new_price || '—'}{when ? ` · ${when}` : ''}</div>
                             </div>
-                            {pct != null && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {pct}%</span>}
-                          </div>
+                            {pct != null && <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {pct}%</span>}
+                          </button>
                         )
                       })}
                     </div>

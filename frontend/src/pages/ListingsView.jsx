@@ -225,14 +225,18 @@ export default function ListingsView({
   const showSold = anySold || selectedStatuses.has('sold')
   const showWithdrawn = anyWithdrawn || selectedStatuses.has('withdrawn')
 
-  // When every visible row is the same suburb (single-suburb view), the
-  // ", Claremont WA 6010" tail is redundant noise — we already know the
-  // suburb from the selection. Strip it so the street part gets the width.
+  // DISPLAY ONLY — never mutates the scraped address (l.address is used
+  // verbatim for sorting, export, letters, dossier, and geocoding; the
+  // full address is always on hover). When every visible row is the same
+  // suburb, we merely hide the redundant ", Claremont WA 6010" tail.
+  // Anchored on the COMMA + suburb so a street that contains the suburb
+  // word ("5 Claremont Street, Claremont") is never truncated wrongly.
   const displayAddr = (l) => {
     const a = String(l.address || '')
     if (showSuburb || !l.suburb_name) return a
-    const i = a.toLowerCase().indexOf(String(l.suburb_name).toLowerCase())
-    return i > 0 ? a.slice(0, i).replace(/[,\s]+$/, '').trim() : a
+    const sub = String(l.suburb_name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const out = a.replace(new RegExp(`\\s*,\\s*${sub}\\b.*$`, 'i'), '').trim()
+    return out || a   // never return empty
   }
 
   // Column definitions — header + body render from the same list.
