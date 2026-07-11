@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { getTheme, toggleTheme } from '../lib/themeFlag'
 import { BACKEND_DIRECT } from '../lib/api'
+import { isClassicAllowed } from '../lib/deskFlag'
 
 // 4-block grid mark — same source as brand/logo.svg, inlined so the
 // header doesn't need a network round-trip to render.
@@ -180,7 +181,7 @@ export default function Header({
       )}
 
       <div className="actions">
-        {!railMode && onEnterDesk && (
+        {!railMode && onEnterDesk && isClassicAllowed() && (
           <button
             className="btn btn-ghost btn-sm"
             onClick={onEnterDesk}

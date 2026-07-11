@@ -13,6 +13,14 @@ const MODE_KEY = 'sd_desk_mode'   // 'desk' | 'classic'
 const TONE_KEY = 'sd_desk_tone'   // one of DESK_TONES, or 'custom'
 const CUSTOM_KEY = 'sd_desk_custom_color'  // '#rrggbb' picked by the operator
 
+// ── MASTER SWITCH ────────────────────────────────────────────────────
+// "The Morning Desk" is THE official website — the classic UI is retired.
+// Flip this ONE constant to true to bring the old classic interface back
+// (it restores localStorage-driven mode + the classic/desk toggle buttons
+// in the header and the rail). Left in place as the single revert lever.
+const ALLOW_CLASSIC = false
+export function isClassicAllowed() { return ALLOW_CLASSIC }
+
 export const DESK_TONES = ['ink', 'forest', 'slate', 'bone']
 
 // 'custom' is a valid tone value on top of the 4 presets: the rail
@@ -45,14 +53,13 @@ function isPreviewHost() {
 }
 
 export function getDeskMode() {
+  // Classic retired → desk is forced everywhere. Only when the master
+  // switch ALLOW_CLASSIC is re-enabled does the stored preference matter.
+  if (!ALLOW_CLASSIC) return 'desk'
   try {
     const v = localStorage.getItem(MODE_KEY)
     if (v === 'desk') return 'desk'
     if (v === 'classic') return 'classic'
-    // No explicit choice yet → default to "The Morning Desk" redesign
-    // everywhere (preview AND production). It's now the official UI;
-    // classic stays a one-click opt-out ("Back to classic view") that
-    // sticks once chosen. isPreviewHost() kept for any future per-host use.
     return 'desk'
   } catch { return 'desk' }
 }

@@ -10,7 +10,7 @@
 // handoff's palette(tone), with secondary text lifted to WCAG AA
 // (see the note above PALETTES).
 import { useMemo, useState } from 'react'
-import { DESK_TONES, getDeskCustomColor, setDeskCustomColor } from '../lib/deskFlag'
+import { DESK_TONES, getDeskCustomColor, setDeskCustomColor, isClassicAllowed } from '../lib/deskFlag'
 
 // Tone palettes — from SuburbDeskRail.dc.html palette(tone), with the
 // text tokens faint/stext/usub/bofff (and bone's muted) lifted just
@@ -342,18 +342,22 @@ export default function Rail({
             </label>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onExit}
-          style={{
-            width: '100%', textAlign: 'left', cursor: 'pointer',
-            fontFamily: UI, fontSize: 11.5, color: p.muted,
-            background: p.sbg, border: `1px solid ${p.sbd}`, borderRadius: 8,
-            padding: '7px 11px',
-          }}
-        >
-          ← Back to classic view
-        </button>
+        {/* Classic UI is retired — this only reappears if the master
+            switch (deskFlag ALLOW_CLASSIC) is flipped back on. */}
+        {isClassicAllowed() && (
+          <button
+            type="button"
+            onClick={onExit}
+            style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer',
+              fontFamily: UI, fontSize: 11.5, color: p.muted,
+              background: p.sbg, border: `1px solid ${p.sbd}`, borderRadius: 8,
+              padding: '7px 11px',
+            }}
+          >
+            ← Back to classic view
+          </button>
+        )}
       </div>
 
       {/* user */}
