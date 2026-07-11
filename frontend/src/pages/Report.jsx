@@ -186,13 +186,13 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
     const mapSuburbs = (report.suburbs || []).slice(0, 12).map(x => Array.isArray(x)
       ? { name: x[0], total: x[1] && x[1].total } : { name: x })
     const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-card)', display: 'flex', flexDirection: 'column', minHeight: 0 }
-    const pTitle = { fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 14 }
+    const pTitle = { fontFamily: 'var(--font-ui)', fontSize: 15.5, fontWeight: 600, color: 'var(--text)', marginBottom: 14 }
     return (
       <div style={{ padding: '24px 30px', display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 500, fontSize: 30, letterSpacing: '-0.02em', margin: '0 0 6px', color: 'var(--text)' }}>Market Report</h2>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-muted)' }}>
               {reportSuburbs.size > 0 && reportSuburbs.size < suburbs.length ? `${reportSuburbs.size} suburbs` : `${suburbs.length} suburbs`} · rolling window{reportLoading ? ' · refreshing…' : ''}
             </div>
           </div>
@@ -208,13 +208,13 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
           {kpis.map(k => (
-            <div key={k.l} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 13, padding: '14px 15px', boxShadow: 'var(--shadow-card)' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.l}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontSize: 27, letterSpacing: '-0.02em', lineHeight: 0.9, color: 'var(--text)' }}>{k.v}</span>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: k.c }} />
+            <div key={k.l} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 13, padding: '16px 17px', boxShadow: 'var(--shadow-card)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 9, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.l}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 33, letterSpacing: '-0.02em', lineHeight: 0.9, color: 'var(--text)' }}>{k.v}</span>
+                <span style={{ width: 9, height: 9, borderRadius: 2, background: k.c }} />
               </div>
             </div>
           ))}
@@ -224,32 +224,32 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           {/* left */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
-              <div style={pTitle}>Market share by agency <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>· active listings</span></div>
+              <div style={pTitle}>Market share by agency <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>· active listings</span></div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', paddingRight: 8 }}>
-                {share.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No data.</div> : share.map(a => (
+                {share.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>No data.</div> : share.map(a => (
                   <div key={a.agency} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, color: 'var(--text)', width: 150, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.agency}</span>
-                    <div style={{ flex: 1, height: 9, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${a.pct}%`, background: 'linear-gradient(90deg, color-mix(in srgb, var(--accent) 80%, white), var(--accent))', borderRadius: 999 }} /></div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--text)', minWidth: 82, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{a.count} · {a.pct}%</span>
+                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, color: 'var(--text)', width: 160, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.agency}</span>
+                    <div style={{ flex: 1, height: 10, background: 'var(--bg)', borderRadius: 999, overflow: 'hidden' }}><div style={{ height: '100%', width: `${a.pct}%`, background: 'linear-gradient(90deg, color-mix(in srgb, var(--accent) 80%, white), var(--accent))', borderRadius: 999 }} /></div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--text)', minWidth: 82, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{a.count} · {a.pct}%</span>
                   </div>
                 ))}
               </div>
             </div>
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
-              <div style={pTitle}>Price movements <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)', fontWeight: 400 }}>· % change vs previous asking</span></div>
+              <div style={pTitle}>Price movements <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>· % change vs previous asking</span></div>
               <div style={{ overflowY: 'auto' }}>
-                {drops.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>No recent price changes.</div> : drops.map((m, i) => {
+                {drops.length === 0 ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-muted)' }}>No recent price changes.</div> : drops.map((m, i) => {
                   const cut = (m.delta_amount ?? 0) < 0
                   // delta 0 happens when only the price TEXT changed
                   // ("Offers From $1.1m" → "$1,100,000") — not a rise.
                   const zero = m.delta_amount === 0
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                      <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10.5, color: 'var(--text-muted)' }}>{m.suburb} · was {m.old_price || '—'}</div></div>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{m.new_price || '—'}</span>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{m.suburb} · was {m.old_price || '—'}</div></div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{m.new_price || '—'}</span>
                       {m.delta_pct != null && Math.abs(m.delta_pct) <= 200 && (zero
-                        ? <span title="Asking price unchanged" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, minWidth: 62, textAlign: 'center', flexShrink: 0, background: 'var(--status-off-bg)', color: 'var(--status-off-text)' }}>No change</span>
-                        : <span title="Change vs previous asking price" style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 999, minWidth: 62, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(Math.round(m.delta_pct))}%</span>)}
+                        ? <span title="Asking price unchanged" style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, padding: '4px 10px', borderRadius: 999, minWidth: 66, textAlign: 'center', flexShrink: 0, background: 'var(--status-off-bg)', color: 'var(--status-off-text)' }}>No change</span>
+                        : <span title="Change vs previous asking price" style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, padding: '4px 10px', borderRadius: 999, minWidth: 66, textAlign: 'center', flexShrink: 0, background: cut ? 'var(--status-alert-bg)' : 'var(--status-info-bg)', color: cut ? 'var(--status-alert-text)' : 'var(--status-info-text)' }}>{cut ? '▼' : '▲'} {Math.abs(Math.round(m.delta_pct))}%</span>)}
                     </div>
                   )
                 })}
@@ -282,9 +282,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
               <div style={pTitle}>Recent price changes</div>
               <div style={{ overflowY: 'auto' }}>
                 {drops.slice(0, 8).map((m, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 88px', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ minWidth: 0 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>{m.suburb}</div></div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'var(--text)' }}>{m.new_price || '—'}</span>
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 92px', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ minWidth: 0 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{m.suburb}</div></div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, textAlign: 'right', color: 'var(--text)' }}>{m.new_price || '—'}</span>
                   </div>
                 ))}
               </div>
@@ -325,7 +325,7 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
           there's literally nothing to display (very first load). */}
       {report && reportLoading && (
         <div style={{
-          fontSize: 12, color: 'var(--text-muted)',
+          fontSize: 12,
           padding: '6px 10px', marginBottom: 12,
           display: 'inline-flex', alignItems: 'center', gap: 8,
           background: 'var(--status-info-bg)', border: '1px solid var(--status-info)',

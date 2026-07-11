@@ -470,10 +470,10 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
       .sort((a, b) => String(a.next_followup || '~').localeCompare(String(b.next_followup || '~'))).slice(0, 20)
     const metroTag = scopeAll ? '' : ' · metro'
 
-    const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px 18px', boxShadow: 'var(--shadow-card)', minWidth: 0 }
+    const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '13px 16px', boxShadow: 'var(--shadow-card)', minWidth: 0 }
     const panelTitle = { fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }
     const titleRow = (t, n) => (
-      <div style={{ ...panelTitle, marginBottom: 12, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ ...panelTitle, marginBottom: 10, display: 'flex', alignItems: 'baseline', gap: 8 }}>
         {t}{n != null && <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 400, fontSize: 11, color: 'var(--text-faint)' }}>· {n}</span>}
       </div>
     )
@@ -497,14 +497,14 @@ export default function TodayView({ setView, saleFallenCount = 0, suburbs = [], 
     const groupsOrder = ['Leads', 'Market', 'Trends', 'Pipeline']
 
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '22px 30px 20px', minHeight: 0 }}>
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '16px 30px 16px', minHeight: 0 }}>
         {/* header (fixed) */}
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', flexShrink: 0, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', flexShrink: 0, marginBottom: 12 }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 6 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-faint)', marginBottom: 4 }}>
               {[formatIsoDate(brief?.brief_date), `${suburbsList.length} suburbs tracked`].filter(Boolean).join(' · ')}
             </div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 400, fontSize: 30, letterSpacing: '-0.02em', margin: 0, color: 'var(--text)' }}>Good morning</h2>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 400, fontSize: 26, letterSpacing: '-0.02em', margin: 0, color: 'var(--text)' }}>Good morning</h2>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}>
             <select value={scope} onChange={e => setScope(e.target.value)}
