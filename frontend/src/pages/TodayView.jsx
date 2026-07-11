@@ -49,6 +49,7 @@ const SIGNAL_LEGEND = [
 // a $ axis on the left, and a plain-language subtitle.
 const MP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const MP_RANGES = [[1, '1M'], [3, '3M'], [6, '6M'], [12, '12M']]
+const MP_BASES = [['sold', 'Sold'], ['asking', 'Asking']]
 function MarketPulse({ report, suburbCount, scope }) {
   const [hi, setHi] = useState(null)
   // Time window (months) — the operator narrows the trend to the last
@@ -57,6 +58,13 @@ function MarketPulse({ report, suburbCount, scope }) {
     try { const v = parseInt(localStorage.getItem('mp_months') || '12', 10); return [1, 3, 6, 12].includes(v) ? v : 12 } catch { return 12 }
   })
   const pickMonths = (m) => { setMonths(m); try { localStorage.setItem('mp_months', String(m)) } catch {} }
+  // Price basis — explicit Sold / Asking toggle. Default 'sold'; when a
+  // suburb has too few disclosed sales the Sold view shows an empty state
+  // pointing at Asking (no silent switch, so the toggle stays truthful).
+  const [basisPref, setBasisPref] = useState(() => {
+    try { const v = localStorage.getItem('mp_basis'); return v === 'asking' ? 'asking' : 'sold' } catch { return 'sold' }
+  })
+  const pickBasis = (b) => { setBasisPref(b); try { localStorage.setItem('mp_basis', b) } catch {} }
   // Scope-aware + SALES-based: the trend is the monthly median SOLD price
   // for the selected suburb (report.sold_series). Perth's western suburbs
   // frequently withhold the sold price, so a suburb can have too few
@@ -101,10 +109,10 @@ function MarketPulse({ report, suburbCount, scope }) {
   }
   const soldWin = windowed(soldFull)
   const askingWin = windowed(askingFull)
-  const useSold = soldWin.length >= 2
+  const useSold = basisPref === 'sold'
   const series = useSold ? soldWin : askingWin
   const fullSeries = useSold ? soldFull : askingFull
-  const basis = useSold ? 'sold' : 'asking'
+  const basis = basisPref
 
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '13px 16px', boxShadow: 'var(--shadow-card)' }
   const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
@@ -116,12 +124,12 @@ function MarketPulse({ report, suburbCount, scope }) {
     ? `${monthOf(iso)} ${yearOf(iso)}`
     : (() => { const p = String(iso).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}` })()
 
-  const RangeToggle = (
+  const Segmented = (items, val, onPick) => (
     <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
-      {MP_RANGES.map(([m, lab]) => {
-        const on = months === m
+      {items.map(([k, lab]) => {
+        const on = val === k
         return (
-          <button key={m} onClick={() => pickMonths(m)}
+          <button key={k} onClick={() => onPick(k)}
             onMouseEnter={(e) => { if (!on) e.currentTarget.style.background = 'var(--surface-hover)' }}
             onMouseLeave={(e) => { e.currentTarget.style.background = on ? 'var(--accent-soft)' : 'var(--surface)' }}
             style={{ fontFamily: 'var(--font-ui)', fontSize: 10.5, fontWeight: 600, padding: '3px 9px', border: 'none', cursor: 'pointer', background: on ? 'var(--accent-soft)' : 'var(--surface)', color: on ? 'var(--accent)' : 'var(--text-muted)' }}>{lab}</button>
@@ -134,25 +142,30 @@ function MarketPulse({ report, suburbCount, scope }) {
   const where = scopeAll ? 'All suburbs' : scope
   const Head = (
     <div style={{ marginBottom: 9 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ fontFamily: 'var(--font-ui)', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Market pulse</div>
-        {RangeToggle}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {/* Sold ⇄ Asking basis toggle + time window */}
+          {Segmented(MP_BASES, basisPref, pickBasis)}
+          {Segmented(MP_RANGES, months, pickMonths)}
+        </div>
       </div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
         {`${where} · ${priceKind} · last ${months} month${months > 1 ? 's' : ''}`}
       </div>
-      {/* Honest basis note: when a suburb has too few disclosed sales we
-          fall back to asking — say so, don't pretend it's sales. */}
-      {basis === 'asking' && (
+      {/* When Sold is picked but this suburb rarely publishes sale prices,
+          point the operator at Asking rather than showing a blank chart. */}
+      {basis === 'sold' && soldWin.length < 2 && askingWin.length >= 2 && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
-          sold prices too sparse here — showing asking instead
+          few disclosed sales here — switch to Asking for a fuller trend
         </div>
       )}
     </div>
   )
 
   if (series.length < 2) {
-    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0' }}>{(soldFull.length >= 2 || askingFull.length >= 2) ? 'Not enough data in this window — try a longer range.' : 'The trend builds as sales (and nightly snapshots) accumulate.'}</div></div>
+    const other = basis === 'sold' ? askingWin : soldWin
+    return <div style={card}>{Head}<div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', padding: '26px 0' }}>{other.length >= 2 ? `Not enough ${basis === 'sold' ? 'disclosed sales' : 'asking data'} in this window — try ${basis === 'sold' ? 'Asking' : 'Sold'} or a longer range.` : 'The trend builds as sales (and nightly snapshots) accumulate.'}</div></div>
   }
 
   const vals = series.map(p => p.v)
