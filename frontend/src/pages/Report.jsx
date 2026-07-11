@@ -90,7 +90,7 @@ function fmtFullTooltip(raw) {
   if (isNaN(d.getTime())) return ''
   return d.toLocaleString('en-AU', {
     timeZone: PERTH_TZ,
-    day: '2-digit', month: 'short', year: 'numeric',
+    day: '2-digit', month: '2-digit', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })
 }

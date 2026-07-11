@@ -117,12 +117,14 @@ function MarketPulse({ report, suburbCount, scope }) {
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '13px 16px', boxShadow: 'var(--shadow-card)' }
   const fmtM = (v) => v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}k`
   const monthOf = (iso) => MP_MONTHS[(+String(iso).slice(5, 7) || 1) - 1]
-  const yearOf = (iso) => String(iso).slice(0, 4)
-  // Sold points are monthly ('YYYY-MM' → "Jul 2026"); asking points are
-  // dated snapshots ('YYYY-MM-DD' → DD/MM/YYYY).
-  const ptLabel = (iso) => String(iso).length === 7
-    ? `${monthOf(iso)} ${yearOf(iso)}`
-    : (() => { const p = String(iso).slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}` })()
+  // Always DD/MM style, never American. Sold points are monthly
+  // ('YYYY-MM' → MM/YYYY); asking points are dated ('YYYY-MM-DD' →
+  // DD/MM/YYYY).
+  const ptLabel = (iso) => {
+    const s = String(iso)
+    if (s.length === 7) return `${s.slice(5, 7)}/${s.slice(0, 4)}`   // MM/YYYY
+    const p = s.slice(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`  // DD/MM/YYYY
+  }
 
   const Segmented = (items, val, onPick) => (
     <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
@@ -138,7 +140,11 @@ function MarketPulse({ report, suburbCount, scope }) {
     </div>
   )
 
-  const priceKind = basis === 'sold' ? 'median sold price' : 'median asking price'
+  // Sold view is priced off the properties that sold — disclosed sale
+  // price where published, else their last advertised price.
+  const soldDisclosed = soldWin.reduce((a, p) => a + (p.disclosed || 0), 0)
+  const soldTotal = soldWin.reduce((a, p) => a + (p.count || 0), 0)
+  const priceKind = basis === 'sold' ? 'median price · sold listings' : 'median asking price'
   const where = scopeAll ? 'All suburbs' : scope
   const Head = (
     <div style={{ marginBottom: 9 }}>
@@ -153,11 +159,18 @@ function MarketPulse({ report, suburbCount, scope }) {
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
         {`${where} · ${priceKind} · last ${months} month${months > 1 ? 's' : ''}`}
       </div>
-      {/* When Sold is picked but this suburb rarely publishes sale prices,
-          point the operator at Asking rather than showing a blank chart. */}
+      {/* Honest data-mix note: most western-suburb sales don't publish the
+          price, so the sold median leans on last advertised price. */}
+      {basis === 'sold' && soldTotal > 0 && (
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
+          {soldDisclosed === soldTotal
+            ? `${soldTotal} sold · all at disclosed sale price`
+            : `${soldTotal} sold · ${soldDisclosed} at disclosed price, rest at last advertised`}
+        </div>
+      )}
       {basis === 'sold' && soldWin.length < 2 && askingWin.length >= 2 && (
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9.5, color: 'var(--text-faint)', marginTop: 2 }}>
-          few disclosed sales here — switch to Asking for a fuller trend
+          not enough sold data in this window — try a longer range or Asking
         </div>
       )}
     </div>
@@ -197,7 +210,7 @@ function MarketPulse({ report, suburbCount, scope }) {
       {Head}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 8 }}>
         <span style={{ fontFamily: 'var(--font-display)', fontSize: 28, letterSpacing: '-0.02em', color: 'var(--text)' }}>{fmtM(cur.v)}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {monthOf(series[0].dt)}</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: up ? 'var(--status-good-text)' : 'var(--status-alert-text)' }}>{up ? '▲' : '▼'} {Math.abs(deltaPct).toFixed(1)}% since {ptLabel(series[0].dt)}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-faint)' }}>· {ptLabel(cur.dt)}{basis === 'sold' && cur.count ? ` · ${cur.count} sale${cur.count > 1 ? 's' : ''}` : ''}</span>
       </div>
       <div style={{ display: 'flex', gap: 8 }}>

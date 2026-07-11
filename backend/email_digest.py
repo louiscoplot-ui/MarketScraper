@@ -24,11 +24,10 @@ _MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June',
 
 
 def _today_au():
-    """8 May 2026 — AU long form, no zero-padded day. Built manually so
-    the output is identical on Linux (Render, GHA) and Windows (local
-    dev) without depending on locale-specific strftime tokens."""
+    """DD/MM/YYYY (Perth) — the AU numeric convention used everywhere in
+    the product, never American MM/DD. Zero-padded so it's unambiguous."""
     now = perth_now()
-    return f"{now.day} {_MONTHS_EN[now.month - 1]} {now.year}"
+    return f"{now.day:02d}/{now.month:02d}/{now.year}"
 
 
 def _weekday_perth():

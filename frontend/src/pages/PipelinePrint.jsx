@@ -6,7 +6,8 @@ import { BACKEND_DIRECT } from '../lib/api'
 const API = BACKEND_DIRECT
 
 function formatDate() {
-  return new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })
+  // DD/MM/YYYY — the AU convention, never American MM/DD.
+  return new Date().toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 function formatPrice(p) {
