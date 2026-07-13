@@ -23,7 +23,7 @@ import time
 import random
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -81,6 +81,10 @@ SCRAPE_CONCURRENCY = 3
 # trimmed to 40 — wasted history. 200 keeps the full window the scraper
 # actually pulls, with no extra scrape time.
 SOLD_KEEP = 200
+# Cap on detail-page verifications per suburb per run for "resurrection"
+# suspects (listings that flip up into 'active' but may actually be sold).
+# Bounded so a pathological REIWA glitch can't blow the billed proxy budget.
+RESURRECT_VERIFY_CAP = 20
 
 # Day of week (Mon=0 .. Sun=6, UTC) on which the sold_date backfill runs its
 # proxy-heavy detail-page fetches. Historical-data cleanup → weekly is plenty,
@@ -192,6 +196,23 @@ def scrape_one(suburb):
     new_count = 0
     from scraper_utils import normalize_reiwa_url
 
+    # Snapshot each listing's stored status BEFORE this run's upserts, so we
+    # can spot listings that flip up into 'active' from under_offer/withdrawn
+    # (a would-be sale_fallen / relisted). REIWA keeps some SOLD homes on the
+    # for-sale grid — parsed 'active', the card has no sold marker — so such a
+    # flip is frequently a phantom for a home that actually sold; verified
+    # against the detail page below before run_diff trusts it.
+    conn = get_db()
+    prior_status = {
+        r['reiwa_url'].rstrip('/'): r['status']
+        for r in conn.execute(
+            "SELECT reiwa_url, status FROM listings "
+            "WHERE suburb_id = ? AND reiwa_url IS NOT NULL",
+            (suburb_id,)
+        ).fetchall()
+    }
+    conn.close()
+
     for listing in result.get('forsale_listings', []):
         url = normalize_reiwa_url(listing.get('reiwa_url'))
         if not url:
@@ -240,6 +261,59 @@ def scrape_one(suburb):
                 upsert_listing(suburb_id, url, {'status': status})
                 forsale_urls.append(url)
                 rescued_active += 1
+
+    # Resurrection verify. A listing we held as under_offer/withdrawn that
+    # reappears on the for-sale grid (parsed 'active') would make run_diff emit
+    # a sale_fallen / relisted "back on market" signal. But REIWA leaves SOLD
+    # homes on the for-sale grid too, so that flip is frequently a phantom for
+    # a home that actually sold (the sold pass short-circuits before recording
+    # deep/old sales). Cross-check each such flip — plus any listing still
+    # sitting active/under_offer that already carries a recent sale_fallen/
+    # relisted transition (rows corrupted before this guard) — against the
+    # detail page. Only a 'sold'/'under_offer' verdict overrides the grid;
+    # verify never returns 'active' ('gone' = no badge), and the grid is the
+    # source of truth for genuinely-for-sale homes, so real fallen sales still
+    # fire. Detail fetches are capped so a REIWA glitch can't blow the proxy.
+    seen_forsale = {u.rstrip('/') for u in forsale_urls}
+    suspects = {u for u in forsale_urls
+                if prior_status.get(u.rstrip('/')) in ('under_offer', 'withdrawn')}
+    try:
+        conn = get_db()
+        susp_cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+        for r in conn.execute(
+            "SELECT DISTINCT l.reiwa_url AS u FROM listing_transitions t "
+            "JOIN listings l ON l.id = t.listing_id "
+            "WHERE l.suburb_id = ? AND l.status IN ('active', 'under_offer') "
+            "AND t.transition_type IN ('sale_fallen', 'relisted') "
+            "AND t.detected_at >= ? AND l.reiwa_url IS NOT NULL",
+            (suburb_id, susp_cutoff)
+        ).fetchall():
+            u = r['u'] or ''
+            if u and u.rstrip('/') in seen_forsale:
+                suspects.add(u)
+        conn.close()
+    except Exception as e:
+        log.warning(f"[{name}] resurrection suspect query failed: {e}")
+    suspects = list(suspects)[:RESURRECT_VERIFY_CAP]
+    resurrect_sold = 0
+    if suspects:
+        log.info(f"[{name}] verifying {len(suspects)} resurrection suspect(s)")
+        vr = verify_disappeared_listings(suspects)
+        for url, info in vr.items():
+            vs = info.get('status')
+            if vs == 'sold':
+                payload = {'status': 'sold'}
+                if info.get('sold_price'):
+                    payload['sold_price'] = info['sold_price']
+                if info.get('sold_date'):
+                    payload['sold_date'] = info['sold_date']
+                upsert_listing(suburb_id, url, payload)
+                sold_urls.append(normalize_reiwa_url(url))
+                resurrect_sold += 1
+            elif vs == 'under_offer':
+                upsert_listing(suburb_id, url, {'status': 'under_offer'})
+        if resurrect_sold:
+            log.info(f"[{name}] corrected {resurrect_sold} phantom-active sold home(s)")
 
     reiwa_total = result.get('stats', {}).get('reiwa_total', 0)
     our_count = len(forsale_urls)

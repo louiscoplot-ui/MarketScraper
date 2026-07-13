@@ -199,6 +199,11 @@ def list_sale_fallen(allowed_ids=None):
             "FROM listing_transitions t "
             "LEFT JOIN listings l ON l.id = t.listing_id "
             "WHERE t.transition_type = 'sale_fallen' AND t.detected_at >= ? "
+            # Hide a fallen-sale alert once the listing is known sold — the
+            # resurrection verify (run_daily_scrape) corrects phantom flips
+            # back to 'sold', and this keeps the ledger's stale sale_fallen
+            # row from surfacing a home that actually sold.
+            "AND (l.status IS NULL OR l.status != 'sold') "
             "ORDER BY t.detected_at DESC",
             (cutoff,)
         ).fetchall()
@@ -239,7 +244,10 @@ def active_sale_fallen_count(allowed_ids=None):
         rows = conn.execute(
             "SELECT t.metadata, l.suburb_id FROM listing_transitions t "
             "LEFT JOIN listings l ON l.id = t.listing_id "
-            "WHERE t.transition_type = 'sale_fallen' AND t.detected_at >= ?",
+            # Keep the badge count in step with list_sale_fallen: exclude
+            # alerts whose listing is now known sold.
+            "WHERE t.transition_type = 'sale_fallen' AND t.detected_at >= ? "
+            "AND (l.status IS NULL OR l.status != 'sold')",
             (cutoff,)
         ).fetchall()
     except Exception:
