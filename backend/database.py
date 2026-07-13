@@ -439,10 +439,27 @@ def upsert_listing(suburb_id, reiwa_url, data):
             (suburb_id, norm_addr, excluded_id)
         )
 
+    # Sold-guard. REIWA leaves already-SOLD properties on the for-sale grid
+    # (still showing their old asking price). scraper_card.py parses those grid
+    # cards as 'active' (it has no sold branch), and a known URL skips the
+    # detail fetch that would reveal the sale — so without this guard the
+    # for-sale pass silently flips a stored 'sold' row back to 'active',
+    # producing a "back on market" listing that still carries its months-old
+    # sold_date. A genuine relist comes back under a NEW REIWA listing ID (a
+    # new row / detect_relist_by_address), never by demoting the sold row, so
+    # pinning 'sold' here is safe. The nightly sold pass (status='sold'
+    # payload) and sold_price reveals still update the row normally.
+    sold_guarded = bool(existing) and existing['status'] == 'sold' \
+        and new_status in ('active', 'under_offer')
+    effective_status = 'sold' if sold_guarded else new_status
+
     if existing:
         new_price = data.get('price_text')
         old_price = existing['price_text']
-        if new_price and old_price and new_price != old_price:
+        # Don't log a price change on a sold-guarded row — the asking price
+        # still shown on the stale for-sale card isn't a real market movement
+        # and would surface as a spurious "price movement" for a sold home.
+        if not sold_guarded and new_price and old_price and new_price != old_price:
             # Stamp the exact UTC moment the scraper saw the diff. We
             # don't rely on the column DEFAULT because (a) it lets the
             # Market Report 'When' column reflect detection time
@@ -456,8 +473,8 @@ def upsert_listing(suburb_id, reiwa_url, data):
                  datetime.utcnow().isoformat())
             )
 
-        clear_withdrawn = existing['status'] == 'withdrawn' and new_status != 'withdrawn'
-        stamp_withdrawn = existing['status'] != 'withdrawn' and new_status == 'withdrawn'
+        clear_withdrawn = existing['status'] == 'withdrawn' and effective_status != 'withdrawn'
+        stamp_withdrawn = existing['status'] != 'withdrawn' and effective_status == 'withdrawn'
         new_withdrawn_date = (
             None if clear_withdrawn
             else (now if stamp_withdrawn else existing['withdrawn_date'])
@@ -489,7 +506,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            new_status, new_withdrawn_date, now,
+            effective_status, new_withdrawn_date, now,
             data.get('sold_price'), data.get('sold_date'),
             data.get('listing_type'), data.get('listing_date'),
             data.get('source'),

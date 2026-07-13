@@ -496,6 +496,40 @@ def init_db():
         except Exception:
             conn.rollback()
 
+    # Restore sold status on rows the pre-guard for-sale pass demoted. REIWA
+    # keeps SOLD homes on the for-sale grid (still showing the old asking
+    # price); the card parser read them as 'active' and upsert_listing flipped
+    # the stored 'sold' row back to active with NO guard, leaving an active
+    # listing that still carries a real sold_date — a home shown "back on
+    # market" months after it sold. The upsert now guards against this going
+    # forward (database.py sold_guarded); this one-shot repairs the rows
+    # already corrupted. A genuine relist always comes under a NEW REIWA
+    # listing ID (a separate row) and a fallen sale returns via under_offer→
+    # active with NO sold_date, so status IN (active, under_offer) WITH a
+    # non-empty sold_date is an unambiguous corruption signature.
+    if not _migration_done(conn, 'restore_sold_over_forsale_demote'):
+        try:
+            conn.execute(
+                "UPDATE listings SET status = 'sold' "
+                "WHERE status IN ('active', 'under_offer') "
+                "AND sold_date IS NOT NULL AND sold_date != ''"
+            )
+            # Realign the diff snapshot too, else the next run_diff would see
+            # the restored 'sold' against a stale 'active' snapshot and fire a
+            # burst of spurious 'sold' events for homes that sold months ago.
+            conn.execute(
+                "UPDATE listing_snapshots SET status = 'sold' "
+                "WHERE status IN ('active', 'under_offer') "
+                "AND listing_id IN ("
+                "  SELECT id FROM listings WHERE status = 'sold' "
+                "  AND sold_date IS NOT NULL AND sold_date != ''"
+                ")"
+            )
+            conn.commit()
+            _mark_migration(conn, 'restore_sold_over_forsale_demote')
+        except Exception:
+            conn.rollback()
+
     # Backfill pipeline_tracking.source_sold_date from listings.sold_date.
     # Pre-fix pipeline_generate fell back to first_seen when sold_date
     # was NULL, baking the date the listing was first scraped into
