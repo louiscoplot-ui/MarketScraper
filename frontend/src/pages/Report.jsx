@@ -95,7 +95,7 @@ function fmtFullTooltip(raw) {
   })
 }
 
-export default function Report({ report, suburbs, reportSuburbs, setReportSuburbs, fetchReport, reportLoading }) {
+export default function Report({ report, suburbs, reportSuburbs, setReportSuburbs, fetchReport, reportLoading, openDossier }) {
   // Render the header + suburb selector even while loading so the
   // checkboxes update instantly when the user toggles them. The data
   // area below swaps to a loading indicator until the new fetch lands.
@@ -243,8 +243,16 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                   // delta 0 happens when only the price TEXT changed
                   // ("Offers From $1.1m" → "$1,100,000") — not a rise.
                   const zero = m.delta_amount === 0
+                  const open = () => openDossier && openDossier({
+                    address: m.address, suburb: m.suburb, suburb_name: m.suburb,
+                    status: m.status || 'active', agent: m.agent, agency: m.agency,
+                    reiwa_url: m.reiwa_url, price_text: m.new_price,
+                  })
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+                    <div key={i} onClick={open} title={openDossier ? 'Open listing' : undefined}
+                      onMouseEnter={(e) => { if (openDossier) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 6px', margin: '0 -6px', borderRadius: 8, borderBottom: '1px solid var(--border)', cursor: openDossier ? 'pointer' : 'default' }}>
                       <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 13.5, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 11.5, color: 'var(--text-muted)' }}>{m.suburb} · was {m.old_price || '—'}</div></div>
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{m.new_price || '—'}</span>
                       {m.delta_pct != null && Math.abs(m.delta_pct) <= 200 && (zero

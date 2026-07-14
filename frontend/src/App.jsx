@@ -1183,7 +1183,7 @@ function App() {
             <Report
               report={report} suburbs={suburbs} reportSuburbs={reportSuburbs}
               setReportSuburbs={setReportSuburbs} fetchReport={fetchReport}
-              reportLoading={reportLoading}
+              reportLoading={reportLoading} openDossier={openDossier}
             />
           ) : view === 'report' && reportError && !reportLoading ? (
             <div style={{
