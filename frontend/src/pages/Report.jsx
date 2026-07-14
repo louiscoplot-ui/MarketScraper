@@ -282,19 +282,35 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
                 popupOf={(x) => `${x.name}${x.total != null ? ` · ${x.total} listing${x.total !== 1 ? 's' : ''}` : ''}`}
               />
             </div>
-            {/* Twin of the left "Price movements" panel — when there are no
-                drops, both would show the same empty line side by side, so
-                this one disappears and the coverage map takes the column. */}
-            {drops.length > 0 && (
+            {/* Longest on market — the actives that have sat the longest
+                (DOM desc). These are the price-drop / motivated-vendor
+                candidates worth a call. Replaces the old duplicate
+                "Recent price changes" panel. Clickable → dossier. Falls away
+                when there are none, letting the coverage map take the column. */}
+            {(report.stale_listings || []).length > 0 && (
             <div style={{ ...card, flex: 1, overflow: 'hidden' }}>
-              <div style={pTitle}>Recent price changes</div>
+              <div style={pTitle}>Longest on market <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>· days on market, longest first</span></div>
               <div style={{ overflowY: 'auto' }}>
-                {drops.slice(0, 8).map((m, i) => (
-                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 92px', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ minWidth: 0 }}><div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{m.address}</div><div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>{m.suburb}</div></div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, textAlign: 'right', color: 'var(--text)' }}>{m.new_price || '—'}</span>
-                  </div>
-                ))}
+                {(report.stale_listings || []).slice(0, 12).map((s, i) => {
+                  const open = () => openDossier && openDossier({
+                    address: s.address, suburb: s.suburb, suburb_name: s.suburb,
+                    status: 'active', agent: s.agent, agency: s.agency,
+                    reiwa_url: s.reiwa_url, price_text: s.price, listing_date: s.listing_date,
+                  })
+                  const hot = (s.dom ?? 0) >= 90
+                  return (
+                    <div key={i} onClick={open} title={openDossier ? 'Open listing' : undefined}
+                      onMouseEnter={(e) => { if (openDossier) e.currentTarget.style.background = 'var(--surface-hover)' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                      style={{ display: 'grid', gridTemplateColumns: '1fr 62px', gap: 8, alignItems: 'center', padding: '8px 6px', margin: '0 -6px', borderRadius: 8, borderBottom: '1px solid var(--border)', cursor: openDossier ? 'pointer' : 'default' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{s.address}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.suburb}{s.price && /\$|\d{4,}/.test(s.price) ? ` · ${s.price}` : ''}</div>
+                      </div>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, fontWeight: 600, textAlign: 'center', padding: '3px 0', borderRadius: 999, background: hot ? 'var(--status-alert-bg)' : 'var(--status-watch-bg)', color: hot ? 'var(--status-alert-text)' : 'var(--status-watch-text)' }}>{s.dom != null ? `${s.dom}d` : '—'}</span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
             )}
