@@ -8,6 +8,7 @@ import SignalsView from './pages/SignalsView'
 import TodayView from './pages/TodayView'
 import PropertyDetail from './pages/PropertyDetail'
 import FallenView from './pages/FallenView'
+import HitList from './pages/HitList'
 import LoadingState from './components/LoadingState'
 import AdminUsers from './pages/AdminUsers'
 import RentalView from './pages/RentalView'
@@ -1176,6 +1177,8 @@ function App() {
               Rental moved to the background-warmed section above. */}
           {view === 'admin' ? (
             <AdminUsers />
+          ) : view === 'hitlist' ? (
+            <HitList openDossier={openDossier} formatIsoDate={formatIsoDate} />
           ) : view === 'report' && report ? (
             <Report
               report={report} suburbs={suburbs} reportSuburbs={reportSuburbs}

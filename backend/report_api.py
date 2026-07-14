@@ -377,6 +377,100 @@ def market_report():
     return jsonify(report)
 
 
+STALE_DOM_DAYS = 90          # a campaign this long signals a motivated vendor
+ORPHAN_MANDATE_LO = 60       # LOOP-2 expired-mandate window (days withdrawn)
+ORPHAN_MANDATE_HI = 120
+
+
+def build_orphan_report(suburb_ids):
+    """Motivated-vendor hit-list for a suburb scope (None = all): withdrawn
+    listings (expired mandates) + long-campaign actives (DOM >= 90). Pure
+    function — the /api/report/orphans endpoint calls it with the caller's
+    scope, and the weekly Monday email will reuse it per user. Returns
+    {items, counts, generated_at} with items sorted hottest-first."""
+    from database import get_db
+    conn = get_db()
+    try:
+        sql = (
+            "SELECT l.id, l.status, l.address, l.price_text, l.listing_date, "
+            "l.withdrawn_date, l.agent, l.agency, l.reiwa_url, l.bedrooms, "
+            "l.bathrooms, l.land_size, l.internal_size, s.name AS suburb_name "
+            "FROM listings l JOIN suburbs s ON l.suburb_id = s.id "
+            "WHERE l.status IN ('active', 'under_offer', 'withdrawn')"
+        )
+        params = ()
+        if suburb_ids:
+            ph = ','.join(['?'] * len(suburb_ids))
+            sql += f" AND l.suburb_id IN ({ph})"
+            params = tuple(suburb_ids)
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
+
+    now = datetime.utcnow()
+    items = []
+    for l in rows:
+        dom = _calc_dom(l)
+        status = l.get('status')
+        cat = reason = None
+        heat = 0.0
+        if status == 'withdrawn':
+            wd = (l.get('withdrawn_date') or '')[:10]
+            days_wd = None
+            if wd:
+                try:
+                    days_wd = (now - datetime.fromisoformat(wd)).days
+                except ValueError:
+                    days_wd = None
+            if days_wd is not None and ORPHAN_MANDATE_LO <= days_wd <= ORPHAN_MANDATE_HI:
+                cat, reason = 'expired_mandate', f'Withdrawn {days_wd} days ago — mandate window just expired'
+                heat = 100 + (30 - abs(days_wd - 90))   # peak at ~90 days
+            elif days_wd is not None and days_wd < ORPHAN_MANDATE_LO:
+                cat, reason, heat = 'withdrawn_recent', f'Withdrawn {days_wd} days ago', 80.0
+            else:
+                cat = 'withdrawn'
+                reason = f'Withdrawn {days_wd} days ago' if days_wd is not None else 'Withdrawn'
+                heat = 60.0
+        elif dom is not None and dom >= STALE_DOM_DAYS:
+            cat, reason = 'stale', f'{dom} days on market — long campaign, mandate likely near renewal'
+            heat = 40 + min(dom, 400) / 10.0
+        if cat is None:
+            continue
+        items.append({
+            'id': l['id'], 'address': l['address'], 'suburb': l['suburb_name'],
+            'status': status, 'category': cat, 'reason': reason,
+            'dom': dom, 'withdrawn_date': (l.get('withdrawn_date') or '')[:10] or None,
+            'price_text': l.get('price_text'), 'agent': l.get('agent'),
+            'agency': l.get('agency'), 'reiwa_url': l.get('reiwa_url'),
+            'bedrooms': l.get('bedrooms'), 'bathrooms': l.get('bathrooms'),
+            'land_size': l.get('land_size'), 'internal_size': l.get('internal_size'),
+            'heat': round(heat, 1),
+        })
+    items.sort(key=lambda x: (-x['heat'], -(x['dom'] or 0)))
+    return {
+        'items': items,
+        'generated_at': now.isoformat(),
+        'counts': {
+            'total': len(items),
+            'expired_mandate': sum(1 for i in items if i['category'] == 'expired_mandate'),
+            'withdrawn': sum(1 for i in items if i['category'] in ('withdrawn', 'withdrawn_recent')),
+            'stale': sum(1 for i in items if i['category'] == 'stale'),
+        },
+    }
+
+
+def orphan_report():
+    """GET /api/report/orphans — the caller's motivated-vendor hit-list,
+    scoped to their assigned suburbs (admins = all)."""
+    from admin_api import resolve_request_scope
+    _, allowed = resolve_request_scope()
+    if allowed is not None and not allowed:
+        return jsonify({'items': [], 'counts': {'total': 0, 'expired_mandate': 0,
+                       'withdrawn': 0, 'stale': 0}, 'generated_at': datetime.utcnow().isoformat()})
+    suburb_ids = None if allowed is None else list(allowed)
+    return jsonify(build_orphan_report(suburb_ids))
+
+
 def register_report_routes(app):
     app.add_url_rule(
         '/api/report',
@@ -384,4 +478,10 @@ def register_report_routes(app):
         view_func=market_report,
         methods=['GET'],
     )
-    logger.info("Report routes registered: /api/report")
+    app.add_url_rule(
+        '/api/report/orphans',
+        endpoint='orphan_report',
+        view_func=orphan_report,
+        methods=['GET'],
+    )
+    logger.info("Report routes registered: /api/report, /api/report/orphans")
