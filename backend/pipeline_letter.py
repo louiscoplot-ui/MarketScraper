@@ -225,8 +225,32 @@ def _green_header(doc):
         el.set(qn('w:type'), 'dxa')
         tblPr.append(el)
 
+    # Fixed layout + a grid column pinned to the full page width. Without these
+    # Word (and LibreOffice) autofit the table to its content, so the green bar
+    # stopped ~30% short of the right page edge instead of full-bleed.
+    existing_layout = tblPr.find(qn('w:tblLayout'))
+    if existing_layout is not None:
+        tblPr.remove(existing_layout)
+    layout = OxmlElement('w:tblLayout')
+    layout.set(qn('w:type'), 'fixed')
+    tblPr.append(layout)
+    grid = table._tbl.find(qn('w:tblGrid'))
+    if grid is not None:
+        for gc in grid.findall(qn('w:gridCol')):
+            gc.set(qn('w:w'), str(page_w))
+
     cell = table.cell(0, 0)
     cell.width = section.page_width
+    # Pin the cell width in twips too (tcW), so the single column really spans
+    # the whole band width regardless of the renderer's autofit heuristics.
+    tcPr = cell._tc.get_or_add_tcPr()
+    existing_tcw = tcPr.find(qn('w:tcW'))
+    if existing_tcw is not None:
+        tcPr.remove(existing_tcw)
+    tcw = OxmlElement('w:tcW')
+    tcw.set(qn('w:w'), str(page_w))
+    tcw.set(qn('w:type'), 'dxa')
+    tcPr.append(tcw)
 
     _remove_cell_borders(cell)
     _shade_cell(cell, BRAND_GREEN)

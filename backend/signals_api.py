@@ -48,7 +48,18 @@ def register_signals_routes(app):
             return jsonify({'error': 'forbidden'}), 403
 
         from signals.withdrawn_orphan import build_orphan_letter
-        doc, filename = build_orphan_letter(listing_id)
+        # Sign the letter with the calling agent's profile (name / agency /
+        # phone / email) — without this the letter fell back to env vars and
+        # printed "Sales Agent" with no name, no contact line, no agency.
+        from admin_api import get_current_user
+        me = get_current_user() or {}
+        user_profile = {
+            'agency_name': me.get('agency_name'),
+            'agent_name': me.get('agent_name'),
+            'agent_phone': me.get('agent_phone'),
+            'agent_email': me.get('agent_email'),
+        }
+        doc, filename = build_orphan_letter(listing_id, user_profile=user_profile)
         if doc is None:
             return jsonify({'error': 'listing not found'}), 404
 
