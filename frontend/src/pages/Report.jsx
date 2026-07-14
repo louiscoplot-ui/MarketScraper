@@ -181,7 +181,9 @@ export default function Report({ report, suburbs, reportSuburbs, setReportSuburb
       { l: 'Stale (60+ days)', v: dm.stale_count || 0, c: 'var(--status-alert)' },
     ]
     const share = (report.market_share || []).filter(a => (a.agency || '').toLowerCase() !== 'unknown').slice(0, 9)
-    const drops = (report.price_drops || []).slice(0, 12)
+    // Active listings only — a price move on an under-offer or sold listing
+    // isn't a live opportunity. (Missing status is treated as active.)
+    const drops = (report.price_drops || []).filter(m => (m.status || 'active') === 'active').slice(0, 12)
     // Real map: geocode each covered suburb to its centroid (free, cached).
     const mapSuburbs = (report.suburbs || []).slice(0, 12).map(x => Array.isArray(x)
       ? { name: x[0], total: x[1] && x[1].total } : { name: x })
