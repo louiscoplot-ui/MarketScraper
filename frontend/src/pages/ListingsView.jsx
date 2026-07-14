@@ -3,7 +3,7 @@
 // presentational component that takes everything via props.
 
 import { useState, useRef, useEffect } from 'react'
-import { StickyNote, Plus, X } from 'lucide-react'
+import { StickyNote, Plus, X, ExternalLink } from 'lucide-react'
 import EditableDateCell from '../components/EditableDateCell'
 import EditableTextCell from '../components/EditableTextCell'
 import StickyHScroll from '../components/StickyHScroll'
@@ -348,12 +348,15 @@ export default function ListingsView({
       cell: (l) => l.listing_type
         ? <span className="type-pill">{l.listing_type}</span>
         : '-' },
-    // Desk mode drops this — the dossier (opened from Address) already has
-    // a prominent "View on REIWA" button, so the column was pure duplication.
-    !isDesk && { field: '__link', label: 'Link', sortable: false, className: 'link-cell',
+    // REIWA link on every row so the agent can open the live listing straight
+    // from the table without going through the dossier popup. Icon-only in
+    // desk (saves width), "View" text in classic.
+    { field: '__link', label: isDesk ? '' : 'Link', sortable: false, className: 'link-cell',
       cell: (l) => l.reiwa_url
-        ? <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>
-        : '-' },
+        ? (isDesk
+            ? <a href={l.reiwa_url} target="_blank" rel="noopener" title="Open on REIWA" aria-label="Open on REIWA" style={{ display: 'inline-flex', alignItems: 'center' }}><ExternalLink size={14} strokeWidth={2.25} aria-hidden="true" /></a>
+            : <a href={l.reiwa_url} target="_blank" rel="noopener">View</a>)
+        : (isDesk ? '' : '-') },
     { field: '__del', label: '', sortable: false, className: 'link-cell',
       cell: (l) => (
         <button className="btn-delete-row" title={`Delete this ${l.status} listing`} onClick={() => deleteListing(l)}>
