@@ -189,10 +189,10 @@ export default function AdminUsers() {
   const [profileSaved, setProfileSaved] = useState(false)
   const [profileError, setProfileError] = useState('')
 
-  const refresh = async () => {
+  const refresh = async (attempt = 0) => {
     // Don't flash the "Loading…" blocker when we already have cached
     // rows on screen — refresh silently in the background instead.
-    if (users.length === 0) setLoading(true)
+    if (users.length === 0 && attempt === 0) setLoading(true)
     setError('')
     try {
       const meRes = await apiJson('/api/admin/me')
@@ -231,9 +231,17 @@ export default function AdminUsers() {
       } catch (e) {
         if (meRes.user?.role === 'admin') throw e
       }
+      setLoading(false)
     } catch (e) {
-      setError(e.message)
-    } finally {
+      // A cold or redeploying Render backend drops the bootstrap fetch
+      // (raw "Failed to fetch"). Retry a couple of times before surfacing a
+      // friendly, actionable error — any cached table stays on screen
+      // meanwhile, so we never blank the page over a transient blip.
+      if (attempt < 2) {
+        await new Promise(r => setTimeout(r, 1200 * (attempt + 1)))
+        return refresh(attempt + 1)
+      }
+      setError('Couldn’t reach the server — it may be waking up. Try again in a moment.')
       setLoading(false)
     }
   }
@@ -801,7 +809,12 @@ export default function AdminUsers() {
         </form>
       )}
 
-      {error && <div className="admin-error">{error}</div>}
+      {error && (
+        <div className="admin-error" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <span>{error}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => refresh()}>Try again</button>
+        </div>
+      )}
       {loading && <div className="admin-loading">Loading…</div>}
 
       {newKey && (
