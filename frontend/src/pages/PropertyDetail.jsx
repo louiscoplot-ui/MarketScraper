@@ -4,8 +4,10 @@
 // then three columns — agent & note · property story timeline · market
 // context (real mini-map + sold nearby). All data is local: the listing
 // row itself plus the in-memory listings set for comparables. No endpoint.
+import { useState, useEffect } from 'react'
 import { X, ExternalLink } from 'lucide-react'
 import DeskMap from '../components/DeskMap'
+import { apiJson } from '../lib/api'
 
 const STATUS_META = {
   active: { label: 'Active', st: 'good' },
@@ -33,6 +35,21 @@ function narrative(l, meta, dom) {
 }
 
 export default function PropertyDetail({ listing, listings = [], calcDOM, formatIsoDate, onClose }) {
+  // Real price-change history for this listing — so a "Price cut X%" shown on
+  // the dashboard is traceable here to the exact old→new and the date. Hooks
+  // run before any early return (rules of hooks); the fetch no-ops without an id.
+  const [priceChanges, setPriceChanges] = useState([])
+  const lid = listing && listing.id
+  useEffect(() => {
+    let cancelled = false
+    setPriceChanges([])
+    if (!lid) return
+    apiJson(`/api/listings/${lid}/price-history`)
+      .then(d => { if (!cancelled) setPriceChanges(Array.isArray(d.changes) ? d.changes : []) })
+      .catch(() => { /* dossier still works without history */ })
+    return () => { cancelled = true }
+  }, [lid])
+
   if (!listing) return null
   const l = listing
   const meta = STATUS_META[l.status] || { label: l.status || '—', st: 'off' }
@@ -58,12 +75,42 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
   const addrHasSuburb = suburb && String(l.address || '').toLowerCase().includes(suburb.toLowerCase())
   const fullAddress = addrHasSuburb ? l.address : `${l.address}${suburb ? `, ${suburb}` : ''}`
 
-  // Property story — the dated events we actually store, oldest first.
+  // Property story — the dated events we actually store, oldest first, now
+  // WITH the real price changes so "Price cut X%" is verifiable (old → new,
+  // when). Only money-looking changes surface (a "Contact form" → "Contact
+  // agent" text swap isn't a price move), which also answers "did it really
+  // change?".
+  const parseP = (s) => { const d = String(s ?? '').replace(/[^\d]/g, ''); return d ? parseInt(d, 10) : null }
+  const toIso = (d) => {
+    const s = String(d || '')
+    let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)                 // DD/MM/YYYY
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+    m = s.match(/^(\d{4}-\d{2}-\d{2})/)                               // ISO
+    return m ? m[1] : s
+  }
+  const priceEvents = (priceChanges || [])
+    .filter(c => looksPrice(c.old_price) || looksPrice(c.new_price))
+    .map(c => {
+      const op = parseP(c.old_price), np = parseP(c.new_price)
+      const cut = op != null && np != null && np < op
+      const rise = op != null && np != null && np > op
+      const pct = (op && np && op !== np) ? Math.round(Math.abs(np - op) / op * 100) : null
+      return {
+        c: cut ? 'var(--status-alert)' : 'var(--status-watch)',
+        raw: c.changed_at,
+        event: cut ? 'Price reduced' : rise ? 'Price raised' : 'Price changed',
+        val: `${c.old_price || '—'} → ${c.new_price || '—'}${pct != null ? ` · ${cut ? '−' : '+'}${pct}%` : ''}`,
+      }
+    })
   const story = [
-    l.listing_date && { c: 'var(--status-good)', date: fmtD(l.listing_date), event: 'Listed for sale', val: looksPrice(l.price_text) ? l.price_text : '' },
-    l.withdrawn_date && { c: 'var(--status-alert)', date: fmtD(l.withdrawn_date), event: 'Withdrawn from market', val: dom != null ? `after ${dom} days` : '' },
-    l.sold_date && { c: 'var(--status-info)', date: fmtD(l.sold_date), event: 'Sold', val: soldPriceOf(l) },
+    l.listing_date && { c: 'var(--status-good)', raw: l.listing_date, event: 'Listed for sale', val: looksPrice(l.price_text) ? l.price_text : '' },
+    ...priceEvents,
+    l.withdrawn_date && { c: 'var(--status-alert)', raw: l.withdrawn_date, event: 'Withdrawn from market', val: dom != null ? `after ${dom} days` : '' },
+    l.sold_date && { c: 'var(--status-info)', raw: l.sold_date, event: 'Sold', val: soldPriceOf(l) },
   ].filter(Boolean)
+    .map(h => ({ ...h, _iso: toIso(h.raw) }))
+    .sort((a, b) => a._iso.localeCompare(b._iso))
+    .map(h => ({ ...h, date: fmtD(String(h.raw).slice(0, 10)) }))
 
   // Sold nearby — real comparables from the listings already in memory:
   // same suburb, sold, most recent first. No fabricated numbers.

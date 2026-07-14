@@ -230,12 +230,43 @@ def patch_listing_note():
         conn.close()
 
 
+def get_listing_price_history(id):
+    """Every recorded price change for one listing, oldest first — so a
+    "Price cut X%" shown on the dashboard is traceable to the exact old→new
+    values and the date it changed (the dossier's Property Story consumes
+    this). Scoped to the caller's suburbs, same as patch_listing."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, suburb_id FROM listings WHERE id = ?", (id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Listing not found'}), 404
+    _user, allowed_ids = resolve_request_scope()
+    if allowed_ids is not None and row['suburb_id'] not in allowed_ids:
+        conn.close()
+        return jsonify({'error': 'Not authorised for that listing'}), 403
+    changes = conn.execute(
+        "SELECT old_price, new_price, changed_at FROM price_history "
+        "WHERE listing_id = ? ORDER BY COALESCE(changed_at, '') ASC, id ASC",
+        (id,)
+    ).fetchall()
+    conn.close()
+    return jsonify({'changes': [dict(c) for c in changes]})
+
+
 def register_listings_routes(app):
     app.add_url_rule(
         '/api/listings/<int:id>',
         endpoint='patch_listing',
         view_func=patch_listing,
         methods=['PATCH']
+    )
+    app.add_url_rule(
+        '/api/listings/<int:id>/price-history',
+        endpoint='get_listing_price_history',
+        view_func=get_listing_price_history,
+        methods=['GET']
     )
     app.add_url_rule(
         '/api/listings/note',
