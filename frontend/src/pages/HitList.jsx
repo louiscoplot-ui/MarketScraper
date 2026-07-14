@@ -34,6 +34,7 @@ export default function HitList({ openDossier, formatIsoDate }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [bucket, setBucket] = useState('all')
+  const [sub, setSub] = useState('')          // '' = all suburbs
   const [downloading, setDownloading] = useState(null)
 
   const load = (attempt = 0) => {
@@ -51,8 +52,18 @@ export default function HitList({ openDossier, formatIsoDate }) {
   }
   useEffect(() => { load() }, [])
 
-  const items = (data?.items || []).filter(i => inBucket(i.category, bucket))
-  const counts = data?.counts || { total: 0, expired_mandate: 0, withdrawn: 0, stale: 0 }
+  // Suburbs present in the data (for the picker), then filter by the chosen
+  // suburb. Chip counts follow the suburb filter so they always match the list.
+  const allItems = data?.items || []
+  const subOptions = [...new Set(allItems.map(i => i.suburb).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  const scoped = allItems.filter(i => !sub || i.suburb === sub)
+  const counts = {
+    total: scoped.length,
+    expired_mandate: scoped.filter(i => i.category === 'expired_mandate').length,
+    withdrawn: scoped.filter(i => i.category === 'withdrawn' || i.category === 'withdrawn_recent').length,
+    stale: scoped.filter(i => i.category === 'stale').length,
+  }
+  const items = scoped.filter(i => inBucket(i.category, bucket))
   const fmtD = (d) => (formatIsoDate ? (formatIsoDate(d) || d) : d)
 
   const downloadLetter = async (it) => {
@@ -109,8 +120,15 @@ export default function HitList({ openDossier, formatIsoDate }) {
         </button>
       </div>
 
-      {/* filter chips with counts */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {/* suburb picker + filter chips with counts */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {subOptions.length > 1 && (
+          <select value={sub} onChange={e => setSub(e.target.value)}
+            style={{ fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 999, padding: '6px 12px', cursor: 'pointer' }}>
+            <option value="">All suburbs</option>
+            {subOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
         {CATS.map(c => {
           const n = c.key === 'all' ? counts.total : (counts[c.key] || 0)
           const on = bucket === c.key
