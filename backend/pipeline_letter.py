@@ -22,6 +22,7 @@ from docx.shared import Pt, RGBColor, Cm, Inches, Emu
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.section import WD_ORIENT
 
 
 # Acton | Belle Property official brand green — exact value extracted
@@ -309,6 +310,12 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
 
     doc = Document()
     for section in doc.sections:
+        # Force portrait A4 — the server's default docx template opened
+        # landscape, stretching the letter across the page. Set the page
+        # dimensions explicitly (orientation alone doesn't swap them).
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
         section.top_margin = Cm(0)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
@@ -422,6 +429,12 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
 
     doc = Document()
     for section in doc.sections:
+        # Force portrait A4 — the server's default docx template opened
+        # landscape, stretching the letter across the page. Set the page
+        # dimensions explicitly (orientation alone doesn't swap them).
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
         section.top_margin = Cm(0)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
@@ -515,6 +528,12 @@ def render_sold_reveal_letter_docx(neighbour_address, sold_address, sold_price,
 
     doc = Document()
     for section in doc.sections:
+        # Force portrait A4 — the server's default docx template opened
+        # landscape, stretching the letter across the page. Set the page
+        # dimensions explicitly (orientation alone doesn't swap them).
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
         section.top_margin = Cm(0)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
@@ -599,6 +618,12 @@ def render_strata_letter_docx(unit_address, sold_unit_address, sold_price,
 
     doc = Document()
     for section in doc.sections:
+        # Force portrait A4 — the server's default docx template opened
+        # landscape, stretching the letter across the page. Set the page
+        # dimensions explicitly (orientation alone doesn't swap them).
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
         section.top_margin = Cm(0)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
