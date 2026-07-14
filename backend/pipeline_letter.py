@@ -230,16 +230,19 @@ def _green_header(doc):
 
     _remove_cell_borders(cell)
     _shade_cell(cell, BRAND_GREEN)
-    _set_cell_padding(cell, top=200, left=left_m, bottom=200, right=left_m)
+    # Taller band (~3.8cm) with the logo LEFT-aligned at the body margin —
+    # matches the Acton|Belle letterhead template (logo top-left, generous
+    # green bar). ~0.8cm padding above/below a 2.2cm logo.
+    _set_cell_padding(cell, top=450, left=left_m, bottom=450, right=left_m)
 
     p = cell.paragraphs[0]
     p.paragraph_format.space_after = Pt(0)
     p.paragraph_format.space_before = Pt(0)
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     if os.path.exists(LOGO_PATH):
         run = p.add_run()
-        run.add_picture(LOGO_PATH, height=Cm(1.8))
+        run.add_picture(LOGO_PATH, height=Cm(2.2))
     else:
         r1 = p.add_run('ACTON')
         r1.font.size = Pt(28); r1.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r1.font.name = 'Arial'
