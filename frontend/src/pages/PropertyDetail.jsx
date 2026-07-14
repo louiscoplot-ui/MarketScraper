@@ -76,6 +76,44 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
   const activeNearby = (listings || [])
     .filter(x => x.status === 'active' && eq(x.suburb_name || x.suburb, suburb) && x.id !== l.id).length
 
+  // Comparable competition — count only genuinely similar active listings,
+  // not the whole suburb: a 5-bed house doesn't compete with studio units.
+  // Houses compare on beds/baths/land, apartments on beds/baths/internal,
+  // land on land size. A criterion is applied only when BOTH listings carry
+  // the value (REIWA data is sparse — requiring presence would zero the
+  // count), so it gracefully degrades to a property-type match when sizes
+  // are missing.
+  const numOf = (s) => { const m = String(s ?? '').replace(/,/g, '').match(/\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : null }
+  const catOf = (x) => {
+    const t = String(x.listing_type || '').toLowerCase()
+    if (/land|lot/.test(t)) return 'land'
+    if (/apartment|unit|studio|flat/.test(t)) return 'apartment'
+    if (/house|villa|townhouse|duplex|terrace|home/.test(t)) return 'house'
+    // No type on the row: infer from what we measure.
+    if (x.internal_size && !x.land_size) return 'apartment'
+    if (x.land_size) return 'house'
+    return 'other'
+  }
+  const near = (a, b, tol) => (a == null || b == null) ? true : Math.abs(a - b) <= tol
+  const withinPct = (a, b, pct) => (a == null || b == null) ? true : Math.abs(a - b) <= Math.max(a, b) * pct
+  const subjCat = catOf(l)
+  const subjLand = numOf(l.land_size)
+  const subjInt = numOf(l.internal_size)
+  const isSimilar = (x) => {
+    if (catOf(x) !== subjCat) return false
+    if (subjCat !== 'land') {
+      if (!near(l.bedrooms, x.bedrooms, 1)) return false
+      if (!near(l.bathrooms, x.bathrooms, 1)) return false
+    }
+    if (subjCat === 'apartment') return withinPct(subjInt, numOf(x.internal_size), 0.35)
+    return withinPct(subjLand, numOf(x.land_size), 0.35)   // house & land compare land size
+  }
+  const similarActive = (listings || []).filter(x =>
+    x.status === 'active' && eq(x.suburb_name || x.suburb, suburb) && x.id !== l.id && isSimilar(x)).length
+  const compDims = subjCat === 'land' ? 'land size'
+    : subjCat === 'apartment' ? 'beds, baths & internal size'
+      : 'beds, baths & land size'
+
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-card)' }
   const mlabel = { fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '.13em', textTransform: 'uppercase', color: 'var(--text-faint)' }
   const chip = (bg, fg, text, border) => (
@@ -139,8 +177,9 @@ export default function PropertyDetail({ listing, listings = [], calcDOM, format
             )}
             <div style={{ ...card, padding: '13px 15px' }}>
               <div style={{ ...mlabel, marginBottom: 7 }}>Competition · {suburb || '—'}</div>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--text)', lineHeight: 1 }}>{activeNearby}</div>
-              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>other active listing{activeNearby !== 1 ? 's' : ''} in the suburb right now</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--text)', lineHeight: 1 }}>{similarActive}</div>
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>comparable active listing{similarActive !== 1 ? 's' : ''} — similar {compDims}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-faint)', marginTop: 3 }}>{activeNearby} active in {suburb || 'the suburb'} overall</div>
             </div>
           </div>
 
