@@ -42,8 +42,8 @@ LOGO_PATH = os.path.join(_THIS_DIR, 'static', 'logo_acton_belle.png')
 # operator can swap them without code change. Defaults preserve Louis's
 # existing letterhead for backward compatibility.
 AGENCY_LINE_1_DEFAULT = '160 Stirling Hwy, Nedlands WA 6009'
-AGENCY_LINE_2_DEFAULT = '08 9386 8255  |  suburbdesk@gmail.com'
-AGENCY_LINE_3_DEFAULT = 'Dalkeith Region Pty Ltd  |  ABN 26 123 014 957  |  belleproperty.com/Cottesloe'
+AGENCY_LINE_2_DEFAULT = '08 9386 8255  |  cottesloe@belleproperty.com'
+AGENCY_LINE_3_DEFAULT = 'Dalkeith Region Pty Ltd  |  ABN 26 123 014 997  |  belleproperty.com/Cottesloe'
 
 
 def _resolve(profile, profile_key, env_key, default=''):
@@ -254,10 +254,10 @@ def _green_header(doc):
 
     _remove_cell_borders(cell)
     _shade_cell(cell, BRAND_GREEN)
-    # Taller band (~3.8cm) with the logo LEFT-aligned at the body margin —
-    # matches the Acton|Belle letterhead template (logo top-left, generous
-    # green bar). ~0.8cm padding above/below a 2.2cm logo.
-    _set_cell_padding(cell, top=450, left=left_m, bottom=450, right=left_m)
+    # Green band with the logo LEFT-aligned at the body margin. Kept trim
+    # (~2.7cm: a 1.6cm logo with ~0.55cm breathing room top/bottom) — the
+    # earlier 3.8cm bar read too heavy.
+    _set_cell_padding(cell, top=310, left=left_m, bottom=310, right=left_m)
 
     p = cell.paragraphs[0]
     p.paragraph_format.space_after = Pt(0)
@@ -266,7 +266,7 @@ def _green_header(doc):
 
     if os.path.exists(LOGO_PATH):
         run = p.add_run()
-        run.add_picture(LOGO_PATH, height=Cm(2.2))
+        run.add_picture(LOGO_PATH, height=Cm(1.6))
     else:
         r1 = p.add_run('ACTON')
         r1.font.size = Pt(28); r1.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF); r1.font.name = 'Arial'
@@ -290,21 +290,29 @@ def _agency_footer(doc, agency_name, line_1, line_2, line_3):
 
     p1 = footer.paragraphs[0]
     p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p1.paragraph_format.space_after = Pt(0)
+    p1.paragraph_format.line_spacing = 1.0
     if agency_name:
         r = p1.add_run(agency_name)
         r.bold = True
-        r.font.size = Pt(8)
-        r.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+        r.font.size = Pt(7.5)
+        r.font.name = 'Arial'
+        r.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
 
+    # Compact block matching the Acton letterhead footer — 7pt, tight
+    # line-spacing, muted grey. One env line per row (address, contact, legal).
     for line in (line_1, line_2, line_3):
         if not line:
             continue
         p = footer.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        run = p.add_run(line)
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor(0x77, 0x77, 0x77)
         p.paragraph_format.space_after = Pt(0)
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.line_spacing = 1.0
+        run = p.add_run(line)
+        run.font.size = Pt(7)
+        run.font.name = 'Arial'
+        run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
 
 
 def render_letter_docx(target_address, owner_name, source_suburb, sources, user_profile=None):
@@ -486,34 +494,40 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
             r = p.add_run(text); r.font.size = Pt(11); r.font.name = 'Arial'
         return p
 
-    # Opening — reference the withdrawal directly, with the day count.
-    days_phrase = f"{days_withdrawn} days ago" if days_withdrawn else "some months ago"
+    body_para('I hope this finds you well.')
+
+    # Warm, first-person opening — acknowledge the withdrawal without judgement.
+    days_phrase = f"about {days_withdrawn} days ago" if days_withdrawn else "a little while ago"
     p = body_para()
-    r1 = p.add_run('We noticed that your property at ')
+    r1 = p.add_run('I noticed that your home at ')
     r1.font.size = Pt(11); r1.font.name = 'Arial'
     r2 = p.add_run(target_address); r2.bold = True; r2.font.size = Pt(11); r2.font.name = 'Arial'
-    r3 = p.add_run(f' was taken off the market {days_phrase}.')
+    r3 = p.add_run(f' came off the market {days_phrase}. When a sale doesn’t come '
+                   'together the way you’d hoped, it’s so often about timing and '
+                   'presentation rather than the home itself.')
     r3.font.size = Pt(11); r3.font.name = 'Arial'
 
     # Market-moved-since paragraph, with live suburb stats when available.
     stat_bits = []
     if active_count is not None:
-        stat_bits.append(f"{active_count} active listings")
+        stat_bits.append(f"around {active_count} homes currently for sale")
     if median_text:
         stat_bits.append(f"a median of {median_text}")
     if stat_bits:
-        stats_sentence = (f"The Western Suburbs market has shifted since — "
-                          f"{suburb} currently shows {' and '.join(stat_bits)}.")
+        stats_sentence = (f"Quite a bit has shifted in {suburb} since then — there are "
+                          f"{' and '.join(stat_bits)} — so the picture today may look "
+                          "rather different to when you were last on the market.")
     else:
-        stats_sentence = ("The Western Suburbs market has shifted since, and "
-                          f"conditions in {suburb} may look very different today.")
+        stats_sentence = (f"Quite a bit has shifted in {suburb} since then, so the picture "
+                          "today may look rather different to when you were last on the market.")
     body_para(stats_sentence)
 
-    body_para('We would like to share a confidential analysis of what your '
-              'property could achieve in the current market — no obligation, '
-              'just clarity.')
+    body_para('If it would help, I’d be glad to put together an honest, no-pressure '
+              'view of what your home could realistically achieve in today’s market '
+              '— simply so you have clarity, whether or not you decide to sell.')
 
-    body_para("Please don't hesitate to reach out.")
+    body_para('I’d genuinely welcome the chance to help — feel free to call or '
+              'email me anytime.')
 
     doc.add_paragraph()
     body_para('Kind regards,')
