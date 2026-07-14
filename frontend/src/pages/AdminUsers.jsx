@@ -160,6 +160,11 @@ export default function AdminUsers() {
   //   digest_enabled: bool, loading: bool, saving: bool,
   //   message: string|null, error: string|null }
   const [managing, setManaging] = useState(null)
+  // Resend-login flow — re-sends the welcome email and reveals the user's
+  // existing access key so the admin can forward it by hand when email
+  // delivery is the blocker (e.g. a user who shows "Never" logged in).
+  const [resendingId, setResendingId] = useState(null)
+  const [resent, setResent] = useState(null)   // { email, access_key, email_sent, email_error }
   // Escape closes the Manage Access modal — same affordance as the
   // backdrop click and the × button, so the operator never gets stuck.
   // Guard against closing mid-save: drop the keypress if a write is
@@ -327,6 +332,18 @@ export default function AdminUsers() {
       setUsers(previous)
       writeCache('admin_users', previous)
       alert(`Could not revoke: ${e.message}`)
+    }
+  }
+
+  const resendWelcome = async (u) => {
+    setResendingId(u.id)
+    try {
+      const res = await apiJson(`/api/admin/users/${u.id}/resend-welcome`, { method: 'POST' })
+      setResent({ email: u.email, ...res })
+    } catch (e) {
+      alert(`Could not resend login: ${e.message}`)
+    } finally {
+      setResendingId(null)
     }
   }
 
@@ -971,6 +988,14 @@ export default function AdminUsers() {
                   Manage
                 </button>
                 <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => resendWelcome(u)}
+                  disabled={resendingId === u.id}
+                  title="Re-send the welcome email and reveal this user's access key so you can forward it manually"
+                >
+                  {resendingId === u.id ? 'Sending…' : 'Resend login'}
+                </button>
+                <button
                   className="btn btn-ghost btn-sm btn-danger"
                   onClick={() => revoke(u)}
                   disabled={me && me.id === u.id}
@@ -987,6 +1012,30 @@ export default function AdminUsers() {
         </tbody>
       </table>
       </div>
+
+      {resent && (
+        <div onClick={() => setResent(null)} style={{ position: 'fixed', inset: 0, zIndex: 1100, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', borderRadius: 8, width: '100%', maxWidth: 460, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', padding: '18px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>Login details · {resent.email}</div>
+              <button onClick={() => setResent(null)} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: 24, lineHeight: 1, color: 'var(--text-muted)', cursor: 'pointer', padding: 0 }}>×</button>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 12.5, color: resent.email_sent ? 'var(--status-good-text)' : 'var(--status-watch-text)' }}>
+              {resent.email_sent
+                ? 'Welcome email re-sent. If it doesn’t arrive (spam / wrong address), forward the key below manually.'
+                : `Email couldn’t be sent${resent.email_error ? ` (${resent.email_error})` : ''} — forward the key below manually.`}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>Access key</div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', wordBreak: 'break-all' }}>{resent.access_key}</code>
+              <button className="btn btn-primary btn-sm" onClick={() => { try { navigator.clipboard.writeText(resent.access_key) } catch { /* ignore */ } }}>Copy</button>
+            </div>
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              They sign in at <strong>suburbdesk.com</strong> by pasting this key, then can set their own password under Account. The key stays valid — you can re-send it anytime.
+            </div>
+          </div>
+        </div>
+      )}
 
       {me && me.role === 'admin' && (
         <div style={{ marginTop: 32 }}>
@@ -1160,7 +1209,7 @@ export default function AdminUsers() {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: 'var(--surface)', borderRadius: 8,
-              width: '100%', maxWidth: 640, maxHeight: '85vh',
+              width: '100%', maxWidth: 760, maxHeight: '85vh',
               display: 'flex', flexDirection: 'column',
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
             }}

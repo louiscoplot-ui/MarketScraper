@@ -507,6 +507,54 @@ def register_admin_routes(app):
             return jsonify({'error': 'Delete failed'}), 500
         return jsonify({'ok': True})
 
+    @app.route('/api/admin/users/<int:user_id>/resend-welcome', methods=['POST'])
+    def admin_resend_welcome(user_id):
+        # Re-send the welcome email (access key + 3-step tutorial) to a user
+        # who never logged in / lost the first one, and reveal their existing
+        # access_key back to the admin so it can be forwarded by hand if email
+        # delivery is the problem. Admin-only; the admin already saw this key
+        # at creation and controls the account, so re-exposing it is in scope.
+        admin, err = _require_admin()
+        if err:
+            return err
+        conn = get_db()
+        row = conn.execute(
+            "SELECT id, email, first_name, last_name, access_key FROM users WHERE id = ?",
+            (user_id,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+        u = dict(row)
+        key = (u.get('access_key') or '').strip()
+        if not key:
+            # Row somehow lost its key — mint a fresh one so the user can log in.
+            key = _gen_access_key()
+            conn.execute("UPDATE users SET access_key = ? WHERE id = ?", (key, user_id))
+            conn.commit()
+        conn.close()
+
+        inviter = (' '.join(filter(None, [
+            admin.get('first_name'), admin.get('last_name')
+        ])).strip() or admin.get('email'))
+        try:
+            from email_service import send_welcome_email
+            email_ok, email_err = send_welcome_email(
+                {'email': u['email'], 'first_name': u.get('first_name'),
+                 'last_name': u.get('last_name')},
+                key, inviter_name=inviter, inviter_email=admin.get('email'),
+            )
+        except Exception as e:
+            logger.exception("resend-welcome email failed for user_id=%s: %s", user_id, e)
+            email_ok, email_err = False, str(e)
+
+        return jsonify({
+            'access_key': key,
+            'email': u['email'],
+            'email_sent': email_ok,
+            'email_error': email_err,
+        })
+
     @app.route('/api/admin/users/<int:user_id>/suburbs', methods=['GET'])
     def admin_get_user_suburbs(user_id):
         _, err = _require_admin()

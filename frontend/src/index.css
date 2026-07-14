@@ -1824,13 +1824,18 @@ body.col-resizing * {
   padding: 0 16px 8px; font-size: 12px; color: var(--text-muted, #888);
 }
 .admin-assign-grid {
-  max-height: 400px; overflow-y: auto;
+  max-height: 320px; overflow-y: auto;
   padding: 8px 16px; border-top: 1px solid rgba(0,0,0,0.06);
   border-bottom: 1px solid rgba(0,0,0,0.06);
+  /* Multi-column so a long WA suburb list stays a glance, not an endless
+     scroll — checkboxes flow into as many columns as the width allows. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+  gap: 1px 16px;
 }
 .admin-assign-row {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 4px; border-bottom: 1px solid rgba(0,0,0,0.04);
+  padding: 5px 4px;
   cursor: pointer; font-size: 13px;
 }
 .admin-assign-row:hover { background: rgba(0,0,0,0.03); }
