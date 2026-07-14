@@ -1035,16 +1035,30 @@ export default function AdminUsers() {
             </div>
             <div style={{ marginTop: 6, fontSize: 12.5, color: resent.email_sent ? 'var(--status-good-text)' : 'var(--status-watch-text)' }}>
               {resent.email_sent
-                ? 'Welcome email re-sent. If it doesn’t arrive (spam / wrong address), forward the key below manually.'
-                : `Email couldn’t be sent${resent.email_error ? ` (${resent.email_error})` : ''} — forward the key below manually.`}
+                ? 'Welcome email re-sent. Email delivery to external addresses can silently fail (Resend sandbox / spam) — the surest fix is to send the one-click link below yourself.'
+                : `Email couldn’t be sent${resent.email_error ? ` (${resent.email_error})` : ''}. Send the one-click link below yourself instead.`}
             </div>
-            <div style={{ marginTop: 12, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>Access key</div>
+
+            {resent.login_url && (
+              <>
+                <div style={{ marginTop: 14, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>One-click login link · send this to them</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12.5, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', wordBreak: 'break-all' }}>{resent.login_url}</code>
+                  <button className="btn btn-primary btn-sm" onClick={() => { try { navigator.clipboard.writeText(resent.login_url) } catch { /* ignore */ } }}>Copy</button>
+                </div>
+                <div style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-muted)' }}>
+                  Paste it into WhatsApp / SMS / any email — one tap logs them straight in on their device.
+                </div>
+              </>
+            )}
+
+            <div style={{ marginTop: 14, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}>Access key · fallback</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 13, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', wordBreak: 'break-all' }}>{resent.access_key}</code>
-              <button className="btn btn-primary btn-sm" onClick={() => { try { navigator.clipboard.writeText(resent.access_key) } catch { /* ignore */ } }}>Copy</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { try { navigator.clipboard.writeText(resent.access_key) } catch { /* ignore */ } }}>Copy</button>
             </div>
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              They sign in at <strong>suburbdesk.com</strong> by pasting this key, then can set their own password under Account. The key stays valid — you can re-send it anytime.
+              Or they paste the key into “Your access key” on the login screen. Once in, they set their own password under Account. Link and key stay valid — re-send anytime.
             </div>
           </div>
         </div>

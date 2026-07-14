@@ -537,8 +537,10 @@ def register_admin_routes(app):
         inviter = (' '.join(filter(None, [
             admin.get('first_name'), admin.get('last_name')
         ])).strip() or admin.get('email'))
+        login_url = None
         try:
-            from email_service import send_welcome_email
+            from email_service import send_welcome_email, _login_link
+            login_url = _login_link(key)
             email_ok, email_err = send_welcome_email(
                 {'email': u['email'], 'first_name': u.get('first_name'),
                  'last_name': u.get('last_name')},
@@ -550,6 +552,12 @@ def register_admin_routes(app):
 
         return jsonify({
             'access_key': key,
+            # Canonical one-click login URL (APP_URL/?key=…) so the admin can
+            # forward it by hand when email delivery is the blocker (e.g.
+            # Resend still on the sandbox sender, which only reaches the
+            # account owner). The frontend also builds this, but returning the
+            # server's APP_URL avoids pointing at a Vercel preview origin.
+            'login_url': login_url,
             'email': u['email'],
             'email_sent': email_ok,
             'email_error': email_err,
