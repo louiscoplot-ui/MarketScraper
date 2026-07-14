@@ -1750,7 +1750,7 @@ body.col-resizing * {
 /* ------------------------------------------------------------------
    SuburbDesk Admin — Users page
    ------------------------------------------------------------------ */
-.admin-users { padding: 16px 24px; max-width: 1200px; }
+.admin-users { padding: 16px 24px; max-width: 1600px; }
 .admin-users h2 { margin: 0 0 16px; }
 .admin-users h3 { margin: 0 0 12px; font-size: 14px; }
 
