@@ -36,6 +36,8 @@ export default function HitList({ openDossier, formatIsoDate }) {
   const [bucket, setBucket] = useState('all')
   const [sub, setSub] = useState('')          // '' = all suburbs
   const [downloading, setDownloading] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())  // ids picked for bulk letters
+  const [bulkBusy, setBulkBusy] = useState(false)
 
   const load = (attempt = 0) => {
     setError('')
@@ -86,6 +88,56 @@ export default function HitList({ openDossier, formatIsoDate }) {
     }
   }
 
+  // A row can produce a letter when it's a withdrawn/expired-mandate orphan.
+  const letterEligible = (it) =>
+    it.category === 'expired_mandate' || it.category === 'withdrawn' || it.category === 'withdrawn_recent'
+
+  const toggleSelect = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  // Eligible rows currently visible (so "select all" and the count follow the
+  // active suburb/bucket filter, never a hidden row).
+  const eligibleVisible = items.filter(letterEligible)
+  const selectedVisible = eligibleVisible.filter(it => selected.has(it.id))
+  const allSelected = eligibleVisible.length > 0 && selectedVisible.length === eligibleVisible.length
+  const toggleSelectAll = () => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allSelected) { eligibleVisible.forEach(it => next.delete(it.id)) }
+      else { eligibleVisible.forEach(it => next.add(it.id)) }
+      return next
+    })
+  }
+
+  const downloadBulk = async () => {
+    const ids = selectedVisible.map(it => it.id)
+    if (!ids.length) return
+    setBulkBusy(true)
+    try {
+      const res = await fetch(`${BACKEND_DIRECT}/api/signals/withdrawn-orphans/letters-zip`, {
+        method: 'POST',
+        headers: { 'X-Access-Key': key(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_ids: ids }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `letters_${new Date().toISOString().slice(0, 10)}.zip`; a.click()
+      URL.revokeObjectURL(url)
+      setSelected(new Set())
+    } catch {
+      alert('Couldn’t generate the letters — the server may be waking up. Try again in a moment.')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   const exportCsv = () => {
     const rows = [['Address', 'Suburb', 'Status', 'Category', 'Reason', 'DOM', 'Withdrawn', 'Price', 'Agent', 'Agency', 'REIWA']]
     for (const i of items) {
@@ -114,10 +166,18 @@ export default function HitList({ openDossier, formatIsoDate }) {
             Motivated vendors in your suburbs — withdrawn mandates &amp; long campaigns. {counts.total} lead{counts.total !== 1 ? 's' : ''}.
           </div>
         </div>
-        <button onClick={exportCsv} disabled={!items.length}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 13px', cursor: items.length ? 'pointer' : 'not-allowed', opacity: items.length ? 1 : 0.5 }}>
-          <Download size={14} /> Export CSV
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {selectedVisible.length > 0 && (
+            <button onClick={downloadBulk} disabled={bulkBusy}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: '#fff', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 8, padding: '8px 13px', cursor: bulkBusy ? 'wait' : 'pointer', opacity: bulkBusy ? 0.7 : 1 }}>
+              <FileText size={14} /> {bulkBusy ? 'Generating…' : `Generate ${selectedVisible.length} letter${selectedVisible.length !== 1 ? 's' : ''}`}
+            </button>
+          )}
+          <button onClick={exportCsv} disabled={!items.length}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'var(--font-ui)', fontSize: 12.5, fontWeight: 600, color: 'var(--text)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 13px', cursor: items.length ? 'pointer' : 'not-allowed', opacity: items.length ? 1 : 0.5 }}>
+            <Download size={14} /> Export CSV
+          </button>
+        </div>
       </div>
 
       {/* suburb picker + filter chips with counts */}
@@ -153,10 +213,29 @@ export default function HitList({ openDossier, formatIsoDate }) {
         <div style={{ color: 'var(--text-muted)', padding: 24, fontSize: 13 }}>No motivated-vendor leads in this bucket right now. New withdrawn/stale listings surface here after the nightly scrape.</div>
       ) : (
         <div style={{ ...card, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {eligibleVisible.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-sunken, var(--surface))' }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                title="Select all letter-eligible rows"
+                style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--accent)' }} />
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                {selectedVisible.length > 0
+                  ? `${selectedVisible.length} selected — generate letters in one click`
+                  : `Select letters to generate several at once (${eligibleVisible.length} eligible)`}
+              </span>
+            </div>
+          )}
           <div style={{ overflowY: 'auto', flex: 1 }}>
             {items.map((it, i) => (
               <div key={it.id || i}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderTop: i ? '1px solid var(--border)' : 'none', borderLeft: `3px solid ${CAT_ACCENT[it.category] || 'var(--status-off)'}` }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderTop: i ? '1px solid var(--border)' : 'none', borderLeft: `3px solid ${CAT_ACCENT[it.category] || 'var(--status-off)'}`, background: selected.has(it.id) ? 'var(--accent-soft)' : 'transparent' }}>
+                <div style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {letterEligible(it) && (
+                    <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggleSelect(it.id)}
+                      title="Include in bulk letter generation"
+                      style={{ width: 15, height: 15, cursor: 'pointer', accentColor: 'var(--accent)' }} />
+                  )}
+                </div>
                 <div style={{ minWidth: 0, flex: 1, cursor: openDossier ? 'pointer' : 'default' }}
                   onClick={() => openDossier && openDossier({
                     address: it.address, suburb: it.suburb, suburb_name: it.suburb,

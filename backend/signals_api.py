@@ -72,6 +72,93 @@ def register_signals_routes(app):
             headers={'Content-Disposition': f'attachment; filename="{filename}"'},
         )
 
+    @app.route('/api/signals/withdrawn-orphans/letters-zip', methods=['POST'])
+    def withdrawn_orphan_letters_zip():
+        """Bulk-download withdrawn-orphan letters as one .zip. Body:
+        {"listing_ids": [1,2,3]}. Scope-gated per listing — out-of-scope or
+        ineligible ids are skipped silently so one bad id can't sink the batch.
+        Signs every letter with the calling agent's profile, same as the
+        single-letter route."""
+        import zipfile
+
+        _user, allowed_ids = resolve_request_scope()
+        body = request.get_json(silent=True) or {}
+        raw_ids = body.get('listing_ids') or []
+        # Dedupe, coerce to int, cap the batch so a runaway request can't pin
+        # the Render worker rendering thousands of docx in one call.
+        ids = []
+        seen = set()
+        for x in raw_ids:
+            try:
+                i = int(x)
+            except (TypeError, ValueError):
+                continue
+            if i not in seen:
+                seen.add(i)
+                ids.append(i)
+        ids = ids[:200]
+        if not ids:
+            return jsonify({'error': 'no listing_ids'}), 400
+
+        # Resolve scope for the whole batch in one query.
+        conn = get_db()
+        qmarks = ','.join('?' for _ in ids)
+        rows = conn.execute(
+            f"SELECT id, suburb_id FROM listings WHERE id IN ({qmarks})", ids
+        ).fetchall()
+        conn.close()
+        scope_ok = set()
+        for r in rows:
+            r = dict(r)
+            if allowed_ids is None or r['suburb_id'] in allowed_ids:
+                scope_ok.add(r['id'])
+
+        from signals.withdrawn_orphan import build_orphan_letter
+        from admin_api import get_current_user
+        me = get_current_user() or {}
+        user_profile = {
+            'agency_name': me.get('agency_name'),
+            'agent_name': me.get('agent_name'),
+            'agent_phone': me.get('agent_phone'),
+            'agent_email': me.get('agent_email'),
+        }
+
+        zip_buf = io.BytesIO()
+        used_names = set()
+        written = 0
+        with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for lid in ids:
+                if lid not in scope_ok:
+                    continue
+                try:
+                    doc, filename = build_orphan_letter(
+                        lid, user_profile=user_profile)
+                except Exception:
+                    logger.exception('bulk letter render failed for %s', lid)
+                    continue
+                if doc is None:
+                    continue
+                # Guard against duplicate filenames collapsing in the archive.
+                name = filename or f'letter_{lid}.docx'
+                if name in used_names:
+                    stem, _, ext = name.rpartition('.')
+                    name = f'{stem}_{lid}.{ext}' if stem else f'{name}_{lid}'
+                used_names.add(name)
+                dbuf = io.BytesIO()
+                doc.save(dbuf)
+                zf.writestr(name, dbuf.getvalue())
+                written += 1
+
+        if written == 0:
+            return jsonify({'error': 'no eligible letters'}), 404
+
+        zip_buf.seek(0)
+        return Response(
+            zip_buf.getvalue(),
+            mimetype='application/zip',
+            headers={'Content-Disposition': 'attachment; filename="letters.zip"'},
+        )
+
     @app.route('/api/signals/sale-fallen/run', methods=['POST'])
     def run_sale_fallen():
         """LOOP-3 manual trigger — alert agents about sale-fallen listings and
