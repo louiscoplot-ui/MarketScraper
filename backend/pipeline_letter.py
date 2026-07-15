@@ -211,12 +211,18 @@ def _green_header(doc):
     section = doc.sections[0]
     page_w = _emu_to_twips(section.page_width)
     left_m = _emu_to_twips(section.left_margin)
+    right_m = _emu_to_twips(section.right_margin)
+    # tblInd=-left_m pulls the band flush to the LEFT page edge, but Word then
+    # clamps the table's right edge at the right margin — leaving a white strip
+    # on the right. Over-size the band by the right margin so, after that clamp,
+    # it reaches the RIGHT page edge too (true full-bleed both sides).
+    band_w = page_w + right_m
 
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
 
     tblPr = table._tbl.tblPr
-    for tag, value in (('w:tblW', page_w), ('w:tblInd', -left_m)):
+    for tag, value in (('w:tblW', band_w), ('w:tblInd', -left_m)):
         existing = tblPr.find(qn(tag))
         if existing is not None:
             tblPr.remove(existing)
@@ -237,18 +243,17 @@ def _green_header(doc):
     grid = table._tbl.find(qn('w:tblGrid'))
     if grid is not None:
         for gc in grid.findall(qn('w:gridCol')):
-            gc.set(qn('w:w'), str(page_w))
+            gc.set(qn('w:w'), str(band_w))
 
     cell = table.cell(0, 0)
-    cell.width = section.page_width
-    # Pin the cell width in twips too (tcW), so the single column really spans
-    # the whole band width regardless of the renderer's autofit heuristics.
+    # Pin the cell width in twips (tcW) to the over-sized band width so the
+    # single column really spans past both page edges regardless of autofit.
     tcPr = cell._tc.get_or_add_tcPr()
     existing_tcw = tcPr.find(qn('w:tcW'))
     if existing_tcw is not None:
         tcPr.remove(existing_tcw)
     tcw = OxmlElement('w:tcW')
-    tcw.set(qn('w:w'), str(page_w))
+    tcw.set(qn('w:w'), str(band_w))
     tcw.set(qn('w:type'), 'dxa')
     tcPr.append(tcw)
 
@@ -283,12 +288,36 @@ def _green_header(doc):
     spacer.paragraph_format.space_after = Cm(2.0)
 
 
+def _para_bottom_rule(paragraph, color='999999', sz=6):
+    """Draw a thin horizontal line at the bottom of `paragraph` (a paragraph
+    border) — used to separate the footer agency block from the letter body."""
+    pPr = paragraph._p.get_or_add_pPr()
+    existing = pPr.find(qn('w:pBdr'))
+    if existing is not None:
+        pPr.remove(existing)
+    pBdr = OxmlElement('w:pBdr')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), str(sz))       # eighths of a point
+    bottom.set(qn('w:space'), '2')
+    bottom.set(qn('w:color'), color)
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+
+
 def _agency_footer(doc, agency_name, line_1, line_2, line_3):
     footer = doc.sections[0].footer
     for p in list(footer.paragraphs):
         p.clear()
 
-    p1 = footer.paragraphs[0]
+    # Thin separator rule above the agency block (matches the Acton template's
+    # line between the letter body and the footer details).
+    rule = footer.paragraphs[0]
+    rule.paragraph_format.space_before = Pt(0)
+    rule.paragraph_format.space_after = Pt(6)
+    _para_bottom_rule(rule)
+
+    p1 = footer.add_paragraph()
     p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p1.paragraph_format.space_after = Pt(0)
     p1.paragraph_format.line_spacing = 1.0
@@ -351,7 +380,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
         section.orientation = WD_ORIENT.PORTRAIT
         section.page_width = Cm(21.0)
         section.page_height = Cm(29.7)
-        section.top_margin = Cm(0)
+        section.top_margin = Cm(0.8)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
         section.right_margin = Cm(2.5)
@@ -383,7 +412,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
     body_para('I hope this letter finds you well.')
 
     p = body_para()
-    r = p.add_run(f'I wanted to reach out personally — {addr_phrase} {sale_phrase}')
+    r = p.add_run(f'I wanted to reach out personally, {addr_phrase} {sale_phrase}')
     r.font.size = Pt(11); r.font.name = 'Arial'
     # Facts only — no invented superlatives. The old copy asserted "one of
     # {suburb}'s strongest results this season" about EVERY sale, with
@@ -413,7 +442,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
     r3.font.size = Pt(11); r3.font.name = 'Arial'
 
     body_para('I would love to offer you a complimentary, no-obligation market '
-              'appraisal at a time that suits you — no pressure, just clarity.')
+              'appraisal at a time that suits you. No pressure, just clarity.')
 
     body_para("Please don't hesitate to reach out.")
 
@@ -470,7 +499,7 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
         section.orientation = WD_ORIENT.PORTRAIT
         section.page_width = Cm(21.0)
         section.page_height = Cm(29.7)
-        section.top_margin = Cm(0)
+        section.top_margin = Cm(0.8)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
         section.right_margin = Cm(2.5)
@@ -503,8 +532,8 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
     r1.font.size = Pt(11); r1.font.name = 'Arial'
     r2 = p.add_run(target_address); r2.bold = True; r2.font.size = Pt(11); r2.font.name = 'Arial'
     r3 = p.add_run(f' came off the market {days_phrase}. When a sale doesn’t come '
-                   'together the way you’d hoped, it’s so often about timing and '
-                   'presentation rather than the home itself.')
+                   'together the way you’d hoped, it’s so often a question of timing '
+                   'and presentation rather than the home itself.')
     r3.font.size = Pt(11); r3.font.name = 'Arial'
 
     # Market-moved-since paragraph, with live suburb stats when available.
@@ -514,8 +543,8 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
     if median_text:
         stat_bits.append(f"a median of {median_text}")
     if stat_bits:
-        stats_sentence = (f"Quite a bit has shifted in {suburb} since then — there are "
-                          f"{' and '.join(stat_bits)} — so the picture today may look "
+        stats_sentence = (f"Quite a bit has shifted in {suburb} since then. There are "
+                          f"{' and '.join(stat_bits)}, so the picture today may look "
                           "rather different to when you were last on the market.")
     else:
         stats_sentence = (f"Quite a bit has shifted in {suburb} since then, so the picture "
@@ -523,10 +552,10 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
     body_para(stats_sentence)
 
     body_para('If it would help, I’d be glad to put together an honest, no-pressure '
-              'view of what your home could realistically achieve in today’s market '
-              '— simply so you have clarity, whether or not you decide to sell.')
+              'view of what your home could realistically achieve in today’s market, '
+              'simply so you have clarity, whether or not you decide to sell.')
 
-    body_para('I’d genuinely welcome the chance to help — feel free to call or '
+    body_para('I’d genuinely welcome the chance to help. Feel free to call or '
               'email me anytime.')
 
     doc.add_paragraph()
@@ -575,7 +604,7 @@ def render_sold_reveal_letter_docx(neighbour_address, sold_address, sold_price,
         section.orientation = WD_ORIENT.PORTRAIT
         section.page_width = Cm(21.0)
         section.page_height = Cm(29.7)
-        section.top_margin = Cm(0)
+        section.top_margin = Cm(0.8)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
         section.right_margin = Cm(2.5)
@@ -665,7 +694,7 @@ def render_strata_letter_docx(unit_address, sold_unit_address, sold_price,
         section.orientation = WD_ORIENT.PORTRAIT
         section.page_width = Cm(21.0)
         section.page_height = Cm(29.7)
-        section.top_margin = Cm(0)
+        section.top_margin = Cm(0.8)
         section.bottom_margin = Cm(2.0)
         section.left_margin = Cm(2.5)
         section.right_margin = Cm(2.5)
