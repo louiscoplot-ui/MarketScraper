@@ -156,6 +156,23 @@ def build_orphan_letter(listing_id, user_profile=None):
             return None, None
         row = dict(row)
         active_count, median_text = _suburb_stats(conn, row['suburb_id'])
+        # Best-effort owner name from any uploaded Hot Vendors data for this
+        # address, so the letter opens "Dear <name>," when we know it.
+        owner_name = None
+        try:
+            from database import normalize_address
+            norm = normalize_address(row['address'])
+            if norm:
+                orow = conn.execute(
+                    "SELECT current_owner FROM hot_vendor_properties "
+                    "WHERE normalized_address = ? AND current_owner IS NOT NULL "
+                    "AND current_owner != '' LIMIT 1",
+                    (norm,)
+                ).fetchone()
+                if orow:
+                    owner_name = dict(orow).get('current_owner')
+        except Exception:
+            owner_name = None
     finally:
         conn.close()
 
@@ -168,6 +185,7 @@ def build_orphan_letter(listing_id, user_profile=None):
         active_count=active_count,
         median_text=median_text,
         user_profile=user_profile,
+        owner_name=owner_name,
     )
     safe = ''.join(c for c in (row['address'] or 'letter')
                    if c.isalnum() or c in (' ', '-')).strip().replace(' ', '_')[:60]

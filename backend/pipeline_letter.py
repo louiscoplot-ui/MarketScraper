@@ -324,7 +324,7 @@ def _agency_footer(doc, agency_name, line_1, line_2, line_3):
     if agency_name:
         r = p1.add_run(agency_name)
         r.bold = True
-        r.font.size = Pt(7.5)
+        r.font.size = Pt(9)
         r.font.name = 'Arial'
         r.font.color.rgb = RGBColor(0x33, 0x33, 0x33)
 
@@ -339,9 +339,9 @@ def _agency_footer(doc, agency_name, line_1, line_2, line_3):
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.line_spacing = 1.0
         run = p.add_run(line)
-        run.font.size = Pt(7)
+        run.font.size = Pt(8)
         run.font.name = 'Arial'
-        run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+        run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
 
 
 def render_letter_docx(target_address, owner_name, source_suburb, sources, user_profile=None):
@@ -367,7 +367,7 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
     # Role line embeds the agency name when known so the signature
     # reads "Sales Agent | <Agency>" — same shape as the original
     # Acton|Belle template, but tenant-aware.
-    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    agent_role = f'Sales Representative | {agency_name}' if agency_name else 'Sales Representative'
     line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
     line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
     line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
@@ -475,7 +475,8 @@ def render_letter_docx(target_address, owner_name, source_suburb, sources, user_
 
 def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
                                  days_withdrawn, active_count=None,
-                                 median_text=None, user_profile=None):
+                                 median_text=None, user_profile=None,
+                                 owner_name=None):
     """LOOP-2 — letter for a withdrawn-orphan vendor (property pulled from
     market 60–120 days ago, never relisted). Same Acton|Belle styling and
     signature block as render_letter_docx (shared helpers), different body.
@@ -486,7 +487,7 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
     agent_name = _resolve(profile, 'agent_name', 'AGENT_NAME')
     agent_phone = _resolve(profile, 'agent_phone', 'AGENT_PHONE')
     agent_email = _resolve(profile, 'agent_email', 'AGENT_EMAIL')
-    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    agent_role = f'Sales Representative | {agency_name}' if agency_name else 'Sales Representative'
     line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
     line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
     line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
@@ -513,8 +514,12 @@ def render_withdrawn_letter_docx(target_address, suburb, withdrawn_date,
     r = p.add_run(today); r.font.size = Pt(11); r.font.name = 'Arial'
 
     doc.add_paragraph()
+    # Personalise with the owner's name when we have it (rejecting the legacy
+    # "N/A — verify on Landgate" placeholder); else a warm generic greeting.
+    _own = (owner_name or '').strip()
+    greeting = f'Dear {_own},' if _own and not _own.lower().startswith('n/a') else 'Dear Owner,'
     p = doc.add_paragraph()
-    r = p.add_run('Dear Owner,'); r.font.size = Pt(11); r.font.name = 'Arial'
+    r = p.add_run(greeting); r.font.size = Pt(11); r.font.name = 'Arial'
     doc.add_paragraph()
 
     def body_para(text=None):
@@ -591,7 +596,7 @@ def render_sold_reveal_letter_docx(neighbour_address, sold_address, sold_price,
     agent_name = _resolve(profile, 'agent_name', 'AGENT_NAME')
     agent_phone = _resolve(profile, 'agent_phone', 'AGENT_PHONE')
     agent_email = _resolve(profile, 'agent_email', 'AGENT_EMAIL')
-    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    agent_role = f'Sales Representative | {agency_name}' if agency_name else 'Sales Representative'
     line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
     line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
     line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
@@ -681,7 +686,7 @@ def render_strata_letter_docx(unit_address, sold_unit_address, sold_price,
     agent_name = _resolve(profile, 'agent_name', 'AGENT_NAME')
     agent_phone = _resolve(profile, 'agent_phone', 'AGENT_PHONE')
     agent_email = _resolve(profile, 'agent_email', 'AGENT_EMAIL')
-    agent_role = f'Sales Agent | {agency_name}' if agency_name else 'Sales Agent'
+    agent_role = f'Sales Representative | {agency_name}' if agency_name else 'Sales Representative'
     line_1 = (os.environ.get('AGENCY_ADDRESS') or AGENCY_LINE_1_DEFAULT).strip()
     line_2 = (os.environ.get('AGENCY_CONTACT') or AGENCY_LINE_2_DEFAULT).strip()
     line_3 = (os.environ.get('AGENCY_LEGAL') or AGENCY_LINE_3_DEFAULT).strip()
