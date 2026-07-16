@@ -351,124 +351,85 @@ def _build_digest_text(user, sections, suburb_names, today_au):
     return '\n'.join(lines)
 
 
+def _card(accent, bg, addr, suburb, detail_html='', url=None, note=None, tag=''):
+    """One highlighted listing row — the shared shape for every category
+    (tinted background + coloured left border, mirroring the app)."""
+    head = (f'<div style="margin:0 0 3px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+            f'{_esc(addr)} <span style="color:#777;font-weight:500;">— {_esc(suburb)}</span>{tag}</div>')
+    body = [head]
+    if detail_html:
+        body.append(detail_html)
+    if note:
+        body.append(f'<div style="margin:2px 0 0;color:#666;font-size:12px;">{_esc(note)}</div>')
+    if url:
+        body.append(f'<a href="{_esc(url)}" style="color:{accent};font-size:12px;'
+                    f'text-decoration:none;">View on REIWA →</a>')
+    return brand.hl_card(accent, bg, ''.join(body))
+
+
 def _render_new_listing_html(r):
-    parts = [
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>'
-    ]
+    acc, bg = brand.LISTING['new']
+    detail = ''
     meta = _meta_line(r)
     if meta:
-        parts.append(f'<div style="margin:0 0 4px;color:#444;font-size:13px;">{_esc(meta)}</div>')
+        detail += f'<div style="margin:0 0 2px;color:#444;font-size:13px;">{_esc(meta)}</div>'
     agency_agent = ' · '.join(filter(None, [r.get('agency'), r.get('agent')]))
     if agency_agent:
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(agency_agent)}</div>')
-    if r.get('reiwa_url'):
-        parts.append(
-            f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
-        )
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
-            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
-            f'{inner}</div>')
+        detail += f'<div style="margin:0 0 2px;color:#777;font-size:12px;">{_esc(agency_agent)}</div>'
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail, url=r.get('reiwa_url'))
 
 
 def _render_change_html(r):
+    status = (r.get('status') or '').lower()
+    acc, bg = brand.LISTING.get(status, brand.LISTING['sold'])
     label = _status_label(r)
-    price_extra = r.get('price_text') if (r.get('status') or '').lower() != 'sold' else ''
-    parts = [
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Now: <strong>{_esc(label)}</strong></div>',
-    ]
-    if price_extra:
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(price_extra)}</div>')
-    if r.get('reiwa_url'):
-        parts.append(
-            f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
-        )
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
-            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
-            f'{inner}</div>')
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Now: <strong>{_esc(label)}</strong></div>')
+    if status != 'sold' and r.get('price_text'):
+        detail += f'<div style="margin:0 0 2px;color:#777;font-size:12px;">{_esc(r["price_text"])}</div>'
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail, url=r.get('reiwa_url'))
 
 
 def _render_hv_alert_html(r):
-    parts = [
-        f'<div style="margin:0 0 4px;font-weight:700;color:#92400e;font-size:13px;'
-        f'text-transform:uppercase;letter-spacing:0.5px;">Hot vendor now listed</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">'
-        f'Score: <strong>{_esc(r.get("final_score"))}/100</strong> — Listed by {_esc(r.get("agency") or "?")}'
-        f'</div>',
-    ]
+    # No internal header — the coloured section band already labels this.
+    acc, bg = brand.LISTING['hot']
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Score <strong>{_esc(r.get("final_score"))}/100</strong> — '
+              f'listed by {_esc(r.get("agency") or "?")}</div>')
     if r.get('price_text'):
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(r["price_text"])}</div>')
-    parts.append('<div style="margin:0 0 4px;color:#92400e;font-size:12px;font-style:italic;">'
-                 'This property was on your watchlist.</div>')
-    if r.get('reiwa_url'):
-        parts.append(
-            f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
-        )
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fffbeb;'
-            f'border-left:4px solid #f59e0b;border-radius:0 4px 4px 0;">'
-            f'{inner}</div>')
+        detail += f'<div style="margin:0 0 2px;color:#777;font-size:12px;">{_esc(r["price_text"])}</div>'
+    detail += (f'<div style="margin:2px 0 0;color:{acc};font-size:12px;font-style:italic;">'
+               f'This property was on your watchlist.</div>')
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail, url=r.get('reiwa_url'))
 
 
 def _render_strata_html(r):
-    price = r.get('sold_price') or 'Price disclosed'
-    parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#5b21b6;font-size:13px;'
-        'text-transform:uppercase;letter-spacing:0.5px;">Strata contagion</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("complex_address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Unit sold for <strong>{_esc(price)}</strong></div>',
-        '<div style="margin:0;color:#666;font-size:12px;font-style:italic;">'
-        'Generate letters for the rest of the building from the app.</div>',
-    ]
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#f5f3ff;'
-            f'border-left:4px solid #8b5cf6;border-radius:0 4px 4px 0;">{inner}</div>')
+    acc, bg = brand.LISTING['strata']
+    n = _price_to_int(r.get('sold_price'))
+    price = brand.fmt_price(n) if n else 'price disclosed'
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Unit sold for <strong>{_esc(price)}</strong></div>')
+    return _card(acc, bg, r.get('complex_address'), r.get('suburb'), detail,
+                 note='Generate letters for the rest of the building from the app.')
 
 
 def _render_sold_reveal_html(r):
-    price = r.get('sold_price') or 'Price disclosed'
-    parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#1e40af;font-size:13px;'
-        'text-transform:uppercase;letter-spacing:0.5px;">Sold price revealed</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Sold for <strong>{_esc(price)}</strong></div>',
-        '<div style="margin:0;color:#666;font-size:12px;font-style:italic;">'
-        'Generate neighbour appraisal letters from the app.</div>',
-    ]
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#eff6ff;'
-            f'border-left:4px solid #3b82f6;border-radius:0 4px 4px 0;">{inner}</div>')
+    acc, bg = brand.LISTING['sold']
+    n = _price_to_int(r.get('sold_price'))
+    price = brand.fmt_price(n) if n else 'price disclosed'
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Sold for <strong>{_esc(price)}</strong></div>')
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail,
+                 note='Generate neighbour appraisal letters from the app.')
 
 
 def _render_orphan_html(r):
-    parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#7c2d12;font-size:13px;'
-        'text-transform:uppercase;letter-spacing:0.5px;">Withdrawn — likely motivated vendor</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-    ]
-    if r.get('notes'):
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(r["notes"])}</div>')
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fff7ed;'
-            f'border-left:4px solid #ea580c;border-radius:0 4px 4px 0;">{inner}</div>')
+    acc, bg = brand.LISTING['withdrawn']
+    tag = (f' <span style="color:{acc};font-size:12px;font-weight:600;">'
+           f'· likely motivated vendor</span>')
+    return _card(acc, bg, r.get('address'), r.get('suburb'),
+                 note=r.get('notes'), tag=tag)
+
 
 
 def _section_header(text):
@@ -771,35 +732,49 @@ def _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today
         brand.lead(lead),
     ]
 
+    C = brand.LISTING   # (accent, bg) per category — mirrors the app
+
     # Prospects first — the money section.
     if prospect_items:
-        parts.append(brand.section_band('Who to prospect today',
-                                        brand.ACCENT['prospect'],
+        parts.append(brand.section_band('Who to prospect today', C['prospect'][0],
                                         count=len(prospect_items)))
         parts.append(prospect_cards_html(prospect_items))
 
     # Hot vendor watchlist matches.
-    _section(parts, 'Hot vendor now listed', brand.ACCENT['hot'],
+    _section(parts, 'Hot vendor now listed', C['hot'][0],
              sections['hot_vendor_alerts'], _render_hv_alert_html, app)
 
-    # Split status changes into distinct, colour-coded blocks so Sold /
-    # Under offer / Withdrawn don't blur into one grey list.
+    # Status changes split into distinct, category-coloured blocks.
     changes = sections['status_changes']
     sold = [r for r in changes if (r.get('status') or '').lower() == 'sold']
     offer = [r for r in changes if (r.get('status') or '').lower() == 'under_offer']
     wd = [r for r in changes if (r.get('status') or '').lower() == 'withdrawn']
-    _section(parts, 'Sold', brand.ACCENT['sold'], sold, _render_change_html, app)
-    _section(parts, 'New listings', brand.ACCENT['new'],
+    _section(parts, 'Sold', C['sold'][0], sold, _render_change_html, app)
+    _section(parts, 'New listings', C['new'][0],
              sections['new_listings'], _render_new_listing_html, app)
-    _section(parts, 'Under offer', brand.ACCENT['offer'], offer, _render_change_html, app)
-    _section(parts, 'Withdrawn', brand.ACCENT['withdrawn'], wd, _render_change_html, app)
+    _section(parts, 'Under offer', C['under_offer'][0], offer, _render_change_html, app)
 
-    # Signal sub-sections.
-    _section(parts, 'Withdrawn — likely motivated vendors', brand.ACCENT['withdrawn'],
-             sections.get('withdrawn_orphans') or [], _render_orphan_html, app)
-    _section(parts, 'Sold prices revealed', brand.ACCENT['sold'],
+    # ONE withdrawn section — motivated-vendor orphans first (they carry the
+    # note), then any plain overnight withdrawals not already covered. Avoids
+    # the old duplicate "Withdrawn" + "Withdrawn — likely motivated" pair.
+    orphans = sections.get('withdrawn_orphans') or []
+    orphan_keys = {(o.get('address') or '').strip().lower() for o in orphans}
+    wd_extra = [w for w in wd if (w.get('address') or '').strip().lower() not in orphan_keys]
+    wtotal = len(orphans) + len(wd_extra)
+    if wtotal:
+        parts.append(brand.section_band('Withdrawn', C['withdrawn'][0], count=wtotal))
+        shown = 0
+        for o in orphans[:_DAILY_CAP]:
+            parts.append(_render_orphan_html(o)); shown += 1
+        for w in wd_extra[:max(0, _DAILY_CAP - shown)]:
+            parts.append(_render_change_html(w)); shown += 1
+        if wtotal > _DAILY_CAP:
+            parts.append(brand.more_line(wtotal - _DAILY_CAP, app))
+
+    # Remaining signal sub-sections.
+    _section(parts, 'Sold prices revealed', C['sold'][0],
              sections.get('sold_reveals') or [], _render_sold_reveal_html, app)
-    _section(parts, 'Strata contagion', brand.ACCENT['strata'],
+    _section(parts, 'Strata contagion', C['strata'][0],
              sections.get('strata_sales') or [], _render_strata_html, app)
 
     # Nothing at all overnight — say so warmly instead of a blank body.
@@ -812,10 +787,10 @@ def _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today
 
     if pixel:
         parts.append(f'<img src="{_esc(pixel)}" width="1" height="1" alt=""/>')
-    from email_service import unsubscribe_url
+    from email_service import manage_url
     return brand.shell('Daily', ''.join(parts), app,
                        suburbs_line=', '.join(suburb_names),
-                       unsubscribe_url=unsubscribe_url(user.get('id')))
+                       manage_url=manage_url(user.get('id')))
 
 
 def _build_daily_text(user, sections, prospect_items, suburb_names, today_au):

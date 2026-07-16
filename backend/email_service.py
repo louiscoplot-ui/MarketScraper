@@ -77,14 +77,27 @@ def verify_unsubscribe_token(token):
 
 
 def unsubscribe_url(user_id):
-    """One-click unsubscribe URL for `user_id` — no login needed, the token
-    is the credential. Points at the backend directly (email links bypass
-    the Vercel proxy)."""
+    """One-click HARD-unsubscribe URL — no login needed, the token is the
+    credential. Used for the RFC List-Unsubscribe header (Gmail/Yahoo's
+    native button). Points at the backend directly (email links bypass the
+    Vercel proxy)."""
     if not user_id:
         return None
     base = (os.environ.get('BACKEND_PUBLIC_URL')
             or 'https://marketscraper-backend.onrender.com').rstrip('/')
     return f"{base}/api/email/unsubscribe?token={unsubscribe_token(user_id)}"
+
+
+def manage_url(user_id):
+    """Footer link — takes the agent INTO SuburbDesk (auto-logged-in) to the
+    email-preferences centre, where they pick which cadences to receive or
+    turn everything off. Same signed token; the backend swaps it for an
+    auto-login redirect."""
+    if not user_id:
+        return None
+    base = (os.environ.get('BACKEND_PUBLIC_URL')
+            or 'https://marketscraper-backend.onrender.com').rstrip('/')
+    return f"{base}/api/email/manage?token={unsubscribe_token(user_id)}"
 
 
 def _support_reply_to():

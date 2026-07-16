@@ -456,10 +456,10 @@ def _weekly_body(sections, suburb_names, label, lead_text):
 
 def render_weekly(user, sections, suburb_names, label, lead_text):
     body = _weekly_body(sections, suburb_names, label, lead_text)
-    from email_service import unsubscribe_url
+    from email_service import manage_url
     return brand.shell('Weekly Brief', body, _app_url(),
                        suburbs_line=', '.join(suburb_names),
-                       unsubscribe_url=unsubscribe_url(user.get('id')))
+                       manage_url=manage_url(user.get('id')))
 
 
 def render_weekly_text(user, sections, suburb_names, label, lead_text):
@@ -538,10 +538,10 @@ def render_period(user, cadence, rows, total, suburb_names, label, lead_text):
         + f'<p style="font-family:{brand._SANS};margin:10px 0 0;color:{brand.MUTED};font-size:11px;">'
           f'Typical {brand._esc(dom)}. ▲/▼ compares against the previous period.</p>'
     )
-    from email_service import unsubscribe_url
+    from email_service import manage_url
     return brand.shell(kickers[cadence], body, _app_url(),
                        suburbs_line=', '.join(suburb_names),
-                       unsubscribe_url=unsubscribe_url(user.get('id')))
+                       manage_url=manage_url(user.get('id')))
 
 
 def render_period_text(user, cadence, rows, total, suburb_names, label, lead_text):

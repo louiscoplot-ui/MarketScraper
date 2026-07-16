@@ -86,7 +86,7 @@ register_roi_routes(app)
 # clients with no X-Access-Key. Safe to exempt: GET-only, keyed on a
 # 24-byte random per-brief token, returns a 1x1 gif and leaks nothing.
 _AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping', '/api/legal/',
-                         '/api/brief/open/', '/api/email/unsubscribe')
+                         '/api/brief/open/', '/api/email/')
 
 
 @app.before_request
@@ -142,6 +142,33 @@ def email_unsubscribe():
                        'SuburbDesk emails.</p><p style="font-size:13px;color:#6b6b64;">'
                        'Changed your mind? Re-enable any cadence in the app under '
                        '“Emails I receive”.</p>'), 200
+
+
+@app.route('/api/email/manage', methods=['GET'])
+def email_manage():
+    """Footer 'manage preferences' link — auto-logs the agent into the app
+    (via their access_key, same pattern as the magic-login email) and lands
+    them on the Admin page where the 'Emails I receive' cadence toggles
+    live. The signed token is the credential; this route is auth-exempt."""
+    from flask import redirect
+    from email_service import verify_unsubscribe_token, _app_url
+    uid = verify_unsubscribe_token(request.args.get('token', ''))
+    app_url = _app_url()
+    if not uid:
+        return redirect(app_url, code=302)
+    try:
+        conn = get_db()
+        row = conn.execute("SELECT access_key FROM users WHERE id = ?", (uid,)).fetchone()
+        conn.close()
+    except Exception:
+        logger.exception("email_manage lookup failed for uid=%s", uid)
+        return redirect(app_url, code=302)
+    key = (dict(row).get('access_key') if row else None)
+    if not key:
+        return redirect(app_url, code=302)
+    # #admin selects the Admin view (hash is preserved when AuthGate strips
+    # ?key=), landing them right where they manage email preferences.
+    return redirect(f"{app_url}/?key={key}#admin", code=302)
 
 
 @app.route('/api/ping', methods=['GET'])

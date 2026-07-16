@@ -66,13 +66,16 @@ def _header(kicker):
     )
 
 
-def _footer(suburbs_line, unsubscribe_url=None):
+def _footer(suburbs_line, manage_url=None):
     sub = (f'Suburbs: {_esc(suburbs_line)}<br>' if suburbs_line else '')
-    # A real one-click link when we have one; else the plain-text fallback.
-    if unsubscribe_url:
-        unsub = (f'<a href="{_esc(unsubscribe_url)}" style="color:{MUTED};'
-                 f'text-decoration:underline;">Unsubscribe</a> &middot; '
-                 f'manage emails in SuburbDesk')
+    # The link takes them into SuburbDesk to choose which emails they get
+    # (daily/weekly/monthly/…) or turn them all off — a preference centre,
+    # not a dead "reply to unsubscribe". Gmail's own native unsubscribe
+    # button still hard-unsubscribes via the List-Unsubscribe header.
+    if manage_url:
+        unsub = (f'<a href="{_esc(manage_url)}" style="color:{MUTED};'
+                 f'text-decoration:underline;">Manage your email preferences '
+                 f'or unsubscribe</a> in SuburbDesk')
     else:
         unsub = 'Reply to unsubscribe &middot; suburbdesk@gmail.com'
     return (
@@ -89,11 +92,11 @@ def _footer(suburbs_line, unsubscribe_url=None):
 
 
 def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk',
-          unsubscribe_url=None):
+          manage_url=None):
     """Wrap a body in the full branded document. `kicker` is the small
     upper-right label (e.g. 'Weekly Brief'); `suburbs_line` is a comma
-    string shown in the footer; `unsubscribe_url` renders a real one-click
-    unsubscribe link when provided."""
+    string shown in the footer; `manage_url` renders a footer link into the
+    app's email-preferences centre when provided."""
     cta_html = (
         f'<tr><td style="padding:4px 34px 0;text-align:center;">'
         f'<a href="{_esc(app_url)}" style="display:inline-block;background:{GREEN};color:#fff;'
@@ -117,7 +120,7 @@ def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk',
         f'{_header(kicker)}'
         f'<tr><td style="padding:18px 34px 0;">{body_html}</td></tr>'
         f'{cta_html}'
-        f'{_footer(suburbs_line, unsubscribe_url)}'
+        f'{_footer(suburbs_line, manage_url)}'
         f'</table></td></tr></table></body></html>'
     )
 
@@ -190,6 +193,26 @@ ACCENT = {
     'withdrawn': '#c2410c', # burnt orange
     'strata': '#7c3aed',    # violet
 }
+
+
+# Listing-category colours — mirror the app (DeskMap.STATUS_COLOR) so the
+# email speaks the same visual language: an accent + a tinted row highlight.
+LISTING = {
+    'new':         ('#16A34A', '#eaf6ee'),   # green
+    'under_offer': ('#D97706', '#fdf1e3'),   # amber  (clearly ≠ green now)
+    'sold':        ('#2563EB', '#eaf0fd'),   # blue
+    'withdrawn':   ('#DC2626', '#fcebea'),   # red
+    'hot':         ('#B45309', '#fff7e6'),   # burnt amber
+    'prospect':    (BRASS,     '#f7f2e8'),   # brass
+    'strata':      ('#7C3AED', '#f4effc'),   # violet
+}
+
+
+def hl_card(accent, bg, inner):
+    """A listing row highlighted by category — tinted background + a solid
+    colour left border, exactly like the app's status rows."""
+    return (f'<div style="margin:0 0 8px;padding:9px 13px;background:{bg};'
+            f'border-left:4px solid {accent};">{inner}</div>')
 
 
 def fmt_price(n):
