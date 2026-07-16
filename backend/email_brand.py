@@ -97,8 +97,10 @@ def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk',
     upper-right label (e.g. 'Weekly Brief'); `suburbs_line` is a comma
     string shown in the footer; `manage_url` renders a footer link into the
     app's email-preferences centre when provided."""
+    # Clear separation above the CTA so it never crams against the content
+    # that precedes it (a table ending flush against the button looked wrong).
     cta_html = (
-        f'<tr><td style="padding:4px 34px 0;text-align:center;">'
+        f'<tr><td style="padding:26px 34px 6px;text-align:center;">'
         f'<a href="{_esc(app_url)}" style="display:inline-block;background:{GREEN};color:#fff;'
         f'padding:12px 30px;text-decoration:none;font-family:{_SANS};font-size:14px;'
         f'font-weight:600;letter-spacing:.3px;">{_esc(cta)}</a></td></tr>'
