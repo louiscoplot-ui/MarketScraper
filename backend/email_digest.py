@@ -703,3 +703,203 @@ def send_morning_digest():
         sent, skipped, failed
     )
     return {'sent': sent, 'skipped': skipped, 'failed': failed, 'fatal': False}
+
+
+# ---------------------------------------------------------------------------
+# Combined daily email — the single morning email (overnight recap + the
+# rotating prospect list), replacing the old digest+brief pair so agents
+# receive ONE email a day, not two.
+# ---------------------------------------------------------------------------
+
+def _daily_lead(sections, prospect_n, suburb_names, today_au):
+    nl = len(sections['new_listings'])
+    ch = len(sections['status_changes'])
+    hv = len(sections['hot_vendor_alerts'])
+    parts = []
+    if prospect_n:
+        parts.append(f"{prospect_n} vendor{'s' if prospect_n != 1 else ''} to prospect")
+    if hv:
+        parts.append(f"{hv} hot-vendor alert{'s' if hv != 1 else ''}")
+    if nl:
+        parts.append(f"{nl} new listing{'s' if nl != 1 else ''}")
+    if ch:
+        parts.append(f"{ch} status change{'s' if ch != 1 else ''}")
+    fallback = (f"This morning across your suburbs: {', '.join(parts)}."
+                if parts else "A quiet night across your suburbs — nothing new overnight.")
+    facts = [f"Date: {today_au}", f"Vendor prospects: {prospect_n}",
+             f"Hot-vendor alerts: {hv}", f"New listings: {nl}",
+             f"Status changes: {ch}"]
+    return brand.compose_lead(facts, fallback)
+
+
+def _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today_au):
+    from signals.brief_builder import prospect_cards_html
+    name = (user.get('first_name') or 'there').strip()
+    app = _app_url()
+    lead = _daily_lead(sections, len(prospect_items), suburb_names, today_au)
+    parts = [f'<p style="margin:0 0 4px;font-size:15px;color:{brand.INK};">'
+             f'Good morning {brand._esc(name)}.</p>', brand.lead(lead)]
+
+    if prospect_items:
+        parts.append(_section_header('Who to prospect today'))
+        parts.append(prospect_cards_html(prospect_items))
+
+    if sections['hot_vendor_alerts']:
+        parts.append(_section_header('Hot vendor now listed'))
+        parts += [_render_hv_alert_html(r) for r in sections['hot_vendor_alerts']]
+
+    parts.append(_section_header('New listings'))
+    parts.append(
+        ''.join(_render_new_listing_html(r) for r in sections['new_listings'])
+        if sections['new_listings']
+        else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No new listings in your suburbs overnight.</p>')
+
+    parts.append(_section_header('Status changes'))
+    parts.append(
+        ''.join(_render_change_html(r) for r in sections['status_changes'])
+        if sections['status_changes']
+        else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No status changes overnight.</p>')
+
+    if sections.get('withdrawn_orphans'):
+        parts.append(_section_header('Withdrawn — likely motivated vendors'))
+        parts += [_render_orphan_html(r) for r in sections['withdrawn_orphans']]
+    if sections.get('sold_reveals'):
+        parts.append(_section_header('Sold prices revealed'))
+        parts += [_render_sold_reveal_html(r) for r in sections['sold_reveals']]
+    if sections.get('strata_sales'):
+        parts.append(_section_header('Strata contagion'))
+        parts += [_render_strata_html(r) for r in sections['strata_sales']]
+
+    if pixel:
+        parts.append(f'<img src="{_esc(pixel)}" width="1" height="1" alt=""/>')
+    return brand.shell('Daily', ''.join(parts), app,
+                       suburbs_line=', '.join(suburb_names))
+
+
+def _build_daily_text(user, sections, prospect_items, suburb_names, today_au):
+    from signals.brief_builder import prospect_lines_text
+    name = (user.get('first_name') or 'there').strip()
+    lines = [f"Good morning {name},", '',
+             f"SuburbDesk daily — {today_au}.", '']
+    if prospect_items:
+        lines.append('=== WHO TO PROSPECT TODAY ===')
+        lines += ['  - ' + s for s in prospect_lines_text(prospect_items)]
+        lines.append('')
+    # Reuse the digest's section text for the market recap portion.
+    lines.append(_build_digest_text(user, sections, suburb_names, today_au))
+    return '\n'.join(lines)
+
+
+def send_daily(user_id):
+    """Build + send the ONE combined daily email for a single user:
+    the overnight market recap plus their rotating prospect list. Persists
+    the briefs row (so the in-app Today view + rotation keep working) and
+    logs one digest_logs row (cadence='daily'). Never raises."""
+    if not (os.environ.get('EMAIL_FROM') or '').strip():
+        logger.warning("EMAIL_FROM not set — daily for user_id=%s skipped", user_id)
+        return False, 'EMAIL_FROM not configured'
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id, email, first_name, role, all_suburbs FROM users WHERE id = ?",
+            (user_id,)
+        ).fetchone()
+        if not user:
+            return False, 'User not found'
+        user = dict(user)
+        is_admin = (user.get('role') or '').lower() == 'admin'
+        if is_admin:
+            suburb_rows = conn.execute(
+                "SELECT id, name FROM suburbs WHERE active = 1 ORDER BY name"
+            ).fetchall()
+        else:
+            suburb_rows = conn.execute(
+                "SELECT s.id, s.name FROM suburbs s "
+                "JOIN user_suburbs us ON s.id = us.suburb_id "
+                "WHERE us.user_id = ? AND s.active = 1 ORDER BY s.name",
+                (user_id,)
+            ).fetchall()
+        suburb_names = [s['name'] for s in suburb_rows]
+        if not suburb_names:
+            logger.info("Daily skipped for user_id=%s — no suburbs assigned", user_id)
+            return False, 'No suburbs assigned'
+        if not (user.get('email') or '').strip():
+            return False, 'User has no email'
+
+        since_iso = _since_iso_perth_midnight()
+        sections = _build_sections(suburb_rows, user_id, since_iso)
+
+        base = (os.environ.get('BACKEND_PUBLIC_URL')
+                or 'https://marketscraper-backend.onrender.com').rstrip('/')
+        today_iso = perth_now().strftime('%Y-%m-%d')
+        try:
+            from signals.brief_builder import persist_brief
+            prospect_items, pixel = persist_brief(conn, user, today_iso, base)
+        except Exception:
+            logger.exception("persist_brief failed for user_id=%s (suppressed)", user_id)
+            prospect_items, pixel = [], None
+
+        today_au = _today_au()
+        weekday = _weekday_perth()
+        hv_n = len(sections['hot_vendor_alerts'])
+        pn = len(prospect_items)
+        if hv_n > 0:
+            subject = f"SuburbDesk — Hot vendor listed · {today_au}"
+        elif pn > 0:
+            subject = f"SuburbDesk Daily — {pn} to prospect · {weekday}, {today_au}"
+        elif len(sections['new_listings']) + len(sections['status_changes']) > 0:
+            subject = f"SuburbDesk Daily — {weekday}, {today_au}"
+        else:
+            subject = f"SuburbDesk Daily — {weekday}, {today_au} · Quiet day"
+
+        html = _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today_au)
+        text = _build_daily_text(user, sections, prospect_items, suburb_names, today_au)
+        try:
+            reply_to = _support_reply_to()
+            ok, info = _send(user['email'], subject, html, text=text,
+                             reply_to=reply_to, list_unsubscribe=reply_to)
+        except Exception as e:
+            logger.exception("Daily send crashed for user_id=%s", user_id)
+            ok, info = False, str(e)
+        _log_digest_attempt(user_id, suburb_names, sections,
+                            status='sent' if ok else 'failed',
+                            error=None if ok else str(info)[:300])
+        return ok, info
+    except Exception as e:
+        logger.exception("send_daily failed for user_id=%s", user_id)
+        return False, str(e)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def send_daily_all():
+    """Cron entry point — send the one combined daily email to every
+    opted-in user (users.digest_enabled). Replaces the old
+    send_morning_briefs() + send_morning_digest() pair."""
+    sent, skipped, failed = 0, 0, 0
+    try:
+        conn = get_db()
+        users = conn.execute(
+            "SELECT id FROM users "
+            "WHERE digest_enabled = 1 AND email IS NOT NULL AND email <> ''"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        logger.exception("send_daily_all: user lookup failed")
+        return {'sent': 0, 'skipped': 0, 'failed': 0, 'fatal': True}
+    for u in users:
+        try:
+            ok, _ = send_daily(u['id'])
+            if ok:
+                sent += 1
+            else:
+                skipped += 1
+        except Exception:
+            logger.exception("send_daily_all: per-user crash uid=%s", u['id'])
+            failed += 1
+    logger.info("[daily] pass complete: %d sent, %d skipped, %d failed",
+                sent, skipped, failed)
+    return {'sent': sent, 'skipped': skipped, 'failed': failed, 'fatal': False}

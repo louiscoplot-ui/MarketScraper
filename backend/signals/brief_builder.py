@@ -198,8 +198,10 @@ def build_items(conn, user, use_ai=True, exclude_recent=False):
     return items
 
 
-def _render_email(user, items, open_pixel_url):
-    first = (user.get('first_name') or '').strip() or 'there'
+def prospect_cards_html(items):
+    """The prospect cards, without any email chrome — so the combined daily
+    email (email_digest.send_daily) can drop them straight into its own
+    'Who to prospect today' section."""
     rows = []
     for it in items:
         reasons = ''.join(
@@ -216,6 +218,48 @@ def _render_email(user, items, open_pixel_url):
             f"<ul style='margin:4px 0 0;padding-left:18px;color:#566573;font-size:13px'>"
             f"{reasons}</ul></div>"
         )
+    return ''.join(rows)
+
+
+def prospect_lines_text(items):
+    return [f"{it['address']} — {it['suburb']}\n  {it['narrative']}" for it in items]
+
+
+def persist_brief(conn, user, today, base_url):
+    """Build (with rotation), store the daily briefs row, and return
+    (items, pixel_url). Idempotent per user+day: if a brief already exists
+    for `today` it is reused (parsed back), so re-running the pass — or the
+    combined daily email — never double-writes. Returns ([], None) when the
+    user has no signals. The stored row is what the in-app Today view reads,
+    so this must run even though the email itself is now the combined daily."""
+    row = conn.execute(
+        "SELECT items, open_token FROM briefs WHERE user_id = ? AND brief_date = ?",
+        (user['id'], today)
+    ).fetchone()
+    if row:
+        d = dict(row)
+        try:
+            items = json.loads(d.get('items') or '[]')
+        except Exception:
+            items = []
+        token = d.get('open_token') or ''
+        pixel = f"{base_url}/api/brief/open/{token}.gif" if token else None
+        return items, pixel
+    items = build_items(conn, user, exclude_recent=True)
+    if not items:
+        return [], None
+    token = secrets.token_urlsafe(24)
+    conn.execute(
+        "INSERT INTO briefs (user_id, brief_date, items, open_token, sent_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (user['id'], today, json.dumps(items), token, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    return items, f"{base_url}/api/brief/open/{token}.gif"
+
+
+def _render_email(user, items, open_pixel_url):
+    first = (user.get('first_name') or '').strip() or 'there'
     lead_txt = (f"{len(items)} address{'es' if len(items) != 1 else ''} worth a look "
                 f"today — your highest-signal vendor prospects, refreshed each morning.")
     body = (
@@ -223,7 +267,7 @@ def _render_email(user, items, open_pixel_url):
         + brand.lead(lead_txt)
         + f"<p style='font-family:{brand._SANS};margin:0 0 12px;color:#5a5a54;font-size:13px'>"
           f"Good morning {brand._esc(first)}.</p>"
-        + ''.join(rows)
+        + prospect_cards_html(items)
         + f"<img src='{brand._esc(open_pixel_url)}' width='1' height='1' alt=''/>"
     )
     html = brand.shell('Daily Brief', body, _app_url())

@@ -814,7 +814,7 @@ export default function AdminUsers() {
             <Checkbox
               checked={profileDraft.digest_enabled}
               onChange={(e) => setProfileDraft({ ...profileDraft, digest_enabled: e.target.checked })}
-              label="Daily — Morning Brief (after the nightly scrape)"
+              label="Daily — your morning email (overnight recap + who to prospect)"
             />
             <Checkbox
               checked={profileDraft.email_weekly}
@@ -1601,7 +1601,7 @@ export default function AdminUsers() {
                 checked={managing.digest_enabled}
                 onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
                 disabled={managing.saving}
-                label="Daily — Morning Brief email"
+                label="Daily — morning email"
               />
               <Checkbox
                 checked={managing.email_weekly}
