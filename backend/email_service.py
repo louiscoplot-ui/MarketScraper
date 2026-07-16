@@ -41,6 +41,15 @@ def _app_url():
     return os.environ.get('APP_URL', DEFAULT_APP_URL).rstrip('/')
 
 
+def _support_reply_to():
+    """Inbox that replies to the recurring emails (digest, brief, weekly…)
+    route back to. A reachable human address matters twice over: agents
+    can just hit Reply to answer, and Gmail's first-contact heuristic
+    scores mail with a real Reply-To far below spam. Defaults to the
+    founder's inbox; override with SUPPORT_EMAIL."""
+    return (os.environ.get('SUPPORT_EMAIL') or 'suburbdesk@gmail.com').strip()
+
+
 def _send(to, subject, html, text=None, reply_to=None, list_unsubscribe=None):
     api_key = os.environ.get('RESEND_API_KEY', '').strip()
     sender = os.environ.get('EMAIL_FROM', DEFAULT_FROM).strip() or DEFAULT_FROM

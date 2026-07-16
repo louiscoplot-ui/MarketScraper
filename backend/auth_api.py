@@ -146,13 +146,19 @@ def register_auth_routes(app):
                 v = (body.get(k) or '').strip()
                 sets.append(f"{k} = ?")
                 params.append(v or None)
-        # Self-toggle for the morning digest. Boolean stored as 0/1.
+        # Self-toggle for the morning digest (DAILY cadence). Boolean 0/1.
         if 'digest_enabled' in body:
             sets.append('digest_enabled = ?')
             params.append(1 if body.get('digest_enabled') else 0)
+        # Self-toggle for the longer cadences — independent opt-in flags.
+        for _flag in ('email_weekly', 'email_monthly',
+                      'email_quarterly', 'email_annual'):
+            if _flag in body:
+                sets.append(f'{_flag} = ?')
+                params.append(1 if body.get(_flag) else 0)
         if not sets:
             return jsonify({
-                'error': 'No updatable fields. Allowed: agency_name, agent_name, agent_phone, agent_email, digest_enabled'
+                'error': 'No updatable fields. Allowed: agency_name, agent_name, agent_phone, agent_email, digest_enabled, email_weekly, email_monthly, email_quarterly, email_annual'
             }), 400
         params.append(user['id'])
 

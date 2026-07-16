@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta
 
 from database import get_db
-from email_service import _send, _app_url
+from email_service import _send, _app_url, _support_reply_to
 from time_utils import perth_now, _PERTH_OFFSET
 
 logger = logging.getLogger(__name__)
@@ -617,7 +617,9 @@ def send_digest(user_id):
     html = _build_digest_html(user_dict, sections, suburb_names, today)
     text = _build_digest_text(user_dict, sections, suburb_names, today)
     try:
-        ok, info = _send(user_dict['email'], subject, html, text=text)
+        reply_to = _support_reply_to()
+        ok, info = _send(user_dict['email'], subject, html, text=text,
+                         reply_to=reply_to, list_unsubscribe=reply_to)
     except Exception as e:
         logger.exception("Digest send crashed for user_id=%s", user_id)
         ok, info = False, str(e)

@@ -325,7 +325,8 @@ def register_admin_routes(app):
         rows = conn.execute(
             "SELECT id, email, first_name, last_name, phone, role, "
             "last_seen, created_at, rental_access, digest_enabled, all_suburbs, "
-            "can_add_suburbs "
+            "can_add_suburbs, email_weekly, email_monthly, email_quarterly, "
+            "email_annual "
             "FROM users ORDER BY created_at DESC"
         ).fetchall()
         # Pull every assignment in one query and group by user, so the
@@ -443,6 +444,13 @@ def register_admin_routes(app):
         if 'digest_enabled' in body:
             sets.append('digest_enabled = ?')
             params.append(1 if body.get('digest_enabled') else 0)
+        # Per-cadence email flags — pushed alongside digest_enabled from
+        # the Manage Access modal so one save persists every preference.
+        for _flag in ('email_weekly', 'email_monthly',
+                      'email_quarterly', 'email_annual'):
+            if _flag in body:
+                sets.append(f'{_flag} = ?')
+                params.append(1 if body.get(_flag) else 0)
         # rental_access lives on users too; the Manage Access modal
         # pushes it through this generic PATCH alongside digest_enabled
         # so a single save persists both feature flags. The legacy
@@ -461,7 +469,7 @@ def register_admin_routes(app):
             sets.append('can_add_suburbs = ?')
             params.append(1 if body.get('can_add_suburbs') else 0)
         if not sets:
-            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access, all_suburbs, can_add_suburbs'}), 400
+            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, email_weekly, email_monthly, email_quarterly, email_annual, rental_access, all_suburbs, can_add_suburbs'}), 400
         params.append(user_id)
         conn = get_db()
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)

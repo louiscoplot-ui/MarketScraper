@@ -235,14 +235,16 @@ def send_morning_briefs(backend_base_url=None):
             summary['built'] += 1
 
             try:
-                from email_service import _send
+                from email_service import _send, _support_reply_to
                 pixel = f"{base}/api/brief/open/{token}.gif"
                 html, text = _render_email(user, items, pixel)
+                reply_to = _support_reply_to()
                 ok, _err = _send(
                     user['email'],
                     f"Morning brief — {len(items)} vendor signal"
                     f"{'s' if len(items) > 1 else ''}",
                     html, text=text,
+                    reply_to=reply_to, list_unsubscribe=reply_to,
                 )
                 if ok:
                     summary['sent'] += 1

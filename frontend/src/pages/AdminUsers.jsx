@@ -184,6 +184,8 @@ export default function AdminUsers() {
   const [profileDraft, setProfileDraft] = useState({
     agency_name: '', agent_name: '', agent_phone: '', agent_email: '',
     digest_enabled: true,
+    email_weekly: false, email_monthly: false,
+    email_quarterly: false, email_annual: false,
   })
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
@@ -205,6 +207,11 @@ export default function AdminUsers() {
         agent_email: meRes.user?.agent_email || '',
         // digest_enabled defaults to true server-side; coerce ints to bool.
         digest_enabled: meRes.user?.digest_enabled !== 0 && meRes.user?.digest_enabled !== false,
+        // The longer cadences default 0 server-side (opt-in).
+        email_weekly: meRes.user?.email_weekly === 1 || meRes.user?.email_weekly === true,
+        email_monthly: meRes.user?.email_monthly === 1 || meRes.user?.email_monthly === true,
+        email_quarterly: meRes.user?.email_quarterly === 1 || meRes.user?.email_quarterly === true,
+        email_annual: meRes.user?.email_annual === 1 || meRes.user?.email_annual === true,
       })
       // Admin-only calls — wrapped so non-admins still reach the
       // profile form below instead of crashing the whole page.
@@ -417,6 +424,10 @@ export default function AdminUsers() {
       all_suburbs: !!u.all_suburbs,
       can_add_suburbs: !!u.can_add_suburbs,
       digest_enabled: optimisticDigest,
+      email_weekly: u.email_weekly === 1 || u.email_weekly === true,
+      email_monthly: u.email_monthly === 1 || u.email_monthly === true,
+      email_quarterly: u.email_quarterly === 1 || u.email_quarterly === true,
+      email_annual: u.email_annual === 1 || u.email_annual === true,
       loading: true,
       saving: false,
       message: null,
@@ -594,6 +605,10 @@ export default function AdminUsers() {
         body: JSON.stringify({
           rental_access: m.rental_access,
           digest_enabled: m.digest_enabled,
+          email_weekly: m.email_weekly,
+          email_monthly: m.email_monthly,
+          email_quarterly: m.email_quarterly,
+          email_annual: m.email_annual,
           all_suburbs: m.all_suburbs,
           can_add_suburbs: m.can_add_suburbs,
         }),
@@ -792,11 +807,34 @@ export default function AdminUsers() {
             />
           </div>
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-            <h4 style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--text)' }}>Notifications</h4>
+            <h4 style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--text)' }}>Emails I receive</h4>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--muted)' }}>
+              Tick each cadence you want. They're independent — daily off, weekly on is fine.
+            </p>
             <Checkbox
               checked={profileDraft.digest_enabled}
               onChange={(e) => setProfileDraft({ ...profileDraft, digest_enabled: e.target.checked })}
-              label="Send me the SuburbDesk Morning Brief (after the nightly scrape)"
+              label="Daily — Morning Brief (after the nightly scrape)"
+            />
+            <Checkbox
+              checked={profileDraft.email_weekly}
+              onChange={(e) => setProfileDraft({ ...profileDraft, email_weekly: e.target.checked })}
+              label="Weekly — Monday recap (withdrawn, price moves, sales, hot suburbs)"
+            />
+            <Checkbox
+              checked={profileDraft.email_monthly}
+              onChange={(e) => setProfileDraft({ ...profileDraft, email_monthly: e.target.checked })}
+              label="Monthly — suburb trends & sold-price summary"
+            />
+            <Checkbox
+              checked={profileDraft.email_quarterly}
+              onChange={(e) => setProfileDraft({ ...profileDraft, email_quarterly: e.target.checked })}
+              label="Quarterly — market direction over the quarter"
+            />
+            <Checkbox
+              checked={profileDraft.email_annual}
+              onChange={(e) => setProfileDraft({ ...profileDraft, email_annual: e.target.checked })}
+              label="Annual — year-in-review per suburb"
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
@@ -1563,7 +1601,31 @@ export default function AdminUsers() {
                 checked={managing.digest_enabled}
                 onChange={(e) => updateManaging({ digest_enabled: e.target.checked })}
                 disabled={managing.saving}
-                label="Morning Brief email"
+                label="Daily — Morning Brief email"
+              />
+              <Checkbox
+                checked={managing.email_weekly}
+                onChange={(e) => updateManaging({ email_weekly: e.target.checked })}
+                disabled={managing.saving}
+                label="Weekly — Monday recap"
+              />
+              <Checkbox
+                checked={managing.email_monthly}
+                onChange={(e) => updateManaging({ email_monthly: e.target.checked })}
+                disabled={managing.saving}
+                label="Monthly — suburb trends"
+              />
+              <Checkbox
+                checked={managing.email_quarterly}
+                onChange={(e) => updateManaging({ email_quarterly: e.target.checked })}
+                disabled={managing.saving}
+                label="Quarterly — market direction"
+              />
+              <Checkbox
+                checked={managing.email_annual}
+                onChange={(e) => updateManaging({ email_annual: e.target.checked })}
+                disabled={managing.saving}
+                label="Annual — year in review"
               />
             </div>
 
