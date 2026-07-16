@@ -419,38 +419,45 @@ def _weekly_body(sections, suburb_names, label, lead_text):
             for h in sections['hot_suburbs'])
         parts.append(brand.focus_block('Where to focus', focus))
 
-    # Group every event under its suburb for a clean editorial read.
-    subs = []
-    for lst in (sections['sales'], sections['price_moves'], sections['withdrawn']):
-        for r in lst:
-            if r.get('suburb') and r['suburb'] not in subs:
-                subs.append(r['suburb'])
-    subs.sort()
-    for sub in subs:
-        rows = []
-        for r in sections['sales']:
-            if r.get('suburb') == sub:
-                disp = r.get('sold_display')
-                right = f"<span style='color:{brand.GREEN};font-weight:600'>{disp}</span>" if disp else ''
-                rows.append(brand.line(r.get('address', ''), 'sold', right=right and disp or '',
-                                       right_color=brand.GREEN))
-        for r in sections['price_moves']:
-            if r.get('suburb') == sub:
-                move = ''
-                if r.get('old_value') and r.get('new_value'):
-                    move = f"{brand._esc(r['old_value'])} → {brand._esc(r['new_value'])}"
-                rows.append(
-                    f"<div style='font-size:14px;margin:4px 0;color:{brand.INK};font-family:{brand._SANS}'>"
-                    f"{brand._esc(r.get('address',''))} <span style='color:{brand.MUTED}'>— reduced</span> "
-                    f"<span style='color:{brand.BRASS}'>{move}</span></div>")
-        wd = [r.get('address', '') for r in sections['withdrawn'] if r.get('suburb') == sub]
-        if wd:
-            rows.append(
-                f"<div style='font-size:14px;margin:4px 0;color:#5a5a54;font-family:{brand._SANS}'>"
-                f"Withdrawn — {brand._esc(', '.join(wd))}</div>")
-        if rows:
-            parts.append(brand.group_header(sub))
-            parts.extend(rows)
+    C = brand.LISTING
+    CAP = 8
+
+    def _rowcard(accent, bg, addr, suburb, detail):
+        head = (f"<div style='margin:0 0 2px;font-weight:600;color:{brand.INK};font-size:14px;'>"
+                f"{brand._esc(addr)} <span style='color:#777;font-weight:500;'>— {brand._esc(suburb)}</span></div>")
+        return brand.hl_card(accent, bg, head + detail)
+
+    def _capped(title, accent, items, render):
+        if not items:
+            return
+        parts.append(brand.section_band(title, accent, count=len(items)))
+        for r in items[:CAP]:
+            parts.append(render(r))
+        if len(items) > CAP:
+            parts.append(brand.more_line(len(items) - CAP, _app_url()))
+
+    # Category-coloured blocks, mirroring the daily (v5) — Sales / Price
+    # reductions / Withdrawn, each its own accent + tinted highlight.
+    def _sale(r):
+        disp = r.get('sold_display')
+        detail = (f"<div style='margin:0;color:#444;font-size:13px;'>Sold"
+                  f"{f' <strong>{brand._esc(disp)}</strong>' if disp else ''}</div>")
+        return _rowcard(*C['sold'], r.get('address', ''), r.get('suburb', ''), detail)
+
+    def _cut(r):
+        move = ''
+        if r.get('old_value') and r.get('new_value'):
+            move = (f" <span style='color:{C['under_offer'][0]}'>"
+                    f"{brand._esc(r['old_value'])} → {brand._esc(r['new_value'])}</span>")
+        detail = f"<div style='margin:0;color:#444;font-size:13px;'>Price reduced{move}</div>"
+        return _rowcard(*C['under_offer'], r.get('address', ''), r.get('suburb', ''), detail)
+
+    def _wd(r):
+        return _rowcard(*C['withdrawn'], r.get('address', ''), r.get('suburb', ''), '')
+
+    _capped('Sold', C['sold'][0], sections['sales'], _sale)
+    _capped('Price reductions', C['under_offer'][0], sections['price_moves'], _cut)
+    _capped('Withdrawn', C['withdrawn'][0], sections['withdrawn'], _wd)
     return ''.join(parts)
 
 

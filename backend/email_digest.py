@@ -825,7 +825,11 @@ def send_daily(user_id):
             return False, 'User not found'
         user = dict(user)
         is_admin = (user.get('role') or '').lower() == 'admin'
-        if is_admin:
+        # all_suburbs = a non-admin who sees EVERY suburb. Widen here too so
+        # the daily matches the prospect scope (build_items honours the flag)
+        # and the periodic emails — otherwise these users silently got the
+        # overnight recap for only their explicit (often empty) assignment.
+        if is_admin or user.get('all_suburbs') in (1, True):
             suburb_rows = conn.execute(
                 "SELECT id, name FROM suburbs WHERE active = 1 ORDER BY name"
             ).fetchall()
