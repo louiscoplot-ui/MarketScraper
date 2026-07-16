@@ -66,8 +66,15 @@ def _header(kicker):
     )
 
 
-def _footer(suburbs_line):
+def _footer(suburbs_line, unsubscribe_url=None):
     sub = (f'Suburbs: {_esc(suburbs_line)}<br>' if suburbs_line else '')
+    # A real one-click link when we have one; else the plain-text fallback.
+    if unsubscribe_url:
+        unsub = (f'<a href="{_esc(unsubscribe_url)}" style="color:{MUTED};'
+                 f'text-decoration:underline;">Unsubscribe</a> &middot; '
+                 f'manage emails in SuburbDesk')
+    else:
+        unsub = 'Reply to unsubscribe &middot; suburbdesk@gmail.com'
     return (
         f'<tr><td style="padding:22px 34px 26px;">'
         f'<div style="border-top:1px solid {HAIR};padding-top:16px;">'
@@ -76,15 +83,17 @@ def _footer(suburbs_line):
         f'<td valign="middle" style="padding-left:10px;font-family:{_SANS};font-size:11px;'
         f'color:{MUTED};line-height:1.5;">'
         f'SuburbDesk — real-estate prospecting intelligence<br>{sub}'
-        f'Reply to unsubscribe &middot; suburbdesk@gmail.com</td>'
+        f'{unsub}</td>'
         f'</tr></table></div></td></tr>'
     )
 
 
-def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk'):
+def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk',
+          unsubscribe_url=None):
     """Wrap a body in the full branded document. `kicker` is the small
     upper-right label (e.g. 'Weekly Brief'); `suburbs_line` is a comma
-    string shown in the footer."""
+    string shown in the footer; `unsubscribe_url` renders a real one-click
+    unsubscribe link when provided."""
     cta_html = (
         f'<tr><td style="padding:4px 34px 0;text-align:center;">'
         f'<a href="{_esc(app_url)}" style="display:inline-block;background:{GREEN};color:#fff;'
@@ -92,7 +101,14 @@ def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk'):
         f'font-weight:600;letter-spacing:.3px;">{_esc(cta)}</a></td></tr>'
     ) if cta else ''
     return (
-        f'<!DOCTYPE html><html><body style="margin:0;padding:0;background:{OUTER};'
+        f'<!DOCTYPE html><html lang="en">'
+        # Force light rendering — without this Apple Mail / Gmail dark mode
+        # auto-inverts the cream identity into a flat monochrome grey,
+        # which is exactly what killed the visual hierarchy.
+        f'<head><meta charset="utf-8">'
+        f'<meta name="color-scheme" content="light only">'
+        f'<meta name="supported-color-schemes" content="light"></head>'
+        f'<body style="margin:0;padding:0;background:{OUTER};'
         f'font-family:{_SERIF};color:{INK};">'
         f'<table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">'
         f'<tr><td align="center">'
@@ -101,7 +117,7 @@ def shell(kicker, body_html, app_url, suburbs_line=None, cta='Open SuburbDesk'):
         f'{_header(kicker)}'
         f'<tr><td style="padding:18px 34px 0;">{body_html}</td></tr>'
         f'{cta_html}'
-        f'{_footer(suburbs_line)}'
+        f'{_footer(suburbs_line, unsubscribe_url)}'
         f'</table></td></tr></table></body></html>'
     )
 
@@ -160,6 +176,52 @@ def section_label(text):
     return (f'<div style="font-family:{_SANS};font-size:12px;font-weight:700;color:{GREEN};'
             f'text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid {HAIR};'
             f'padding-bottom:5px;margin:22px 0 8px;">{_esc(text)}</div>')
+
+
+# Editorial accent palette — one colour per section so the daily reads as
+# distinct blocks, not one monochrome wall. Sober (navy/slate/brass/forest/
+# burnt-orange), not a rainbow.
+ACCENT = {
+    'prospect': BRASS,
+    'hot': '#b45309',       # amber — the watchlist-listed alert
+    'sold': '#1e40af',      # navy
+    'new': GREEN,           # forest
+    'offer': '#475569',     # slate
+    'withdrawn': '#c2410c', # burnt orange
+    'strata': '#7c3aed',    # violet
+}
+
+
+def fmt_price(n):
+    """$4,250,000 -> '$4.25m', $850,000 -> '$850k'. Empty for falsy."""
+    if not n:
+        return ''
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:.2f}m".replace('.00m', 'm')
+    if n >= 1_000:
+        return f"${n / 1_000:.0f}k"
+    return f"${n:,.0f}"
+
+
+def section_band(title, accent=GREEN, count=None):
+    """Coloured section header — a solid left accent bar + uppercase label
+    + optional count, so each block is visually separated and scannable."""
+    cnt = (f' &nbsp;<span style="color:{MUTED};font-weight:600;">{count}</span>'
+           if count is not None else '')
+    return (f'<div style="margin:24px 0 10px;border-left:4px solid {accent};'
+            f'padding:1px 0 1px 10px;">'
+            f'<span style="font-family:{_SANS};font-size:12px;font-weight:800;'
+            f'color:{accent};text-transform:uppercase;letter-spacing:1.2px;">'
+            f'{_esc(title)}</span>{cnt}</div>')
+
+
+def more_line(n, app_url, where=''):
+    """'+N more — view all in SuburbDesk' when a section is capped."""
+    tail = f' in {_esc(where)}' if where else ''
+    return (f'<div style="font-family:{_SANS};font-size:13px;color:{MUTED};'
+            f'margin:2px 0 4px;padding-left:2px;">+{n} more{tail} — '
+            f'<a href="{_esc(app_url)}" style="color:{GREEN};text-decoration:none;">'
+            f'view all in SuburbDesk</a></div>')
 
 
 # --- plaintext --------------------------------------------------------------

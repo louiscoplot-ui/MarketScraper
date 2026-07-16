@@ -86,7 +86,7 @@ register_roi_routes(app)
 # clients with no X-Access-Key. Safe to exempt: GET-only, keyed on a
 # 24-byte random per-brief token, returns a 1x1 gif and leaks nothing.
 _AUTH_EXEMPT_PREFIXES = ('/api/auth/', '/api/ping', '/api/legal/',
-                         '/api/brief/open/')
+                         '/api/brief/open/', '/api/email/unsubscribe')
 
 
 @app.before_request
@@ -102,6 +102,46 @@ def _require_auth_for_api():
     if get_current_user() is None:
         return jsonify({'error': 'Not authenticated'}), 401
     return None
+
+
+@app.route('/api/email/unsubscribe', methods=['GET', 'POST'])
+def email_unsubscribe():
+    """One-click unsubscribe from the emails. The signed token IS the
+    credential (no login) — so this route is auth-exempt. GET renders a
+    confirmation page for a human click; POST is the Gmail/Yahoo
+    List-Unsubscribe-Post one-click. Turns every email flag off; the user
+    can re-enable individual cadences in-app anytime."""
+    from email_service import verify_unsubscribe_token
+    token = request.args.get('token', '') or (request.form.get('token', '') if request.form else '')
+    uid = verify_unsubscribe_token(token)
+    page = ('<!doctype html><html><head><meta name="viewport" '
+            'content="width=device-width,initial-scale=1"></head>'
+            '<body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;'
+            'background:#faf8f4;color:#1c1c1c;text-align:center;padding:60px 24px;">'
+            '<div style="font-size:20px;font-weight:800;letter-spacing:2px;color:#2f5545;">'
+            'SUBURBDESK</div><div style="height:2px;background:#a9854a;width:60px;'
+            'margin:14px auto;"></div>{body}</body></html>')
+    if not uid:
+        return page.format(body='<p style="font-size:15px;">This unsubscribe link '
+                           'is invalid or has expired. You can manage your emails '
+                           'in the app.</p>'), 400
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE users SET digest_enabled = 0, email_weekly = 0, "
+            "email_monthly = 0, email_quarterly = 0, email_annual = 0 WHERE id = ?",
+            (uid,)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.exception("unsubscribe failed for uid=%s: %s", uid, e)
+        return page.format(body='<p style="font-size:15px;">Something went wrong. '
+                           'Please try again or manage your emails in the app.</p>'), 500
+    return page.format(body='<p style="font-size:15px;">You’ve been unsubscribed from '
+                       'SuburbDesk emails.</p><p style="font-size:13px;color:#6b6b64;">'
+                       'Changed your mind? Re-enable any cadence in the app under '
+                       '“Emails I receive”.</p>'), 200
 
 
 @app.route('/api/ping', methods=['GET'])

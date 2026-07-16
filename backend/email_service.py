@@ -41,6 +41,52 @@ def _app_url():
     return os.environ.get('APP_URL', DEFAULT_APP_URL).rstrip('/')
 
 
+import base64
+import hashlib
+import hmac
+
+
+def _unsub_key():
+    """Signing key for unsubscribe tokens. Uses a dedicated secret if set,
+    else the (stable, secret) Resend key which is always present wherever
+    email is actually sent. Rotating it just invalidates old links — every
+    email carries a freshly-signed one, so that's harmless."""
+    return (os.environ.get('UNSUB_SECRET') or os.environ.get('RESEND_API_KEY')
+            or 'suburbdesk-unsub-v1').encode()
+
+
+def unsubscribe_token(user_id):
+    msg = str(user_id).encode()
+    sig = base64.urlsafe_b64encode(
+        hmac.new(_unsub_key(), msg, hashlib.sha256).digest()[:12])
+    return base64.urlsafe_b64encode(msg + b'.' + sig).decode().rstrip('=')
+
+
+def verify_unsubscribe_token(token):
+    """Return the user_id encoded in a valid token, else None."""
+    try:
+        raw = base64.urlsafe_b64decode(token + '=' * (-len(token) % 4))
+        uid_b, sig_b = raw.split(b'.', 1)
+        expected = base64.urlsafe_b64encode(
+            hmac.new(_unsub_key(), uid_b, hashlib.sha256).digest()[:12])
+        if hmac.compare_digest(sig_b, expected):
+            return int(uid_b)
+    except Exception:
+        return None
+    return None
+
+
+def unsubscribe_url(user_id):
+    """One-click unsubscribe URL for `user_id` — no login needed, the token
+    is the credential. Points at the backend directly (email links bypass
+    the Vercel proxy)."""
+    if not user_id:
+        return None
+    base = (os.environ.get('BACKEND_PUBLIC_URL')
+            or 'https://marketscraper-backend.onrender.com').rstrip('/')
+    return f"{base}/api/email/unsubscribe?token={unsubscribe_token(user_id)}"
+
+
 def _support_reply_to():
     """Inbox that replies to the recurring emails (digest, brief, weekly…)
     route back to. A reachable human address matters twice over: agents
@@ -90,7 +136,12 @@ def _send(to, subject, html, text=None, reply_to=None, list_unsubscribe=None):
     if reply_to:
         extra_headers['Reply-To'] = reply_to
     if list_unsubscribe:
-        extra_headers['List-Unsubscribe'] = f'<mailto:{list_unsubscribe}>'
+        # A https URL gives Gmail/Yahoo a true one-click unsubscribe button
+        # (POST to the URL); a bare address falls back to mailto.
+        if list_unsubscribe.startswith('http'):
+            extra_headers['List-Unsubscribe'] = f'<{list_unsubscribe}>'
+        else:
+            extra_headers['List-Unsubscribe'] = f'<mailto:{list_unsubscribe}>'
         extra_headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click'
     if extra_headers:
         payload['headers'] = extra_headers

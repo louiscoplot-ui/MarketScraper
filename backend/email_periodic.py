@@ -456,8 +456,10 @@ def _weekly_body(sections, suburb_names, label, lead_text):
 
 def render_weekly(user, sections, suburb_names, label, lead_text):
     body = _weekly_body(sections, suburb_names, label, lead_text)
+    from email_service import unsubscribe_url
     return brand.shell('Weekly Brief', body, _app_url(),
-                       suburbs_line=', '.join(suburb_names))
+                       suburbs_line=', '.join(suburb_names),
+                       unsubscribe_url=unsubscribe_url(user.get('id')))
 
 
 def render_weekly_text(user, sections, suburb_names, label, lead_text):
@@ -536,8 +538,10 @@ def render_period(user, cadence, rows, total, suburb_names, label, lead_text):
         + f'<p style="font-family:{brand._SANS};margin:10px 0 0;color:{brand.MUTED};font-size:11px;">'
           f'Typical {brand._esc(dom)}. ▲/▼ compares against the previous period.</p>'
     )
+    from email_service import unsubscribe_url
     return brand.shell(kickers[cadence], body, _app_url(),
-                       suburbs_line=', '.join(suburb_names))
+                       suburbs_line=', '.join(suburb_names),
+                       unsubscribe_url=unsubscribe_url(user.get('id')))
 
 
 def render_period_text(user, cadence, rows, total, suburb_names, label, lead_text):
@@ -675,8 +679,10 @@ def send_periodic(cadence):
                 _log_attempt(conn, user['id'], cadence,
                              [s['name'] for s in suburb_rows], 'skipped', 'No activity')
                 continue
+            from email_service import unsubscribe_url
             ok, info = _send(user['email'], subject, html, text=text,
-                             reply_to=reply_to, list_unsubscribe=reply_to)
+                             reply_to=reply_to,
+                             list_unsubscribe=unsubscribe_url(user['id']))
             _log_attempt(conn, user['id'], cadence,
                          [s['name'] for s in suburb_rows],
                          'sent' if ok else 'failed', None if ok else str(info)[:300])

@@ -17,6 +17,12 @@ from database import get_db
 from email_service import _send, _app_url, _support_reply_to
 from time_utils import perth_now, _PERTH_OFFSET
 
+try:
+    from signals.diff_engine import _price_to_int
+except Exception:  # pragma: no cover
+    def _price_to_int(_):
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,8 +238,10 @@ def _esc(s):
 def _status_label(row):
     s = (row.get('status') or '').lower()
     if s == 'sold':
-        sp = (row.get('sold_price') or '').strip() if isinstance(row.get('sold_price'), str) else row.get('sold_price')
-        return f"Sold for {sp}" if sp else 'Sold'
+        # Format the raw sold_price ("5650000") into "$5.65m" — the old
+        # digest showed the bare integer.
+        n = _price_to_int(row.get('sold_price'))
+        return f"Sold {brand.fmt_price(n)}" if n else 'Sold'
     return _STATUS_LABELS.get(s, s.title() if s else 'Updated')
 
 
@@ -732,48 +740,82 @@ def _daily_lead(sections, prospect_n, suburb_names, today_au):
     return brand.compose_lead(facts, fallback)
 
 
+_DAILY_CAP = 6   # rows shown per section before a "+N more" collapse
+
+
+def _section(parts, title, accent, items, render_fn, app, cap=_DAILY_CAP):
+    """Append a coloured section band + up to `cap` rendered rows + a
+    '+N more' line when the list is longer. Keeps one huge subdivision
+    (e.g. 50 lots of the same street) from drowning the whole email."""
+    if not items:
+        return
+    parts.append(brand.section_band(title, accent, count=len(items)))
+    for r in items[:cap]:
+        parts.append(render_fn(r))
+    if len(items) > cap:
+        parts.append(brand.more_line(len(items) - cap, app))
+
+
 def _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today_au):
     from signals.brief_builder import prospect_cards_html
     name = (user.get('first_name') or 'there').strip()
     app = _app_url()
     lead = _daily_lead(sections, len(prospect_items), suburb_names, today_au)
-    parts = [f'<p style="margin:0 0 4px;font-size:15px;color:{brand.INK};">'
-             f'Good morning {brand._esc(name)}.</p>', brand.lead(lead)]
+    n_sub = len(suburb_names)
 
+    # Warm, human opener + the AI recap sentence beneath it.
+    parts = [
+        f'<p style="margin:0 0 6px;font-size:16px;color:{brand.INK};">'
+        f'Good morning {brand._esc(name)} — here’s your overnight recap across '
+        f'{n_sub} suburb{"s" if n_sub != 1 else ""}.</p>',
+        brand.lead(lead),
+    ]
+
+    # Prospects first — the money section.
     if prospect_items:
-        parts.append(_section_header('Who to prospect today'))
+        parts.append(brand.section_band('Who to prospect today',
+                                        brand.ACCENT['prospect'],
+                                        count=len(prospect_items)))
         parts.append(prospect_cards_html(prospect_items))
 
-    if sections['hot_vendor_alerts']:
-        parts.append(_section_header('Hot vendor now listed'))
-        parts += [_render_hv_alert_html(r) for r in sections['hot_vendor_alerts']]
+    # Hot vendor watchlist matches.
+    _section(parts, 'Hot vendor now listed', brand.ACCENT['hot'],
+             sections['hot_vendor_alerts'], _render_hv_alert_html, app)
 
-    parts.append(_section_header('New listings'))
-    parts.append(
-        ''.join(_render_new_listing_html(r) for r in sections['new_listings'])
-        if sections['new_listings']
-        else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No new listings in your suburbs overnight.</p>')
+    # Split status changes into distinct, colour-coded blocks so Sold /
+    # Under offer / Withdrawn don't blur into one grey list.
+    changes = sections['status_changes']
+    sold = [r for r in changes if (r.get('status') or '').lower() == 'sold']
+    offer = [r for r in changes if (r.get('status') or '').lower() == 'under_offer']
+    wd = [r for r in changes if (r.get('status') or '').lower() == 'withdrawn']
+    _section(parts, 'Sold', brand.ACCENT['sold'], sold, _render_change_html, app)
+    _section(parts, 'New listings', brand.ACCENT['new'],
+             sections['new_listings'], _render_new_listing_html, app)
+    _section(parts, 'Under offer', brand.ACCENT['offer'], offer, _render_change_html, app)
+    _section(parts, 'Withdrawn', brand.ACCENT['withdrawn'], wd, _render_change_html, app)
 
-    parts.append(_section_header('Status changes'))
-    parts.append(
-        ''.join(_render_change_html(r) for r in sections['status_changes'])
-        if sections['status_changes']
-        else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No status changes overnight.</p>')
+    # Signal sub-sections.
+    _section(parts, 'Withdrawn — likely motivated vendors', brand.ACCENT['withdrawn'],
+             sections.get('withdrawn_orphans') or [], _render_orphan_html, app)
+    _section(parts, 'Sold prices revealed', brand.ACCENT['sold'],
+             sections.get('sold_reveals') or [], _render_sold_reveal_html, app)
+    _section(parts, 'Strata contagion', brand.ACCENT['strata'],
+             sections.get('strata_sales') or [], _render_strata_html, app)
 
-    if sections.get('withdrawn_orphans'):
-        parts.append(_section_header('Withdrawn — likely motivated vendors'))
-        parts += [_render_orphan_html(r) for r in sections['withdrawn_orphans']]
-    if sections.get('sold_reveals'):
-        parts.append(_section_header('Sold prices revealed'))
-        parts += [_render_sold_reveal_html(r) for r in sections['sold_reveals']]
-    if sections.get('strata_sales'):
-        parts.append(_section_header('Strata contagion'))
-        parts += [_render_strata_html(r) for r in sections['strata_sales']]
+    # Nothing at all overnight — say so warmly instead of a blank body.
+    if not any([prospect_items, sections['hot_vendor_alerts'], changes,
+                sections['new_listings'], sections.get('withdrawn_orphans'),
+                sections.get('sold_reveals'), sections.get('strata_sales')]):
+        parts.append('<p style="color:#666;font-size:14px;margin:8px 0;">'
+                     'A quiet night — no new activity across your suburbs. '
+                     'We’ll keep watching.</p>')
 
     if pixel:
         parts.append(f'<img src="{_esc(pixel)}" width="1" height="1" alt=""/>')
+    from email_service import unsubscribe_url
     return brand.shell('Daily', ''.join(parts), app,
-                       suburbs_line=', '.join(suburb_names))
+                       suburbs_line=', '.join(suburb_names),
+                       unsubscribe_url=unsubscribe_url(user.get('id')))
 
 
 def _build_daily_text(user, sections, prospect_items, suburb_names, today_au):
@@ -855,9 +897,11 @@ def send_daily(user_id):
         html = _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today_au)
         text = _build_daily_text(user, sections, prospect_items, suburb_names, today_au)
         try:
+            from email_service import unsubscribe_url
             reply_to = _support_reply_to()
             ok, info = _send(user['email'], subject, html, text=text,
-                             reply_to=reply_to, list_unsubscribe=reply_to)
+                             reply_to=reply_to,
+                             list_unsubscribe=unsubscribe_url(user_id))
         except Exception as e:
             logger.exception("Daily send crashed for user_id=%s", user_id)
             ok, info = False, str(e)
