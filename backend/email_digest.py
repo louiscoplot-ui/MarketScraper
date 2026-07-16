@@ -12,6 +12,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+import email_brand as brand
 from database import get_db
 from email_service import _send, _app_url, _support_reply_to
 from time_utils import perth_now, _PERTH_OFFSET
@@ -323,7 +324,7 @@ def _build_digest_text(user, sections, suburb_names, today_au):
         if sections['hot_vendor_alerts']:
             lines.append('=== HOT VENDOR NOW LISTED ===')
             for r in sections['hot_vendor_alerts']:
-                lines.append(f"  ⚠ {r.get('address', '')} — {r.get('suburb', '')}")
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
                 lines.append(f"      Score: {r.get('final_score')}/100 — Listed by {r.get('agency') or '?'}")
                 if r.get('price_text'):
                     lines.append(f"      {r['price_text']}")
@@ -389,8 +390,8 @@ def _render_change_html(r):
 
 def _render_hv_alert_html(r):
     parts = [
-        f'<div style="margin:0 0 4px;font-weight:700;color:#92400e;font-size:13px;">'
-        f'⚠️ HOT VENDOR NOW LISTED</div>',
+        f'<div style="margin:0 0 4px;font-weight:700;color:#92400e;font-size:13px;'
+        f'text-transform:uppercase;letter-spacing:0.5px;">Hot vendor now listed</div>',
         f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
         f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
         f'</div>',
@@ -416,8 +417,8 @@ def _render_hv_alert_html(r):
 def _render_strata_html(r):
     price = r.get('sold_price') or 'Price disclosed'
     parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#5b21b6;font-size:13px;">'
-        '🏢 STRATA CONTAGION</div>',
+        '<div style="margin:0 0 4px;font-weight:700;color:#5b21b6;font-size:13px;'
+        'text-transform:uppercase;letter-spacing:0.5px;">Strata contagion</div>',
         f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
         f'{_esc(r.get("complex_address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
         f'</div>',
@@ -433,8 +434,8 @@ def _render_strata_html(r):
 def _render_sold_reveal_html(r):
     price = r.get('sold_price') or 'Price disclosed'
     parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#1e40af;font-size:13px;">'
-        '💰 SOLD PRICE REVEALED</div>',
+        '<div style="margin:0 0 4px;font-weight:700;color:#1e40af;font-size:13px;'
+        'text-transform:uppercase;letter-spacing:0.5px;">Sold price revealed</div>',
         f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
         f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
         f'</div>',
@@ -449,8 +450,8 @@ def _render_sold_reveal_html(r):
 
 def _render_orphan_html(r):
     parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#7c2d12;font-size:13px;">'
-        '🏷️ WITHDRAWN — LIKELY MOTIVATED VENDOR</div>',
+        '<div style="margin:0 0 4px;font-weight:700;color:#7c2d12;font-size:13px;'
+        'text-transform:uppercase;letter-spacing:0.5px;">Withdrawn — likely motivated vendor</div>',
         f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
         f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
         f'</div>',
@@ -519,36 +520,33 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             + hv_section
         )
 
-    suburbs_line = (
-        f'<p style="margin:0 0 6px;color:#666;font-size:12px;">'
-        f'Your suburbs: {_esc(", ".join(suburb_names))}'
-        f'</p>'
-    ) if suburb_names else ''
+    greeting = (f'<p style="margin:0 0 4px;font-size:15px;color:{brand.INK};">'
+                f'Good morning {brand._esc(name)}.</p>')
+    lead = _digest_lead(sections, suburb_names, today_au)
+    inner = greeting + brand.lead(lead) + body
+    return brand.shell('Morning Brief', inner, app,
+                       suburbs_line=', '.join(suburb_names) if suburb_names else None)
 
-    return f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#1a1a1a;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);max-width:600px;">
-<tr><td style="background:#386350;padding:24px 32px;">
-<h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;font-weight:700;">SUBURBDESK</h1>
-<p style="margin:4px 0 0;color:#cfe0d6;font-size:13px;">Morning Brief &middot; {_esc(today_au)}</p>
-</td></tr>
-<tr><td style="padding:24px 28px;">
-<p style="margin:0 0 16px;font-size:15px;color:#1a1a1a;">Good morning {_esc(name)},</p>
-{body}
-<p style="margin:24px 0 0;text-align:center;">
-<a href="{_esc(app)}" style="display:inline-block;background:#386350;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Open SuburbDesk</a>
-</p>
-</td></tr>
-<tr><td style="background:#fafafa;padding:14px 28px;border-top:1px solid #eee;">
-{suburbs_line}
-<p style="margin:0;color:#999;font-size:11px;">
-Reply with "unsubscribe" to stop receiving these emails.<br>
-SuburbDesk &middot; <a href="mailto:suburbdesk@gmail.com" style="color:#999;">suburbdesk@gmail.com</a>
-</p>
-</td></tr>
-</table></td></tr></table></body></html>"""
+
+def _digest_lead(sections, suburb_names, today_au):
+    """AI (or fallback) opening line for the daily digest."""
+    nl = len(sections.get('new_listings') or [])
+    ch = len(sections.get('status_changes') or [])
+    hv = len(sections.get('hot_vendor_alerts') or [])
+    parts = []
+    if nl:
+        parts.append(f"{nl} new listing{'s' if nl != 1 else ''}")
+    if ch:
+        parts.append(f"{ch} status change{'s' if ch != 1 else ''}")
+    if hv:
+        parts.append(f"{hv} hot-vendor alert{'s' if hv != 1 else ''}")
+    fallback = (f"Overnight across your suburbs: {', '.join(parts)}."
+                if parts else "A quiet night across your suburbs — no new activity overnight.")
+    if not suburb_names:
+        return fallback
+    facts = [f"Date: {today_au}", f"New listings: {nl}",
+             f"Status changes: {ch}", f"Hot-vendor alerts: {hv}"]
+    return brand.compose_lead(facts, fallback)
 
 
 def send_digest(user_id):
@@ -609,7 +607,7 @@ def send_digest(user_id):
     ch_n = len(sections['status_changes'])
     hv_n = len(sections['hot_vendor_alerts'])
     if hv_n > 0:
-        subject = f"🔔 SuburbDesk — Hot Vendor Listed + Morning Brief {today}"
+        subject = f"SuburbDesk — Hot Vendor Listed + Morning Brief {today}"
     elif nl_n + ch_n > 0:
         subject = f"SuburbDesk Morning Brief — {weekday}, {today}"
     else:

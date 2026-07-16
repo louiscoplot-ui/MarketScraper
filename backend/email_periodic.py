@@ -30,9 +30,9 @@ import logging
 import os
 from datetime import date, datetime, timedelta
 
+import email_brand as brand
 from database import get_db
 from email_service import _send, _app_url, _support_reply_to
-from email_digest import _esc
 from time_utils import perth_now
 
 try:
@@ -293,7 +293,21 @@ def build_weekly_sections(conn, suburb_rows, start, end, ref):
 
     withdrawn = _events(['withdrawn'])
     price_moves = _events(['price_drop', 'price_rise'])
-    sales = _events(['sold'])
+    # Sales join listings via listing_id to disclose the sold price when we
+    # have it (LEFT JOIN — backfilled events may have a null listing_id).
+    sales = [dict(r) for r in conn.execute(
+        f"SELECT ev.address, su.name AS suburb, ev.detected_at, "
+        f"l.sold_price, l.price_text "
+        f"FROM listing_events ev JOIN suburbs su ON su.id = ev.suburb_id "
+        f"LEFT JOIN listings l ON l.id = ev.listing_id "
+        f"WHERE ev.suburb_id IN ({ph}) AND ev.event_type = 'sold' "
+        f"AND ev.detected_at >= ? AND ev.detected_at < ? "
+        f"ORDER BY su.name, ev.detected_at DESC",
+        (*suburb_ids, s, e)
+    ).fetchall()]
+    for r in sales:
+        p = _price_to_int(r.get('sold_price')) or _price_to_int(r.get('price_text'))
+        r['sold_display'] = _fmt_price(p) if p else None
     hot = _moving_suburbs(conn, suburb_rows, ref)
     return {
         'withdrawn': withdrawn,
@@ -350,206 +364,193 @@ def _has_period_content(rows):
 
 
 # ---------------------------------------------------------------------------
-# Rendering
+# Rendering  (all chrome comes from email_brand — no emojis, one identity)
 # ---------------------------------------------------------------------------
 
 def _fmt_price(n):
-    return f"${n:,.0f}" if n else '—'
+    """Compact dollar figure: $4,250,000 -> '$4.25m', $850,000 -> '$850k'."""
+    if not n:
+        return '—'
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:.2f}m".replace('.00m', 'm')
+    if n >= 1_000:
+        return f"${n / 1_000:.0f}k"
+    return f"${n:,.0f}"
 
 
 def _trend(cur, prev):
-    """Small ▲/▼ badge comparing cur vs prev. Neutral when prev is 0."""
+    """Small up/down delta vs the previous period. Neutral when prev is 0.
+    Uses geometric triangles (financial convention), not emoji."""
     if not prev:
         return ''
     if cur > prev:
-        return f' <span style="color:#15803d;">▲{cur - prev}</span>'
+        return f' <span style="color:{brand.GREEN};">▲{cur - prev}</span>'
     if cur < prev:
-        return f' <span style="color:#b91c1c;">▼{prev - cur}</span>'
-    return ' <span style="color:#999;">→</span>'
+        return f' <span style="color:#b45309;">▼{prev - cur}</span>'
+    return f' <span style="color:{brand.MUTED};">→</span>'
 
 
-def _shell(title, subtitle, body_html, app):
-    return f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#1a1a1a;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);max-width:600px;">
-<tr><td style="background:#386350;padding:24px 32px;">
-<h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;font-weight:700;">SUBURBDESK</h1>
-<p style="margin:4px 0 0;color:#cfe0d6;font-size:13px;">{_esc(subtitle)}</p>
-</td></tr>
-<tr><td style="padding:24px 28px;">
-{body_html}
-<p style="margin:24px 0 0;text-align:center;">
-<a href="{_esc(app)}" style="display:inline-block;background:#386350;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Open SuburbDesk</a>
-</p>
-</td></tr>
-<tr><td style="background:#fafafa;padding:14px 28px;border-top:1px solid #eee;">
-<p style="margin:0;color:#999;font-size:11px;">
-Reply with "unsubscribe" to stop receiving these emails.<br>
-SuburbDesk &middot; <a href="mailto:suburbdesk@gmail.com" style="color:#999;">suburbdesk@gmail.com</a>
-</p>
-</td></tr>
-</table></td></tr></table></body></html>"""
+def _weekly_lead_fallback(sections):
+    w, p, s = (len(sections['withdrawn']), len(sections['price_moves']),
+               len(sections['sales']))
+    hot = sections['hot_suburbs'][0]['suburb'] if sections['hot_suburbs'] else None
+    bits = []
+    if w:
+        bits.append(f"{w} withdrawal{'s' if w != 1 else ''}")
+    if p:
+        bits.append(f"{p} price reduction{'s' if p != 1 else ''}")
+    if s:
+        bits.append(f"{s} sale{'s' if s != 1 else ''}")
+    head = ', '.join(bits) if bits else 'a quiet week'
+    tail = f" {hot} is the one to watch." if hot else ''
+    return f"Across your suburbs this week: {head}.{tail}"
 
 
-def _section_header(text):
-    return (f'<h3 style="margin:18px 0 8px;color:#386350;font-size:14px;'
-            f'font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">'
-            f'{_esc(text)}</h3>')
-
-
-def _card(inner, accent='#386350', bg='#fff'):
-    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:{bg};'
-            f'border-left:3px solid {accent};border-radius:0 4px 4px 0;">{inner}</div>')
-
-
-def render_weekly(user, sections, suburb_names, label):
-    name = (user.get('first_name') or 'there').strip()
-    app = _app_url()
-    parts = [f'<p style="margin:0 0 16px;font-size:15px;">Good morning {_esc(name)}, '
-             f'here is what moved in your suburbs last week ({_esc(label)}).</p>']
-
+def _weekly_body(sections, suburb_names, label, lead_text):
+    parts = [brand.kicker_date(label), brand.lead(lead_text)]
+    parts.append(brand.numbers_line([
+        (len(sections['withdrawn']), 'withdrawn'),
+        (len(sections['price_moves']), 'price cuts'),
+        (len(sections['sales']), 'sales'),
+    ]))
     if sections['hot_suburbs']:
-        parts.append(_section_header('Prospect here now'))
-        for h in sections['hot_suburbs']:
-            parts.append(_card(
-                f'<div style="font-weight:700;color:#7c2d12;font-size:14px;">🔥 {_esc(h["suburb"])}</div>'
-                f'<div style="color:#444;font-size:13px;">{_esc(h["reason"])}</div>',
-                accent='#ea580c', bg='#fff7ed'))
+        focus = ' '.join(
+            f"<strong style='color:{brand.GREEN}'>{brand._esc(h['suburb'])}</strong> — {brand._esc(h['reason'])}."
+            for h in sections['hot_suburbs'])
+        parts.append(brand.focus_block('Where to focus', focus))
 
-    parts.append(_section_header(f'Withdrawn ({len(sections["withdrawn"])})'))
-    if sections['withdrawn']:
-        for r in sections['withdrawn']:
-            parts.append(_card(
-                f'<div style="font-weight:600;font-size:14px;">{_esc(r.get("address"))} '
-                f'<span style="color:#555;font-weight:500;">— {_esc(r.get("suburb"))}</span></div>'))
-    else:
-        parts.append('<p style="color:#666;font-size:13px;margin:0 0 8px;">None this week.</p>')
-
-    parts.append(_section_header(f'Price changes ({len(sections["price_moves"])})'))
-    if sections['price_moves']:
-        for r in sections['price_moves']:
-            arrow = '▼' if r['event_type'] == 'price_drop' else '▲'
-            col = '#b91c1c' if r['event_type'] == 'price_drop' else '#15803d'
-            move = ''
-            if r.get('old_value') and r.get('new_value'):
-                move = f' <span style="color:{col};">{arrow} {_esc(r["old_value"])} → {_esc(r["new_value"])}</span>'
-            parts.append(_card(
-                f'<div style="font-weight:600;font-size:14px;">{_esc(r.get("address"))} '
-                f'<span style="color:#555;font-weight:500;">— {_esc(r.get("suburb"))}</span></div>'
-                f'<div style="color:#444;font-size:13px;">Price change{move}</div>'))
-    else:
-        parts.append('<p style="color:#666;font-size:13px;margin:0 0 8px;">None this week.</p>')
-
-    parts.append(_section_header(f'Sales ({len(sections["sales"])})'))
-    if sections['sales']:
+    # Group every event under its suburb for a clean editorial read.
+    subs = []
+    for lst in (sections['sales'], sections['price_moves'], sections['withdrawn']):
+        for r in lst:
+            if r.get('suburb') and r['suburb'] not in subs:
+                subs.append(r['suburb'])
+    subs.sort()
+    for sub in subs:
+        rows = []
         for r in sections['sales']:
-            parts.append(_card(
-                f'<div style="font-weight:600;font-size:14px;">{_esc(r.get("address"))} '
-                f'<span style="color:#555;font-weight:500;">— {_esc(r.get("suburb"))}</span></div>'
-                f'<div style="color:#444;font-size:13px;">Sold</div>'))
-    else:
-        parts.append('<p style="color:#666;font-size:13px;margin:0 0 8px;">None this week.</p>')
+            if r.get('suburb') == sub:
+                disp = r.get('sold_display')
+                right = f"<span style='color:{brand.GREEN};font-weight:600'>{disp}</span>" if disp else ''
+                rows.append(brand.line(r.get('address', ''), 'sold', right=right and disp or '',
+                                       right_color=brand.GREEN))
+        for r in sections['price_moves']:
+            if r.get('suburb') == sub:
+                move = ''
+                if r.get('old_value') and r.get('new_value'):
+                    move = f"{brand._esc(r['old_value'])} → {brand._esc(r['new_value'])}"
+                rows.append(
+                    f"<div style='font-size:14px;margin:4px 0;color:{brand.INK};font-family:{brand._SANS}'>"
+                    f"{brand._esc(r.get('address',''))} <span style='color:{brand.MUTED}'>— reduced</span> "
+                    f"<span style='color:{brand.BRASS}'>{move}</span></div>")
+        wd = [r.get('address', '') for r in sections['withdrawn'] if r.get('suburb') == sub]
+        if wd:
+            rows.append(
+                f"<div style='font-size:14px;margin:4px 0;color:#5a5a54;font-family:{brand._SANS}'>"
+                f"Withdrawn — {brand._esc(', '.join(wd))}</div>")
+        if rows:
+            parts.append(brand.group_header(sub))
+            parts.extend(rows)
+    return ''.join(parts)
 
-    parts.append(f'<p style="margin:16px 0 0;color:#666;font-size:12px;">'
-                 f'Suburbs covered: {_esc(", ".join(suburb_names))}</p>')
-    return _shell('Weekly recap', f'Weekly recap · {label}', ''.join(parts), app)
+
+def render_weekly(user, sections, suburb_names, label, lead_text):
+    body = _weekly_body(sections, suburb_names, label, lead_text)
+    return brand.shell('Weekly Brief', body, _app_url(),
+                       suburbs_line=', '.join(suburb_names))
 
 
-def render_weekly_text(user, sections, suburb_names, label):
-    name = (user.get('first_name') or 'there').strip()
-    lines = [f"Good morning {name},", '',
-             f"SuburbDesk weekly recap — {label}.", '']
-    if sections['hot_suburbs']:
-        lines.append('=== PROSPECT HERE NOW ===')
-        for h in sections['hot_suburbs']:
-            lines.append(f"  🔥 {h['suburb']}: {h['reason']}")
-        lines.append('')
-    for title, key in (('WITHDRAWN', 'withdrawn'), ('PRICE CHANGES', 'price_moves'),
-                       ('SALES', 'sales')):
-        lines.append(f"=== {title} ({len(sections[key])}) ===")
+def render_weekly_text(user, sections, suburb_names, label, lead_text):
+    lines = []
+    for title, key in (('SALES', 'sales'), ('PRICE REDUCTIONS', 'price_moves'),
+                       ('WITHDRAWN', 'withdrawn')):
+        lines.append(f"{title} ({len(sections[key])})")
         if sections[key]:
             for r in sections[key]:
-                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
+                extra = ''
+                if key == 'sales' and r.get('sold_display'):
+                    extra = f" — {r['sold_display']}"
+                elif key == 'price_moves' and r.get('old_value') and r.get('new_value'):
+                    extra = f" — {r['old_value']} -> {r['new_value']}"
+                lines.append(f"  - {r.get('address','')} — {r.get('suburb','')}{extra}")
         else:
             lines.append('  None this week.')
         lines.append('')
-    lines.append(f"Suburbs covered: {', '.join(suburb_names)}")
-    lines.append('')
-    lines.append(f"Open the app: {_app_url()}")
-    lines.append('Reply with "unsubscribe" to stop receiving these emails.')
-    lines.append('-- SuburbDesk · suburbdesk@gmail.com')
-    return '\n'.join(lines)
+    if sections['hot_suburbs']:
+        lines.append('WHERE TO FOCUS')
+        for h in sections['hot_suburbs']:
+            lines.append(f"  - {h['suburb']}: {h['reason']}")
+        lines.append('')
+    return brand.text_shell(f'Weekly Brief · {label}', lead_text, lines,
+                            ', '.join(suburb_names), _app_url())
 
 
 def _period_table(rows, total):
-    head = (
-        '<tr style="background:#f0f4f2;">'
-        '<th style="text-align:left;padding:6px 8px;font-size:12px;color:#386350;">Suburb</th>'
-        '<th style="text-align:right;padding:6px 8px;font-size:12px;color:#386350;">New</th>'
-        '<th style="text-align:right;padding:6px 8px;font-size:12px;color:#386350;">Sold</th>'
-        '<th style="text-align:right;padding:6px 8px;font-size:12px;color:#386350;">Median sold</th>'
-        '<th style="text-align:right;padding:6px 8px;font-size:12px;color:#386350;">Withdrawn</th>'
-        '</tr>'
-    )
+    def th(t, align='left'):
+        return (f'<th style="text-align:{align};padding:7px 8px;font-family:{brand._SANS};'
+                f'font-size:11px;font-weight:700;color:{brand.GREEN};text-transform:uppercase;'
+                f'letter-spacing:.6px;border-bottom:2px solid {brand.BRASS};">{t}</th>')
+    head = ('<tr>' + th('Suburb') + th('New', 'right') + th('Sold', 'right')
+            + th('Median sold', 'right') + th('Withdrawn', 'right') + '</tr>')
     body = []
     for r in list(rows) + [total]:
         weight = '700' if r.get('is_total') else '500'
-        border = 'border-top:2px solid #386350;' if r.get('is_total') else 'border-top:1px solid #eee;'
+        top = f'border-top:2px solid {brand.GREEN};' if r.get('is_total') else f'border-top:1px solid {brand.HAIR};'
+        def td(v, align='left', extra=''):
+            return (f'<td style="padding:7px 8px;font-family:{brand._SANS};font-size:13px;'
+                    f'text-align:{align};font-weight:{weight};color:{brand.INK};{extra}">{v}</td>')
         body.append(
-            f'<tr style="{border}">'
-            f'<td style="padding:6px 8px;font-size:13px;font-weight:{weight};">{_esc(r["suburb"])}</td>'
-            f'<td style="padding:6px 8px;font-size:13px;text-align:right;">{r["new_listings"]}{_trend(r["new_listings"], r["new_listings_prev"])}</td>'
-            f'<td style="padding:6px 8px;font-size:13px;text-align:right;">{r["sold"]}{_trend(r["sold"], r["sold_prev"])}</td>'
-            f'<td style="padding:6px 8px;font-size:13px;text-align:right;">{_fmt_price(r["median_sold"])}</td>'
-            f'<td style="padding:6px 8px;font-size:13px;text-align:right;">{r["withdrawn"]}</td>'
-            f'</tr>'
-        )
-    return (f'<table width="100%" cellpadding="0" cellspacing="0" '
-            f'style="border-collapse:collapse;margin:8px 0;">{head}{"".join(body)}</table>')
+            f'<tr style="{top}">'
+            + td(brand._esc(r['suburb']))
+            + td(f"{r['new_listings']}{_trend(r['new_listings'], r['new_listings_prev'])}", 'right')
+            + td(f"{r['sold']}{_trend(r['sold'], r['sold_prev'])}", 'right')
+            + td(f"<span style='color:{brand.GREEN};font-weight:600'>{_fmt_price(r['median_sold'])}</span>", 'right')
+            + td(str(r['withdrawn']), 'right')
+            + '</tr>')
+    return ('<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="border-collapse:collapse;margin:12px 0;">' + head + ''.join(body) + '</table>')
 
 
-def render_period(user, cadence, rows, total, suburb_names, label):
-    name = (user.get('first_name') or 'there').strip()
-    app = _app_url()
-    titles = {'monthly': 'Monthly report', 'quarterly': 'Quarterly report',
-              'annual': 'Year in review'}
-    title = titles[cadence]
-    dom = f"{total['median_dom']} days" if total.get('median_dom') is not None else '—'
+def _period_lead_fallback(cadence, total, label):
+    period = {'monthly': 'month', 'quarterly': 'quarter', 'annual': 'year'}[cadence]
+    return (f"In {label}, your suburbs saw {total['new_listings']} new listing"
+            f"{'s' if total['new_listings'] != 1 else ''} and {total['sold']} sale"
+            f"{'s' if total['sold'] != 1 else ''}, with a median sold price of "
+            f"{_fmt_price(total['median_sold'])} over the {period}.")
+
+
+def render_period(user, cadence, rows, total, suburb_names, label, lead_text):
+    kickers = {'monthly': 'Monthly Report', 'quarterly': 'Quarterly Report',
+               'annual': 'Year in Review'}
+    dom = f"{total['median_dom']} days on market" if total.get('median_dom') is not None else 'days on market n/a'
     body = (
-        f'<p style="margin:0 0 12px;font-size:15px;">Hi {_esc(name)}, your {_esc(title.lower())} '
-        f'for <strong>{_esc(label)}</strong> across your suburbs.</p>'
-        f'<p style="margin:0 0 12px;font-size:13px;color:#444;">'
-        f'{total["new_listings"]} new listings · {total["sold"]} sold · '
-        f'median sold {_fmt_price(total["median_sold"])} · '
-        f'typical days on market {dom} · {total["withdrawn"]} withdrawn.</p>'
+        brand.kicker_date(label)
+        + brand.lead(lead_text)
+        + brand.numbers_line([
+            (total['new_listings'], 'new'),
+            (total['sold'], 'sold'),
+            (_fmt_price(total['median_sold']), 'median'),
+            (total['withdrawn'], 'withdrawn'),
+        ])
         + _period_table(rows, total)
-        + f'<p style="margin:12px 0 0;color:#999;font-size:11px;">'
-          f'▲/▼ compares against the previous {cadence.replace("ly", "")} period.</p>'
-        + f'<p style="margin:8px 0 0;color:#666;font-size:12px;">'
-          f'Suburbs: {_esc(", ".join(suburb_names))}</p>'
+        + f'<p style="font-family:{brand._SANS};margin:10px 0 0;color:{brand.MUTED};font-size:11px;">'
+          f'Typical {brand._esc(dom)}. ▲/▼ compares against the previous period.</p>'
     )
-    return _shell(title, f'{title} · {label}', body, app)
+    return brand.shell(kickers[cadence], body, _app_url(),
+                       suburbs_line=', '.join(suburb_names))
 
 
-def render_period_text(user, cadence, rows, total, suburb_names, label):
-    name = (user.get('first_name') or 'there').strip()
-    titles = {'monthly': 'Monthly report', 'quarterly': 'Quarterly report',
-              'annual': 'Year in review'}
-    lines = [f"Hi {name},", '',
-             f"SuburbDesk {titles[cadence]} — {label}.", '',
-             f"Totals: {total['new_listings']} new · {total['sold']} sold · "
-             f"median {_fmt_price(total['median_sold'])} · {total['withdrawn']} withdrawn.",
-             '']
+def render_period_text(user, cadence, rows, total, suburb_names, label, lead_text):
+    kickers = {'monthly': 'Monthly Report', 'quarterly': 'Quarterly Report',
+               'annual': 'Year in Review'}
+    lines = [f"Totals: {total['new_listings']} new · {total['sold']} sold · "
+             f"median {_fmt_price(total['median_sold'])} · {total['withdrawn']} withdrawn", '']
     for r in rows:
         lines.append(f"  {r['suburb']}: {r['new_listings']} new, {r['sold']} sold, "
                      f"median {_fmt_price(r['median_sold'])}, {r['withdrawn']} withdrawn")
-    lines.append('')
-    lines.append(f"Open the app: {_app_url()}")
-    lines.append('Reply with "unsubscribe" to stop receiving these emails.')
-    lines.append('-- SuburbDesk · suburbdesk@gmail.com')
-    return '\n'.join(lines)
+    return brand.text_shell(f"{kickers[cadence]} · {label}", lead_text, lines,
+                            ', '.join(suburb_names), _app_url())
+
 
 
 # ---------------------------------------------------------------------------
@@ -586,18 +587,52 @@ def _build_email(cadence, conn, user, suburb_rows, ref):
     if cadence == 'weekly':
         sections = build_weekly_sections(conn, suburb_rows, start, end, ref)
         has = _has_weekly_content(sections)
-        subject = f"SuburbDesk Weekly Recap — {label}"
-        html = render_weekly(user, sections, suburb_names, label)
-        text = render_weekly_text(user, sections, suburb_names, label)
+        subject = f"SuburbDesk Weekly Brief — {label}"
+        lead = _weekly_lead(sections, suburb_names, label)
+        html = render_weekly(user, sections, suburb_names, label, lead)
+        text = render_weekly_text(user, sections, suburb_names, label, lead)
         return subject, html, text, has
     rows, total = build_period_rows(conn, suburb_rows, start, end, prev_start, prev_end)
     has = _has_period_content(rows)
     titles = {'monthly': 'Monthly Report', 'quarterly': 'Quarterly Report',
               'annual': 'Year in Review'}
     subject = f"SuburbDesk {titles[cadence]} — {label}"
-    html = render_period(user, cadence, rows, total, suburb_names, label)
-    text = render_period_text(user, cadence, rows, total, suburb_names, label)
+    lead = _period_lead(cadence, total, label)
+    html = render_period(user, cadence, rows, total, suburb_names, label, lead)
+    text = render_period_text(user, cadence, rows, total, suburb_names, label, lead)
     return subject, html, text, has
+
+
+def _weekly_lead(sections, suburb_names, label):
+    """AI summary line for the weekly email; deterministic fallback if the
+    Claude call is unavailable."""
+    fallback = _weekly_lead_fallback(sections)
+    facts = [f"Reporting week: {label}",
+             f"Suburbs: {', '.join(suburb_names)}",
+             f"Withdrawals: {len(sections['withdrawn'])}",
+             f"Price reductions: {len(sections['price_moves'])}",
+             f"Sales: {len(sections['sales'])}"]
+    if sections['sales']:
+        top = [f"{r.get('address')} ({r.get('sold_display')})"
+               for r in sections['sales'] if r.get('sold_display')][:3]
+        if top:
+            facts.append("Notable sales: " + "; ".join(top))
+    if sections['hot_suburbs']:
+        facts.append("Withdrawal spikes: " + "; ".join(
+            f"{h['suburb']} ({h['reason']})" for h in sections['hot_suburbs']))
+    return brand.compose_lead(facts, fallback)
+
+
+def _period_lead(cadence, total, label):
+    fallback = _period_lead_fallback(cadence, total, label)
+    facts = [f"Period: {label}",
+             f"New listings: {total['new_listings']} (prev {total['new_listings_prev']})",
+             f"Sales: {total['sold']} (prev {total['sold_prev']})",
+             f"Median sold price: {_fmt_price(total['median_sold'])}",
+             f"Withdrawals: {total['withdrawn']}"]
+    if total.get('median_dom') is not None:
+        facts.append(f"Median days on market: {total['median_dom']}")
+    return brand.compose_lead(facts, fallback)
 
 
 def send_periodic(cadence):

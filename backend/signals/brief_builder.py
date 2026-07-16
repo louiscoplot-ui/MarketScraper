@@ -21,11 +21,13 @@ import json
 import logging
 import os
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 
+import email_brand as brand
 from database import get_db
+from email_service import _app_url
 
 logger = logging.getLogger(__name__)
 
@@ -108,38 +110,78 @@ def _user_suburb_ids(conn, user):
         (user['id'],)).fetchall()]
 
 
-def _top_signals(conn, suburb_ids, limit=TOP_N):
+def _recent_signal_ids(conn, user_id, days=7):
+    """signal_ids already emailed to this user within the last `days` days,
+    read from the stored briefs.items JSON. Used to ROTATE the daily
+    prospect list so the same addresses don't land every morning. Never
+    raises — on any failure we simply don't exclude anything."""
+    from time_utils import perth_now
+    cutoff = (perth_now().date() - timedelta(days=days)).isoformat()
+    ids = set()
+    try:
+        rows = conn.execute(
+            "SELECT items FROM briefs WHERE user_id = ? AND brief_date >= ?",
+            (user_id, cutoff)
+        ).fetchall()
+        for r in rows:
+            try:
+                for it in json.loads(dict(r).get('items') or '[]'):
+                    if it.get('signal_id') is not None:
+                        ids.add(it['signal_id'])
+            except Exception:
+                continue
+    except Exception:
+        logger.exception("recent signal-id lookup failed (suppressed)")
+    return ids
+
+
+def _top_signals(conn, suburb_ids, limit=TOP_N, exclude_ids=None):
+    """Top vendor signals for a suburb set. When exclude_ids is given,
+    recently-shown signals are pushed to the back (fresh addresses first),
+    then used to backfill only if there aren't enough fresh ones — so the
+    agent never receives fewer prospects than the pool actually holds."""
     if not suburb_ids:
         return []
+    exclude_ids = set(exclude_ids or ())
     ph = ','.join(['?'] * len(suburb_ids))
+    cap = max(limit * 5, limit + len(exclude_ids))
     rows = conn.execute(
         f"SELECT v.id, v.address, v.suburb_id, s.name AS suburb, v.score, "
         f"v.reason_codes FROM vendor_signals v "
         f"LEFT JOIN suburbs s ON s.id = v.suburb_id "
         f"WHERE v.status = 'new' AND v.suburb_id IN ({ph}) "
         f"ORDER BY v.score DESC, v.created_at DESC LIMIT ?",
-        list(suburb_ids) + [limit]
+        list(suburb_ids) + [cap]
     ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
+    cand = [dict(r) for r in rows]
+    fresh = [d for d in cand if d['id'] not in exclude_ids]
+    chosen = fresh[:limit]
+    if len(chosen) < limit:
+        seen = [d for d in cand if d['id'] in exclude_ids]
+        chosen += seen[:limit - len(chosen)]
+    for d in chosen:
         try:
             d['reason_codes'] = json.loads(d.get('reason_codes') or '[]')
         except Exception:
             d['reason_codes'] = []
-        out.append(d)
-    return out
+    return chosen
 
 
-def build_items(conn, user, use_ai=True):
+def build_items(conn, user, use_ai=True, exclude_recent=False):
     """Assemble (and narrate) the top signals for one user. Pure read —
     used by both the email pass and the on-demand /api/brief/today.
 
     use_ai=False skips the Claude narrative calls (falls back to the
     reason codes verbatim). The on-demand GET path uses this: up to five
     sequential 20s API calls on a page load could hang the Today view for
-    ~100s — the cron keeps the narrated version."""
-    signals = _top_signals(conn, _user_suburb_ids(conn, user))
+    ~100s — the cron keeps the narrated version.
+
+    exclude_recent=True (the nightly email pass) rotates out signals shown
+    to this user in the last 7 days so the daily prospect list stays
+    fresh; the on-demand Today view leaves it False so it always shows the
+    current top signals."""
+    exclude = _recent_signal_ids(conn, user['id']) if exclude_recent else None
+    signals = _top_signals(conn, _user_suburb_ids(conn, user), exclude_ids=exclude)
     items = []
     for s in signals:
         reasons = s['reason_codes'] or ['New vendor signal']
@@ -160,29 +202,31 @@ def _render_email(user, items, open_pixel_url):
     first = (user.get('first_name') or '').strip() or 'there'
     rows = []
     for it in items:
-        reasons = ''.join(f"<li style='margin:2px 0'>{r}</li>"
-                          for r in it['reasons'])
+        reasons = ''.join(
+            f"<li style='margin:2px 0'>{brand._esc(r)}</li>" for r in it['reasons'])
         rows.append(
-            f"<div style='margin:0 0 18px;padding:12px 14px;"
-            f"border:1px solid #e3e7ea;border-radius:8px'>"
-            f"<div style='font-weight:700;font-size:15px'>{it['address']}"
-            f" <span style='color:#7f8c8d;font-weight:400'>— {it['suburb']}"
-            f" · score {round((it['score'] or 0) * 100)}</span></div>"
-            f"<div style='margin:6px 0;color:#2c3e50'>{it['narrative']}</div>"
-            f"<ul style='margin:4px 0 0;padding-left:18px;color:#566573;"
-            f"font-size:13px'>{reasons}</ul></div>"
+            f"<div style='margin:0 0 14px;padding:12px 14px;border:1px solid {brand.HAIR};"
+            f"background:#fff;font-family:{brand._SANS};'>"
+            f"<div style='font-weight:700;font-size:15px;color:{brand.INK}'>"
+            f"{brand._esc(it['address'])}"
+            f" <span style='color:{brand.MUTED};font-weight:400'>— {brand._esc(it['suburb'])}"
+            f" &middot; score {round((it['score'] or 0) * 100)}</span></div>"
+            f"<div style='margin:6px 0;color:#2c3e50;font-family:{brand._SERIF};font-size:15px'>"
+            f"{brand._esc(it['narrative'])}</div>"
+            f"<ul style='margin:4px 0 0;padding-left:18px;color:#566573;font-size:13px'>"
+            f"{reasons}</ul></div>"
         )
-    html = (
-        f"<div style='font-family:Georgia,serif;max-width:620px;margin:0 auto'>"
-        f"<h2 style='font-weight:700'>Your morning brief</h2>"
-        f"<p>Morning {first} — {len(items)} address"
-        f"{'es' if len(items) > 1 else ''} worth a look today:</p>"
-        f"{''.join(rows)}"
-        f"<p style='color:#7f8c8d;font-size:13px'>Open SuburbDesk → Today "
-        f"to generate a letter or log a call in one click.</p>"
-        f"<img src='{open_pixel_url}' width='1' height='1' alt=''/>"
-        f"</div>"
+    lead_txt = (f"{len(items)} address{'es' if len(items) != 1 else ''} worth a look "
+                f"today — your highest-signal vendor prospects, refreshed each morning.")
+    body = (
+        brand.kicker_date('Today’s prospects')
+        + brand.lead(lead_txt)
+        + f"<p style='font-family:{brand._SANS};margin:0 0 12px;color:#5a5a54;font-size:13px'>"
+          f"Good morning {brand._esc(first)}.</p>"
+        + ''.join(rows)
+        + f"<img src='{brand._esc(open_pixel_url)}' width='1' height='1' alt=''/>"
     )
+    html = brand.shell('Daily Brief', body, _app_url())
     text = '\n\n'.join(
         f"{it['address']} — {it['suburb']}\n{it['narrative']}" for it in items)
     return html, text
@@ -220,7 +264,7 @@ def send_morning_briefs(backend_base_url=None):
             if existing:
                 summary['skipped'] += 1
                 continue
-            items = build_items(conn, user)
+            items = build_items(conn, user, exclude_recent=True)
             if not items:
                 summary['no_items'] += 1
                 continue
