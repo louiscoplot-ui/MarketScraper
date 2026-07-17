@@ -194,6 +194,7 @@ export default function Rail({
     ]},
     { title: 'Intelligence', items: [
       { view: 'report', label: 'Market Report' },
+      { view: 'reports', label: 'Reports' },
       { view: 'hitlist', label: 'Hit-list', badge: counts.hitlist, hot: true },
       { view: 'signals', label: 'Signals', badge: counts.signals },
       ...(hasRental ? [{ view: 'rentals', label: 'Rental' }] : []),

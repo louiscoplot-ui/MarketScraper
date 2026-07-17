@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import HotVendorScoring from './HotVendorScoring'
 import Pipeline from './pages/Pipeline'
 import Report from './pages/Report'
+import Reports from './pages/Reports'
 import ListingsView from './pages/ListingsView'
 import AppraisalsView from './pages/AppraisalsView'
 import SignalsView from './pages/SignalsView'
@@ -40,7 +41,7 @@ const STATUS_COLORS = {
 const BOOT_API = `${BACKEND_DIRECT}/api`
 const SUBURBS_CACHE = 'suburbs'
 
-const VALID_VIEWS = ['today', 'listings', 'signals', 'fallen', 'pipeline', 'report', 'hot-vendors', 'rentals', 'logs', 'admin', 'terms', 'privacy']
+const VALID_VIEWS = ['today', 'listings', 'signals', 'fallen', 'pipeline', 'report', 'reports', 'hot-vendors', 'rentals', 'logs', 'admin', 'terms', 'privacy']
 
 // Listings is the default view at login: it's the tab operators open most
 // and it paints fast (cached listings), so the app is usable immediately.
@@ -1178,6 +1179,10 @@ function App() {
               Rental moved to the background-warmed section above. */}
           {view === 'admin' ? (
             <AdminUsers />
+          ) : view === 'reports' ? (
+            // Reports (Word pack) — lazy like the other selection-driven
+            // tabs; suburbs prop = the same scoped list Market Report uses.
+            <Reports suburbs={suburbs} />
           ) : view === 'hitlist' ? (
             <HitList openDossier={openDossier} formatIsoDate={formatIsoDate} />
           ) : view === 'report' && report ? (

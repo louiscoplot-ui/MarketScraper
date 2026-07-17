@@ -1143,6 +1143,89 @@ def list_scrape_logs():
     return jsonify(get_scrape_logs(suburb_ids=list(allowed_ids), limit=20))
 
 
+# --- REPORTS (branded Word intelligence pack) ---
+
+@app.route('/api/reports/generate', methods=['POST'])
+def generate_report():
+    """Build one of the 4 branded .docx reports for the selected suburbs
+    and stream it back as a binary download (same shape as the letter
+    download in pipeline_api.py:1317).
+
+    Body: { "type": one of reports_docx.REPORT_BUILDERS,
+            "suburbs": [suburb_id, ...] }   # empty = all allowed suburbs
+
+    SECURITY — resolve_request_scope() is mandatory here: a non-admin
+    caller requesting ANY suburb outside their allowlist gets a 403 (no
+    silent intersection: a report that quietly dropped a suburb would
+    read as "no data" and mislead the operator). Admins (allowed=None)
+    are unfiltered. Runs behind the global before_request auth gate —
+    deliberately NOT in _AUTH_EXEMPT_PREFIXES.
+
+    Slow by design (SQL + one Claude narrative call + docx): the
+    frontend must call it via BACKEND_DIRECT, never the Vercel proxy."""
+    from io import BytesIO
+    from flask import send_file
+    from admin_api import resolve_request_scope, get_current_user
+    from reports_docx import REPORT_BUILDERS, build_report
+
+    body = request.get_json(silent=True) or {}
+    report_type = (body.get('type') or '').strip()
+    if report_type not in REPORT_BUILDERS:
+        return jsonify({'error': f'Unknown report type. Expected one of: '
+                                 f'{", ".join(sorted(REPORT_BUILDERS))}'}), 400
+    raw_ids = body.get('suburbs') or []
+    try:
+        suburb_ids = [int(x) for x in raw_ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'suburbs must be a list of suburb IDs'}), 400
+
+    _user, allowed = resolve_request_scope()
+    if allowed is not None:
+        if suburb_ids and any(sid not in allowed for sid in suburb_ids):
+            return jsonify({'error': 'Not authorised for one or more of '
+                                     'those suburbs'}), 403
+        if not suburb_ids:
+            suburb_ids = list(allowed)
+    elif not suburb_ids:
+        # Admin with no explicit selection → every active suburb.
+        conn = get_db()
+        try:
+            suburb_ids = [dict(r)['id'] for r in conn.execute(
+                "SELECT id FROM suburbs WHERE active = 1").fetchall()]
+        finally:
+            conn.close()
+    if not suburb_ids:
+        return jsonify({'error': 'No suburbs selected (or none assigned '
+                                 'to you)'}), 400
+
+    from reports_engine import compute_metrics_for_suburbs
+    from reports_narrative import build_narratives
+    metrics = compute_metrics_for_suburbs(suburb_ids)
+    if not metrics:
+        return jsonify({'error': 'No matching suburbs found'}), 404
+    # Narrative failures degrade to {} inside build_narratives — the
+    # report always ships, numbers-only if the API is down/unconfigured.
+    narratives = build_narratives(report_type, metrics)
+
+    me = get_current_user() or {}
+    user_profile = {
+        'agency_name': me.get('agency_name'),
+        'agent_name': me.get('agent_name'),
+        'agent_phone': me.get('agent_phone'),
+        'agent_email': me.get('agent_email'),
+    }
+    doc, filename = build_report(report_type, metrics, narratives, user_profile)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
 @app.route('/api/admin/transitions', methods=['GET'])
 def list_transitions():
     """LOOP-1 monitoring — recent listing transitions detected by the diff

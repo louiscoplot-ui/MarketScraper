@@ -56,6 +56,7 @@ const TABS = [
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'appraisals', label: 'Appraisals' },
   { id: 'report', label: 'Market Report' },
+  { id: 'reports', label: 'Reports' },
   { id: 'hot-vendors', label: 'Hot Vendors' },
   // The 'rentals' tab is appended dynamically based on me.rental_access
   // / role inside the component — keeps the constant array static
