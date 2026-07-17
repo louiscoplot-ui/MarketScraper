@@ -616,7 +616,10 @@ def main():
     # the cron; brief rows are written even when email isn't configured.
     try:
         from signals.brief_builder import send_morning_briefs
-        br = send_morning_briefs()
+        # send_email=False: the digest below is the SINGLE morning email.
+        # This still writes the briefs row that the in-app Today view reads;
+        # it just no longer fires a second, plainer email alongside it.
+        br = send_morning_briefs(send_email=False)
         log.info(
             "Morning briefs: built=%d sent=%d already=%d empty=%d",
             br.get('built', 0), br.get('sent', 0),

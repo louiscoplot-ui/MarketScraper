@@ -63,8 +63,9 @@ def _build_sections(suburb_rows, user_id, since_iso):
     hot_vendor_alerts: [...]} with each list flat (sorted by suburb,
     then date desc) so the renderer can section-header them once."""
     if not suburb_rows:
-        return {'new_listings': [], 'status_changes': [], 'hot_vendor_alerts': [],
-                'withdrawn_orphans': [], 'sold_reveals': [], 'strata_sales': []}
+        return {'new_listings': [], 'status_changes': [], 'withdrawn': [],
+                'hot_vendor_alerts': [], 'withdrawn_orphans': [],
+                'sold_reveals': [], 'strata_sales': []}
     suburb_ids = tuple(s['id'] for s in suburb_rows)
     placeholders = ','.join(['?'] * len(suburb_ids))
     conn = get_db()
@@ -111,6 +112,9 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
             (*suburb_ids, since_iso)
         ).fetchall()
 
+    # Under-offer + sold only — withdrawn gets its own prominent section
+    # below (it's the motivated-vendor signal, the core value), instead
+    # of being buried in a mixed "status changes" list.
     status_changes = conn.execute(
         f"SELECT l.address, l.price_text, l.sold_price, l.status, "
         f"l.reiwa_url, s.name AS suburb "
@@ -118,7 +122,25 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
         f"JOIN suburbs s ON s.id = l.suburb_id "
         f"WHERE l.suburb_id IN ({placeholders}) "
         f"AND l.last_seen >= ? "
-        f"AND l.status IN ('under_offer', 'sold', 'withdrawn') "
+        f"AND l.status IN ('under_offer', 'sold') "
+        f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
+        f"ORDER BY s.name, l.last_seen DESC",
+        (*suburb_ids, since_iso, since_iso)
+    ).fetchall()
+
+    # Freshly withdrawn — a home pulled from market overnight is a
+    # motivated vendor to approach. Carries the last listed price so the
+    # agent has a number to anchor on. Excludes brand-new rows the same
+    # way status_changes does (a first_seen inside the window would be a
+    # data artefact, not a real withdrawal).
+    withdrawn = conn.execute(
+        f"SELECT l.address, l.price_text, l.withdrawn_date, l.reiwa_url, "
+        f"s.name AS suburb "
+        f"FROM listings l "
+        f"JOIN suburbs s ON s.id = l.suburb_id "
+        f"WHERE l.suburb_id IN ({placeholders}) "
+        f"AND l.last_seen >= ? "
+        f"AND l.status = 'withdrawn' "
         f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
         f"ORDER BY s.name, l.last_seen DESC",
         (*suburb_ids, since_iso, since_iso)
@@ -192,6 +214,7 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
     return {
         'new_listings': [dict(r) for r in (new_listings or [])],
         'status_changes': [dict(r) for r in (status_changes or [])],
+        'withdrawn': [dict(r) for r in (withdrawn or [])],
         'hot_vendor_alerts': [dict(r) for r in (hv_alerts or [])],
         'withdrawn_orphans': [dict(r) for r in (orphan_rows or [])],
         'sold_reveals': [dict(r) for r in (sold_reveals or [])],
@@ -232,7 +255,14 @@ def _status_label(row):
     s = (row.get('status') or '').lower()
     if s == 'sold':
         sp = (row.get('sold_price') or '').strip() if isinstance(row.get('sold_price'), str) else row.get('sold_price')
-        return f"Sold for {sp}" if sp else 'Sold'
+        if sp:
+            return f"Sold for {sp}"
+        # REIWA often discloses the sale price days after the sale. Until
+        # then, anchor on the last listed price rather than a bare "Sold"
+        # — never fabricate a sale figure.
+        listed = (row.get('price_text') or '').strip()
+        return (f"Sold — last listed {listed}" if listed
+                else 'Sold — price not yet disclosed')
     return _STATUS_LABELS.get(s, s.title() if s else 'Updated')
 
 
@@ -279,10 +309,21 @@ def _build_digest_text(user, sections, suburb_names, today_au):
                     lines.append(f"      View: {r['reiwa_url']}")
         lines.append('')
 
-        # Section 2 — status changes
-        lines.append('=== STATUS CHANGES ===')
+        # Section — freshly withdrawn (motivated vendors), omitted if empty
+        if sections.get('withdrawn'):
+            lines.append('=== WITHDRAWN · MOTIVATED VENDORS ===')
+            for r in sections['withdrawn']:
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
+                if r.get('price_text'):
+                    lines.append(f"      Last listed {r['price_text']}")
+                if r.get('reiwa_url'):
+                    lines.append(f"      View: {r['reiwa_url']}")
+            lines.append('')
+
+        # Section 2 — under offer / sold
+        lines.append('=== UNDER OFFER / SOLD ===')
         if not sections['status_changes']:
-            lines.append('  No status changes yesterday.')
+            lines.append('  No under-offer or sold changes yesterday.')
         else:
             for r in sections['status_changes']:
                 lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
@@ -387,6 +428,31 @@ def _render_change_html(r):
             f'{inner}</div>')
 
 
+def _render_withdrawn_html(r):
+    """A freshly-withdrawn listing — motivated-vendor lead. Amber accent,
+    last listed price as the anchor number."""
+    parts = [
+        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
+        f'</div>',
+    ]
+    listed = (r.get('price_text') or '').strip()
+    if listed:
+        parts.append(f'<div style="margin:0 0 4px;color:#7c2d12;font-size:13px;">'
+                     f'Last listed <strong>{_esc(listed)}</strong></div>')
+    parts.append('<div style="margin:0 0 4px;color:#9a3412;font-size:12px;'
+                 'font-style:italic;">Came off market — likely motivated vendor.</div>')
+    if r.get('reiwa_url'):
+        parts.append(
+            f'<a href="{_esc(r["reiwa_url"])}" '
+            f'style="color:#c2410c;font-size:12px;text-decoration:none;font-weight:600;">'
+            f'View on REIWA →</a>'
+        )
+    inner = ''.join(parts)
+    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fff7ed;'
+            f'border-left:4px solid #ea580c;border-radius:0 4px 4px 0;">{inner}</div>')
+
+
 def _render_hv_alert_html(r):
     parts = [
         f'<div style="margin:0 0 4px;font-weight:700;color:#92400e;font-size:13px;">'
@@ -462,10 +528,19 @@ def _render_orphan_html(r):
             f'border-left:4px solid #ea580c;border-radius:0 4px 4px 0;">{inner}</div>')
 
 
-def _section_header(text):
-    return (f'<h3 style="margin:18px 0 8px;color:#386350;font-size:14px;'
-            f'font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">'
-            f'{_esc(text)}</h3>')
+def _section_header(text, bg='#386350', count=None):
+    """Filled colour bar, not just coloured text. A saturated background
+    with white text survives iOS Mail's dark-mode colour inversion (thin
+    coloured text on white was washed out to near-invisible), and reads as
+    a clear section divider when scanning on a phone."""
+    badge = ''
+    if count is not None:
+        badge = (f'<span style="float:right;background:rgba(255,255,255,0.25);'
+                 f'border-radius:10px;padding:1px 9px;font-size:12px;">{count}</span>')
+    return (f'<div style="margin:20px 0 10px;background:{bg};color:#ffffff;'
+            f'padding:9px 14px;border-radius:6px;font-size:13px;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.6px;">'
+            f'{badge}{_esc(text)}</div>')
 
 
 def _build_digest_html(user, sections, suburb_names, today_au):
@@ -507,12 +582,27 @@ def _build_digest_html(user, sections, suburb_names, today_au):
         hv_section = ''
         if sections['hot_vendor_alerts']:
             hv_section = (
-                _section_header('Hot Vendor Alert')
+                _section_header('Hot Vendor Alert', bg='#b45309',
+                                count=len(sections['hot_vendor_alerts']))
                 + ''.join(_render_hv_alert_html(r) for r in sections['hot_vendor_alerts'])
             )
+        # Freshly withdrawn — motivated vendors — get their own amber
+        # section, placed high (right after new listings) because it's the
+        # most actionable signal in the whole brief.
+        withdrawn_section = ''
+        if sections.get('withdrawn'):
+            withdrawn_section = (
+                _section_header('Withdrawn · motivated vendors', bg='#c2410c',
+                                count=len(sections['withdrawn']))
+                + ''.join(_render_withdrawn_html(r) for r in sections['withdrawn'])
+            )
         body = (
-            _section_header('New Listings') + new_html
-            + _section_header('Status Changes') + change_html
+            _section_header('New Listings', count=len(sections['new_listings']))
+            + new_html
+            + withdrawn_section
+            + _section_header('Under Offer / Sold',
+                              count=len(sections['status_changes']))
+            + change_html
             + orphan_section
             + reveal_section
             + strata_section
@@ -525,17 +615,51 @@ def _build_digest_html(user, sections, suburb_names, today_au):
         f'</p>'
     ) if suburb_names else ''
 
+    # At-a-glance counts strip — colour-coded pills so the agent can scan
+    # the overnight picture on a phone before scrolling. Filled backgrounds
+    # (not tinted text) so they survive iOS Mail dark mode.
+    def _pill(n, label, bg):
+        # width:33% + table-layout:fixed on the parent keeps the three
+        # pills on one row at any phone width (no horizontal scroll).
+        return (f'<td width="33%" valign="top" style="padding:0 3px;"><div style="background:{bg};'
+                f'border-radius:8px;padding:11px 4px;text-align:center;">'
+                f'<div style="color:#fff;font-size:20px;font-weight:700;line-height:1;">{n}</div>'
+                f'<div style="color:#fff;font-size:10px;letter-spacing:.4px;'
+                f'text-transform:uppercase;margin-top:4px;">{label}</div></div></td>')
+    counts_strip = ''
+    if suburb_names:
+        # Three headline signals only — Withdrawn is the star. Under-offer
+        # is still listed in its own section; keeping the strip to three
+        # keeps every pill readable on the narrowest phones.
+        counts_strip = (
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="margin:0 0 6px;table-layout:fixed;"><tr>'
+            + _pill(len(sections['new_listings']), 'New', '#386350')
+            + _pill(len(sections.get('withdrawn', [])), 'Withdrawn', '#c2410c')
+            + _pill(sum(1 for r in sections['status_changes']
+                        if (r.get('status') or '').lower() == 'sold'), 'Sold', '#1e40af')
+            + '</tr></table>'
+        )
+
     return f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#1a1a1a;">
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<style>:root {{ color-scheme: light; supported-color-schemes: light; }}</style>
+</head>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#1a1a1a;">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
 <tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);max-width:600px;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);max-width:600px;">
 <tr><td style="background:#386350;padding:24px 32px;">
 <h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;font-weight:700;">SUBURBDESK</h1>
 <p style="margin:4px 0 0;color:#cfe0d6;font-size:13px;">Morning Brief &middot; {_esc(today_au)}</p>
 </td></tr>
 <tr><td style="padding:24px 28px;">
-<p style="margin:0 0 16px;font-size:15px;color:#1a1a1a;">Good morning {_esc(name)},</p>
+<p style="margin:0 0 14px;font-size:15px;color:#1a1a1a;">Good morning {_esc(name)},</p>
+{counts_strip}
 {body}
 <p style="margin:24px 0 0;text-align:center;">
 <a href="{_esc(app)}" style="display:inline-block;background:#386350;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Open SuburbDesk</a>
@@ -607,9 +731,15 @@ def send_digest(user_id):
     weekday = _weekday_perth()
     nl_n = len(sections['new_listings'])
     ch_n = len(sections['status_changes'])
+    wd_n = len(sections.get('withdrawn', []))
     hv_n = len(sections['hot_vendor_alerts'])
     if hv_n > 0:
         subject = f"🔔 SuburbDesk — Hot Vendor Listed + Morning Brief {today}"
+    elif wd_n > 0:
+        # Lead with the withdrawn count in the subject — it's the signal
+        # the agent most wants to see land in their inbox.
+        subject = (f"SuburbDesk Morning Brief — {wd_n} withdrawn "
+                   f"(motivated) — {weekday}, {today}")
     elif nl_n + ch_n > 0:
         subject = f"SuburbDesk Morning Brief — {weekday}, {today}"
     else:

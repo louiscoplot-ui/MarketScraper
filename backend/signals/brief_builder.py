@@ -188,10 +188,16 @@ def _render_email(user, items, open_pixel_url):
     return html, text
 
 
-def send_morning_briefs(backend_base_url=None):
-    """Build + email one brief per opted-in user. Returns a summary dict;
-    never raises. Email is skipped (but the brief row still written, so
-    the Today view works) when Resend/EMAIL_FROM aren't configured."""
+def send_morning_briefs(backend_base_url=None, send_email=True):
+    """Build one brief per opted-in user (writes the briefs row that the
+    Today view reads) and, when send_email is True, email it. Returns a
+    summary dict; never raises.
+
+    send_email defaults True so any existing caller keeps its behaviour,
+    but the nightly cron now passes send_email=False: the digest
+    (email_digest.send_morning_digest) is the SINGLE morning email, so
+    the vendor-signals brief must not fire a second one. The brief row is
+    still written either way, so the in-app Today view is unaffected."""
     summary = {'built': 0, 'sent': 0, 'skipped': 0, 'no_items': 0}
     base = (backend_base_url or os.environ.get('BACKEND_PUBLIC_URL')
             or 'https://marketscraper-backend.onrender.com').rstrip('/')
@@ -234,6 +240,10 @@ def send_morning_briefs(backend_base_url=None):
             conn.commit()
             summary['built'] += 1
 
+            if not send_email:
+                # Brief row written for the Today view; the digest owns the
+                # single morning email, so skip sending here.
+                continue
             try:
                 from email_service import _send
                 pixel = f"{base}/api/brief/open/{token}.gif"
