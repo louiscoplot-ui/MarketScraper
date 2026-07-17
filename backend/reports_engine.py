@@ -150,20 +150,26 @@ def _velocity(rows, now):
     dom_median = _median_or_none(doms, flags, 'DOM median (active listings)')
 
     def cohort(start, end):
+        # Membership by REIWA's real listing_date, NOT first_seen. first_seen
+        # is when WE first scraped the row, so a batch of sold records picked
+        # up in one nightly run all share a recent first_seen and inflated
+        # "new listings" into the hundreds. listing_date is the actual date
+        # the home came to market; rows without it are excluded (honest, and
+        # consistent with how DOM is computed) rather than guessed.
         members = []
         for r in rows:
-            fs = _parse_date_any(r.get('first_seen'))
-            if fs and start <= fs < end:
-                members.append((r, fs))
+            ld = _parse_date_any(r.get('listing_date'))
+            if ld and start <= ld < end:
+                members.append((r, ld))
         n = len(members)
         exit_days = []
         absorbed = 0
         eligible_21 = 0
-        for r, fs in members:
+        for r, ld in members:
             sold_d = _parse_date_any(r.get('sold_date')) if r['status'] == 'sold' else None
-            age = (now - fs).days
-            if sold_d and sold_d >= fs:
-                exit_days.append((sold_d - fs).days)
+            age = (now - ld).days
+            if sold_d and sold_d >= ld:
+                exit_days.append((sold_d - ld).days)
             if age >= 21:
                 eligible_21 += 1
                 # Under-offer transition dates aren't tracked — a listing
@@ -171,7 +177,7 @@ def _velocity(rows, now):
                 # counted as absorbed (flagged below as an approximation).
                 if r['status'] == 'under_offer':
                     absorbed += 1
-                elif sold_d and (sold_d - fs).days <= 21:
+                elif sold_d and (sold_d - ld).days <= 21:
                     absorbed += 1
         med_exit = round(_median(exit_days), 1) if len(exit_days) >= 3 else None
         pct_21 = round(absorbed / eligible_21 * 100, 1) if eligible_21 else None
