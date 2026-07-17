@@ -610,39 +610,25 @@ def main():
     except Exception as e:
         log.warning(f"prediction-ledger pass failed: {e}")
 
-    # SENTINEL S4: morning brief — top 5 signals per opted-in user
-    # (users.digest_enabled, same consent as the digest), narrated and
-    # emailed; the Today view reads the same stored items. Never fails
-    # the cron; brief rows are written even when email isn't configured.
-    try:
-        from signals.brief_builder import send_morning_briefs
-        br = send_morning_briefs()
-        log.info(
-            "Morning briefs: built=%d sent=%d already=%d empty=%d",
-            br.get('built', 0), br.get('sent', 0),
-            br.get('skipped', 0), br.get('no_items', 0),
-        )
-    except Exception as e:
-        log.warning(f"brief pass failed: {e}")
-
-    # Morning digest pass — one email per opt-in user with their
-    # assigned suburbs' overnight stats. Skipped entirely when
-    # EMAIL_FROM isn't set so the cron is silent on first-deploy
-    # environments. send_morning_digest() respects users.digest_enabled
-    # and writes one row per attempt to digest_logs for audit.
+    # Combined daily email — ONE email per opted-in user
+    # (users.digest_enabled): the overnight market recap plus the rotating
+    # prospect list, in a single message so agents aren't sent two emails a
+    # night. send_daily() still writes the briefs row (so the in-app Today
+    # view + prospect rotation keep working) and one digest_logs row per
+    # attempt. Skipped silently when EMAIL_FROM isn't set (first-deploy).
     if not (os.environ.get('EMAIL_FROM') or '').strip():
-        log.warning("EMAIL_FROM not set — skipping morning digest pass")
+        log.warning("EMAIL_FROM not set — skipping daily email pass")
     else:
         try:
-            from email_digest import send_morning_digest
-            result = send_morning_digest()
+            from email_digest import send_daily_all
+            result = send_daily_all()
             log.info(
-                "Morning digest: sent=%d skipped=%d failed=%d",
+                "Daily email: sent=%d skipped=%d failed=%d",
                 result.get('sent', 0), result.get('skipped', 0),
                 result.get('failed', 0),
             )
         except Exception as e:
-            log.exception(f"Digest pass aborted: {e}")
+            log.exception(f"Daily email pass aborted: {e}")
 
 
 if __name__ == '__main__':

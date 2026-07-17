@@ -310,6 +310,10 @@ def init_db():
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT",
+        # When the status last actually CHANGED (not merely re-seen). The
+        # daily email filters status changes on this so it shows only what
+        # moved overnight, never the whole standing list of sold/under-offer.
+        "ALTER TABLE listings ADD COLUMN IF NOT EXISTS status_changed_at TEXT",
     ]:
         if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
@@ -1189,6 +1193,24 @@ def init_db():
         "ALTER TABLE users ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 1",
         label='users.digest_enabled',
     )
+    # Per-cadence email preferences (independent opt-in checkboxes). The
+    # DAILY cadence stays gated by the existing digest_enabled column
+    # above — so the working morning digest/brief path is untouched and
+    # nobody loses their current setting. WEEKLY defaults ON (the flagship
+    # Monday recap ships to every existing user); the longer cadences
+    # default OFF (opt-in) so nobody is auto-subscribed to a monthly/
+    # quarterly/annual bulk email until they (or an admin) tick the box.
+    _safe_exec(
+        conn,
+        "ALTER TABLE users ADD COLUMN email_weekly INTEGER NOT NULL DEFAULT 1",
+        label='users.email_weekly',
+    )
+    for _col in ('email_monthly', 'email_quarterly', 'email_annual'):
+        _safe_exec(
+            conn,
+            f"ALTER TABLE users ADD COLUMN {_col} INTEGER NOT NULL DEFAULT 0",
+            label=f'users.{_col}',
+        )
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS digest_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1216,6 +1238,13 @@ def init_db():
             f"ALTER TABLE digest_logs ADD COLUMN {col} INTEGER DEFAULT 0",
             label=f'digest_logs.{col}',
         )
+    # Cadence tag so weekly/monthly/quarterly/annual sends are
+    # distinguishable from the daily digest in this audit log.
+    _safe_exec(
+        conn,
+        "ALTER TABLE digest_logs ADD COLUMN cadence TEXT DEFAULT 'daily'",
+        label='digest_logs.cadence',
+    )
 
     conn.commit()
 

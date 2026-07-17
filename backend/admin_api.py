@@ -325,7 +325,8 @@ def register_admin_routes(app):
         rows = conn.execute(
             "SELECT id, email, first_name, last_name, phone, role, "
             "last_seen, created_at, rental_access, digest_enabled, all_suburbs, "
-            "can_add_suburbs "
+            "can_add_suburbs, email_weekly, email_monthly, email_quarterly, "
+            "email_annual "
             "FROM users ORDER BY created_at DESC"
         ).fetchall()
         # Pull every assignment in one query and group by user, so the
@@ -443,6 +444,13 @@ def register_admin_routes(app):
         if 'digest_enabled' in body:
             sets.append('digest_enabled = ?')
             params.append(1 if body.get('digest_enabled') else 0)
+        # Per-cadence email flags — pushed alongside digest_enabled from
+        # the Manage Access modal so one save persists every preference.
+        for _flag in ('email_weekly', 'email_monthly',
+                      'email_quarterly', 'email_annual'):
+            if _flag in body:
+                sets.append(f'{_flag} = ?')
+                params.append(1 if body.get(_flag) else 0)
         # rental_access lives on users too; the Manage Access modal
         # pushes it through this generic PATCH alongside digest_enabled
         # so a single save persists both feature flags. The legacy
@@ -461,7 +469,7 @@ def register_admin_routes(app):
             sets.append('can_add_suburbs = ?')
             params.append(1 if body.get('can_add_suburbs') else 0)
         if not sets:
-            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, rental_access, all_suburbs, can_add_suburbs'}), 400
+            return jsonify({'error': 'No updatable fields. Allowed: first_name, last_name, phone, role, digest_enabled, email_weekly, email_monthly, email_quarterly, email_annual, rental_access, all_suburbs, can_add_suburbs'}), 400
         params.append(user_id)
         conn = get_db()
         conn.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
@@ -709,18 +717,18 @@ def register_admin_routes(app):
 
     @app.route('/api/admin/send-digest-test', methods=['POST'])
     def admin_send_digest_test():
-        """Trigger the morning digest for the calling admin, on demand.
-        Useful for verifying Resend creds + template rendering without
-        waiting for the 5am cron. Sends to the admin's own email only —
-        never fans out to every user."""
+        """Trigger the combined daily email for the calling admin, on
+        demand. Useful for verifying Resend creds + template rendering
+        without waiting for the nightly cron. Sends to the admin's own
+        email only — never fans out to every user."""
         user, err = _require_admin()
         if err:
             return err
         try:
-            from email_digest import send_digest
-            ok, info = send_digest(user['id'])
+            from email_digest import send_daily
+            ok, info = send_daily(user['id'])
         except Exception as e:
-            return jsonify({'error': f'Digest call crashed: {e}'}), 500
+            return jsonify({'error': f'Daily call crashed: {e}'}), 500
         if not ok:
             return jsonify({'error': info or 'unknown failure'}), 500
         return jsonify({'status': 'sent', 'result': info})

@@ -12,9 +12,16 @@ import logging
 import os
 from datetime import datetime, timedelta
 
+import email_brand as brand
 from database import get_db
-from email_service import _send, _app_url
+from email_service import _send, _app_url, _support_reply_to
 from time_utils import perth_now, _PERTH_OFFSET
+
+try:
+    from signals.diff_engine import _price_to_int
+except Exception:  # pragma: no cover
+    def _price_to_int(_):
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -111,16 +118,20 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
             (*suburb_ids, since_iso)
         ).fetchall()
 
+    # Only listings whose STATUS actually changed in the window — keyed on
+    # status_changed_at (stamped by the scraper on a real flip), never
+    # last_seen (which updates every scrape and flooded the email with the
+    # whole standing list of sold/under-offer properties every day).
     status_changes = conn.execute(
         f"SELECT l.address, l.price_text, l.sold_price, l.status, "
         f"l.reiwa_url, s.name AS suburb "
         f"FROM listings l "
         f"JOIN suburbs s ON s.id = l.suburb_id "
         f"WHERE l.suburb_id IN ({placeholders}) "
-        f"AND l.last_seen >= ? "
+        f"AND l.status_changed_at >= ? "
         f"AND l.status IN ('under_offer', 'sold', 'withdrawn') "
         f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
-        f"ORDER BY s.name, l.last_seen DESC",
+        f"ORDER BY s.name, l.status_changed_at DESC",
         (*suburb_ids, since_iso, since_iso)
     ).fetchall()
 
@@ -231,8 +242,10 @@ def _esc(s):
 def _status_label(row):
     s = (row.get('status') or '').lower()
     if s == 'sold':
-        sp = (row.get('sold_price') or '').strip() if isinstance(row.get('sold_price'), str) else row.get('sold_price')
-        return f"Sold for {sp}" if sp else 'Sold'
+        # Format the raw sold_price ("5650000") into "$5.65m" — the old
+        # digest showed the bare integer.
+        n = _price_to_int(row.get('sold_price'))
+        return f"Sold {brand.fmt_price(n)}" if n else 'Sold'
     return _STATUS_LABELS.get(s, s.title() if s else 'Updated')
 
 
@@ -323,7 +336,7 @@ def _build_digest_text(user, sections, suburb_names, today_au):
         if sections['hot_vendor_alerts']:
             lines.append('=== HOT VENDOR NOW LISTED ===')
             for r in sections['hot_vendor_alerts']:
-                lines.append(f"  ⚠ {r.get('address', '')} — {r.get('suburb', '')}")
+                lines.append(f"  - {r.get('address', '')} — {r.get('suburb', '')}")
                 lines.append(f"      Score: {r.get('final_score')}/100 — Listed by {r.get('agency') or '?'}")
                 if r.get('price_text'):
                     lines.append(f"      {r['price_text']}")
@@ -342,124 +355,85 @@ def _build_digest_text(user, sections, suburb_names, today_au):
     return '\n'.join(lines)
 
 
+def _card(accent, bg, addr, suburb, detail_html='', url=None, note=None, tag=''):
+    """One highlighted listing row — the shared shape for every category
+    (tinted background + coloured left border, mirroring the app)."""
+    head = (f'<div style="margin:0 0 3px;font-weight:600;color:#1a1a1a;font-size:14px;">'
+            f'{_esc(addr)} <span style="color:#777;font-weight:500;">— {_esc(suburb)}</span>{tag}</div>')
+    body = [head]
+    if detail_html:
+        body.append(detail_html)
+    if note:
+        body.append(f'<div style="margin:2px 0 0;color:#666;font-size:12px;">{_esc(note)}</div>')
+    if url:
+        body.append(f'<a href="{_esc(url)}" style="color:{accent};font-size:12px;'
+                    f'text-decoration:none;">View on REIWA →</a>')
+    return brand.hl_card(accent, bg, ''.join(body))
+
+
 def _render_new_listing_html(r):
-    parts = [
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>'
-    ]
+    acc, bg = brand.LISTING['new']
+    detail = ''
     meta = _meta_line(r)
     if meta:
-        parts.append(f'<div style="margin:0 0 4px;color:#444;font-size:13px;">{_esc(meta)}</div>')
+        detail += f'<div style="margin:0 0 2px;color:#444;font-size:13px;">{_esc(meta)}</div>'
     agency_agent = ' · '.join(filter(None, [r.get('agency'), r.get('agent')]))
     if agency_agent:
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(agency_agent)}</div>')
-    if r.get('reiwa_url'):
-        parts.append(
-            f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
-        )
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
-            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
-            f'{inner}</div>')
+        detail += f'<div style="margin:0 0 2px;color:#777;font-size:12px;">{_esc(agency_agent)}</div>'
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail, url=r.get('reiwa_url'))
 
 
 def _render_change_html(r):
+    status = (r.get('status') or '').lower()
+    acc, bg = brand.LISTING.get(status, brand.LISTING['sold'])
     label = _status_label(r)
-    price_extra = r.get('price_text') if (r.get('status') or '').lower() != 'sold' else ''
-    parts = [
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Now: <strong>{_esc(label)}</strong></div>',
-    ]
-    if price_extra:
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(price_extra)}</div>')
-    if r.get('reiwa_url'):
-        parts.append(
-            f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
-        )
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
-            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
-            f'{inner}</div>')
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Now: <strong>{_esc(label)}</strong></div>')
+    if status != 'sold' and r.get('price_text'):
+        detail += f'<div style="margin:0 0 2px;color:#777;font-size:12px;">{_esc(r["price_text"])}</div>'
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail, url=r.get('reiwa_url'))
 
 
 def _render_hv_alert_html(r):
-    parts = [
-        f'<div style="margin:0 0 4px;font-weight:700;color:#92400e;font-size:13px;">'
-        f'⚠️ HOT VENDOR NOW LISTED</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">'
-        f'Score: <strong>{_esc(r.get("final_score"))}/100</strong> — Listed by {_esc(r.get("agency") or "?")}'
-        f'</div>',
-    ]
+    # No internal header — the coloured section band already labels this.
+    acc, bg = brand.LISTING['hot']
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Score <strong>{_esc(r.get("final_score"))}/100</strong> — '
+              f'listed by {_esc(r.get("agency") or "?")}</div>')
     if r.get('price_text'):
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(r["price_text"])}</div>')
-    parts.append('<div style="margin:0 0 4px;color:#92400e;font-size:12px;font-style:italic;">'
-                 'This property was on your watchlist.</div>')
-    if r.get('reiwa_url'):
-        parts.append(
-            f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
-        )
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fffbeb;'
-            f'border-left:4px solid #f59e0b;border-radius:0 4px 4px 0;">'
-            f'{inner}</div>')
+        detail += f'<div style="margin:0 0 2px;color:#777;font-size:12px;">{_esc(r["price_text"])}</div>'
+    detail += (f'<div style="margin:2px 0 0;color:{acc};font-size:12px;font-style:italic;">'
+               f'This property was on your watchlist.</div>')
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail, url=r.get('reiwa_url'))
 
 
 def _render_strata_html(r):
-    price = r.get('sold_price') or 'Price disclosed'
-    parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#5b21b6;font-size:13px;">'
-        '🏢 STRATA CONTAGION</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("complex_address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Unit sold for <strong>{_esc(price)}</strong></div>',
-        '<div style="margin:0;color:#666;font-size:12px;font-style:italic;">'
-        'Generate letters for the rest of the building from the app.</div>',
-    ]
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#f5f3ff;'
-            f'border-left:4px solid #8b5cf6;border-radius:0 4px 4px 0;">{inner}</div>')
+    acc, bg = brand.LISTING['strata']
+    n = _price_to_int(r.get('sold_price'))
+    price = brand.fmt_price(n) if n else 'price disclosed'
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Unit sold for <strong>{_esc(price)}</strong></div>')
+    return _card(acc, bg, r.get('complex_address'), r.get('suburb'), detail,
+                 note='Generate letters for the rest of the building from the app.')
 
 
 def _render_sold_reveal_html(r):
-    price = r.get('sold_price') or 'Price disclosed'
-    parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#1e40af;font-size:13px;">'
-        '💰 SOLD PRICE REVEALED</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Sold for <strong>{_esc(price)}</strong></div>',
-        '<div style="margin:0;color:#666;font-size:12px;font-style:italic;">'
-        'Generate neighbour appraisal letters from the app.</div>',
-    ]
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#eff6ff;'
-            f'border-left:4px solid #3b82f6;border-radius:0 4px 4px 0;">{inner}</div>')
+    acc, bg = brand.LISTING['sold']
+    n = _price_to_int(r.get('sold_price'))
+    price = brand.fmt_price(n) if n else 'price disclosed'
+    detail = (f'<div style="margin:0 0 2px;color:#444;font-size:13px;">'
+              f'Sold for <strong>{_esc(price)}</strong></div>')
+    return _card(acc, bg, r.get('address'), r.get('suburb'), detail,
+                 note='Generate neighbour appraisal letters from the app.')
 
 
 def _render_orphan_html(r):
-    parts = [
-        '<div style="margin:0 0 4px;font-weight:700;color:#7c2d12;font-size:13px;">'
-        '🏷️ WITHDRAWN — LIKELY MOTIVATED VENDOR</div>',
-        f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
-        f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
-        f'</div>',
-    ]
-    if r.get('notes'):
-        parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(r["notes"])}</div>')
-    inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:10px 12px;background:#fff7ed;'
-            f'border-left:4px solid #ea580c;border-radius:0 4px 4px 0;">{inner}</div>')
+    acc, bg = brand.LISTING['withdrawn']
+    tag = (f' <span style="color:{acc};font-size:12px;font-weight:600;">'
+           f'· likely motivated vendor</span>')
+    return _card(acc, bg, r.get('address'), r.get('suburb'),
+                 note=r.get('notes'), tag=tag)
+
 
 
 def _section_header(text):
@@ -519,36 +493,33 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             + hv_section
         )
 
-    suburbs_line = (
-        f'<p style="margin:0 0 6px;color:#666;font-size:12px;">'
-        f'Your suburbs: {_esc(", ".join(suburb_names))}'
-        f'</p>'
-    ) if suburb_names else ''
+    greeting = (f'<p style="margin:0 0 4px;font-size:15px;color:{brand.INK};">'
+                f'Good morning {brand._esc(name)}.</p>')
+    lead = _digest_lead(sections, suburb_names, today_au)
+    inner = greeting + brand.lead(lead) + body
+    return brand.shell('Morning Brief', inner, app,
+                       suburbs_line=', '.join(suburb_names) if suburb_names else None)
 
-    return f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;color:#1a1a1a;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
-<tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.05);max-width:600px;">
-<tr><td style="background:#386350;padding:24px 32px;">
-<h1 style="margin:0;color:#fff;font-size:22px;letter-spacing:2px;font-weight:700;">SUBURBDESK</h1>
-<p style="margin:4px 0 0;color:#cfe0d6;font-size:13px;">Morning Brief &middot; {_esc(today_au)}</p>
-</td></tr>
-<tr><td style="padding:24px 28px;">
-<p style="margin:0 0 16px;font-size:15px;color:#1a1a1a;">Good morning {_esc(name)},</p>
-{body}
-<p style="margin:24px 0 0;text-align:center;">
-<a href="{_esc(app)}" style="display:inline-block;background:#386350;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:14px;">Open SuburbDesk</a>
-</p>
-</td></tr>
-<tr><td style="background:#fafafa;padding:14px 28px;border-top:1px solid #eee;">
-{suburbs_line}
-<p style="margin:0;color:#999;font-size:11px;">
-Reply with "unsubscribe" to stop receiving these emails.<br>
-SuburbDesk &middot; <a href="mailto:suburbdesk@gmail.com" style="color:#999;">suburbdesk@gmail.com</a>
-</p>
-</td></tr>
-</table></td></tr></table></body></html>"""
+
+def _digest_lead(sections, suburb_names, today_au):
+    """AI (or fallback) opening line for the daily digest."""
+    nl = len(sections.get('new_listings') or [])
+    ch = len(sections.get('status_changes') or [])
+    hv = len(sections.get('hot_vendor_alerts') or [])
+    parts = []
+    if nl:
+        parts.append(f"{nl} new listing{'s' if nl != 1 else ''}")
+    if ch:
+        parts.append(f"{ch} status change{'s' if ch != 1 else ''}")
+    if hv:
+        parts.append(f"{hv} hot-vendor alert{'s' if hv != 1 else ''}")
+    fallback = (f"Overnight across your suburbs: {', '.join(parts)}."
+                if parts else "A quiet night across your suburbs — no new activity overnight.")
+    if not suburb_names:
+        return fallback
+    facts = [f"Date: {today_au}", f"New listings: {nl}",
+             f"Status changes: {ch}", f"Hot-vendor alerts: {hv}"]
+    return brand.compose_lead(facts, fallback)
 
 
 def send_digest(user_id):
@@ -609,7 +580,7 @@ def send_digest(user_id):
     ch_n = len(sections['status_changes'])
     hv_n = len(sections['hot_vendor_alerts'])
     if hv_n > 0:
-        subject = f"🔔 SuburbDesk — Hot Vendor Listed + Morning Brief {today}"
+        subject = f"SuburbDesk — Hot Vendor Listed + Morning Brief {today}"
     elif nl_n + ch_n > 0:
         subject = f"SuburbDesk Morning Brief — {weekday}, {today}"
     else:
@@ -617,7 +588,9 @@ def send_digest(user_id):
     html = _build_digest_html(user_dict, sections, suburb_names, today)
     text = _build_digest_text(user_dict, sections, suburb_names, today)
     try:
-        ok, info = _send(user_dict['email'], subject, html, text=text)
+        reply_to = _support_reply_to()
+        ok, info = _send(user_dict['email'], subject, html, text=text,
+                         reply_to=reply_to, list_unsubscribe=reply_to)
     except Exception as e:
         logger.exception("Digest send crashed for user_id=%s", user_id)
         ok, info = False, str(e)
@@ -702,4 +675,258 @@ def send_morning_digest():
         "[digest] morning pass complete: %d sent, %d skipped, %d failed",
         sent, skipped, failed
     )
+    return {'sent': sent, 'skipped': skipped, 'failed': failed, 'fatal': False}
+
+
+# ---------------------------------------------------------------------------
+# Combined daily email — the single morning email (overnight recap + the
+# rotating prospect list), replacing the old digest+brief pair so agents
+# receive ONE email a day, not two.
+# ---------------------------------------------------------------------------
+
+def _daily_lead(sections, prospect_n, suburb_names, today_au):
+    nl = len(sections['new_listings'])
+    ch = len(sections['status_changes'])
+    hv = len(sections['hot_vendor_alerts'])
+    parts = []
+    if prospect_n:
+        parts.append(f"{prospect_n} vendor{'s' if prospect_n != 1 else ''} to prospect")
+    if hv:
+        parts.append(f"{hv} hot-vendor alert{'s' if hv != 1 else ''}")
+    if nl:
+        parts.append(f"{nl} new listing{'s' if nl != 1 else ''}")
+    if ch:
+        parts.append(f"{ch} status change{'s' if ch != 1 else ''}")
+    fallback = (f"This morning across your suburbs: {', '.join(parts)}."
+                if parts else "A quiet night across your suburbs — nothing new overnight.")
+    facts = [f"Date: {today_au}", f"Vendor prospects: {prospect_n}",
+             f"Hot-vendor alerts: {hv}", f"New listings: {nl}",
+             f"Status changes: {ch}"]
+    return brand.compose_lead(facts, fallback)
+
+
+_DAILY_CAP = 6   # rows shown per section before a "+N more" collapse
+
+
+def _section(parts, title, accent, items, render_fn, app, cap=_DAILY_CAP):
+    """Append a coloured section band + up to `cap` rendered rows + a
+    '+N more' line when the list is longer. Keeps one huge subdivision
+    (e.g. 50 lots of the same street) from drowning the whole email."""
+    if not items:
+        return
+    parts.append(brand.section_band(title, accent, count=len(items)))
+    for r in items[:cap]:
+        parts.append(render_fn(r))
+    if len(items) > cap:
+        parts.append(brand.more_line(len(items) - cap, app))
+
+
+def _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today_au):
+    from signals.brief_builder import prospect_cards_html
+    name = (user.get('first_name') or 'there').strip()
+    app = _app_url()
+    lead = _daily_lead(sections, len(prospect_items), suburb_names, today_au)
+    n_sub = len(suburb_names)
+
+    # Warm, human opener + the AI recap sentence beneath it.
+    parts = [
+        f'<p style="margin:0 0 6px;font-size:16px;color:{brand.INK};">'
+        f'Good morning {brand._esc(name)} — here’s your overnight recap across '
+        f'{n_sub} suburb{"s" if n_sub != 1 else ""}.</p>',
+        brand.lead(lead),
+    ]
+
+    C = brand.LISTING   # (accent, bg) per category — mirrors the app
+
+    # Prospects first — the money section.
+    if prospect_items:
+        parts.append(brand.section_band('Who to prospect today', C['prospect'][0],
+                                        count=len(prospect_items)))
+        parts.append(prospect_cards_html(prospect_items))
+
+    # Hot vendor watchlist matches.
+    _section(parts, 'Hot vendor now listed', C['hot'][0],
+             sections['hot_vendor_alerts'], _render_hv_alert_html, app)
+
+    # Status changes split into distinct, category-coloured blocks.
+    changes = sections['status_changes']
+    sold = [r for r in changes if (r.get('status') or '').lower() == 'sold']
+    offer = [r for r in changes if (r.get('status') or '').lower() == 'under_offer']
+    wd = [r for r in changes if (r.get('status') or '').lower() == 'withdrawn']
+    _section(parts, 'Sold', C['sold'][0], sold, _render_change_html, app)
+    _section(parts, 'New listings', C['new'][0],
+             sections['new_listings'], _render_new_listing_html, app)
+    _section(parts, 'Under offer', C['under_offer'][0], offer, _render_change_html, app)
+
+    # ONE withdrawn section — motivated-vendor orphans first (they carry the
+    # note), then any plain overnight withdrawals not already covered. Avoids
+    # the old duplicate "Withdrawn" + "Withdrawn — likely motivated" pair.
+    orphans = sections.get('withdrawn_orphans') or []
+    orphan_keys = {(o.get('address') or '').strip().lower() for o in orphans}
+    wd_extra = [w for w in wd if (w.get('address') or '').strip().lower() not in orphan_keys]
+    wtotal = len(orphans) + len(wd_extra)
+    if wtotal:
+        parts.append(brand.section_band('Withdrawn', C['withdrawn'][0], count=wtotal))
+        shown = 0
+        for o in orphans[:_DAILY_CAP]:
+            parts.append(_render_orphan_html(o)); shown += 1
+        for w in wd_extra[:max(0, _DAILY_CAP - shown)]:
+            parts.append(_render_change_html(w)); shown += 1
+        if wtotal > _DAILY_CAP:
+            parts.append(brand.more_line(wtotal - _DAILY_CAP, app))
+
+    # Remaining signal sub-sections.
+    _section(parts, 'Sold prices revealed', C['sold'][0],
+             sections.get('sold_reveals') or [], _render_sold_reveal_html, app)
+    _section(parts, 'Strata contagion', C['strata'][0],
+             sections.get('strata_sales') or [], _render_strata_html, app)
+
+    # Nothing at all overnight — say so warmly instead of a blank body.
+    if not any([prospect_items, sections['hot_vendor_alerts'], changes,
+                sections['new_listings'], sections.get('withdrawn_orphans'),
+                sections.get('sold_reveals'), sections.get('strata_sales')]):
+        parts.append('<p style="color:#666;font-size:14px;margin:8px 0;">'
+                     'A quiet night — no new activity across your suburbs. '
+                     'We’ll keep watching.</p>')
+
+    if pixel:
+        parts.append(f'<img src="{_esc(pixel)}" width="1" height="1" alt=""/>')
+    from email_service import manage_url
+    return brand.shell('Daily', ''.join(parts), app,
+                       suburbs_line=', '.join(suburb_names),
+                       manage_url=manage_url(user.get('id')))
+
+
+def _build_daily_text(user, sections, prospect_items, suburb_names, today_au):
+    from signals.brief_builder import prospect_lines_text
+    name = (user.get('first_name') or 'there').strip()
+    lines = [f"Good morning {name},", '',
+             f"SuburbDesk daily — {today_au}.", '']
+    if prospect_items:
+        lines.append('=== WHO TO PROSPECT TODAY ===')
+        lines += ['  - ' + s for s in prospect_lines_text(prospect_items)]
+        lines.append('')
+    # Reuse the digest's section text for the market recap portion.
+    lines.append(_build_digest_text(user, sections, suburb_names, today_au))
+    return '\n'.join(lines)
+
+
+def send_daily(user_id):
+    """Build + send the ONE combined daily email for a single user:
+    the overnight market recap plus their rotating prospect list. Persists
+    the briefs row (so the in-app Today view + rotation keep working) and
+    logs one digest_logs row (cadence='daily'). Never raises."""
+    if not (os.environ.get('EMAIL_FROM') or '').strip():
+        logger.warning("EMAIL_FROM not set — daily for user_id=%s skipped", user_id)
+        return False, 'EMAIL_FROM not configured'
+    conn = get_db()
+    try:
+        user = conn.execute(
+            "SELECT id, email, first_name, role, all_suburbs FROM users WHERE id = ?",
+            (user_id,)
+        ).fetchone()
+        if not user:
+            return False, 'User not found'
+        user = dict(user)
+        is_admin = (user.get('role') or '').lower() == 'admin'
+        # all_suburbs = a non-admin who sees EVERY suburb. Widen here too so
+        # the daily matches the prospect scope (build_items honours the flag)
+        # and the periodic emails — otherwise these users silently got the
+        # overnight recap for only their explicit (often empty) assignment.
+        if is_admin or user.get('all_suburbs') in (1, True):
+            suburb_rows = conn.execute(
+                "SELECT id, name FROM suburbs WHERE active = 1 ORDER BY name"
+            ).fetchall()
+        else:
+            suburb_rows = conn.execute(
+                "SELECT s.id, s.name FROM suburbs s "
+                "JOIN user_suburbs us ON s.id = us.suburb_id "
+                "WHERE us.user_id = ? AND s.active = 1 ORDER BY s.name",
+                (user_id,)
+            ).fetchall()
+        suburb_names = [s['name'] for s in suburb_rows]
+        if not suburb_names:
+            logger.info("Daily skipped for user_id=%s — no suburbs assigned", user_id)
+            return False, 'No suburbs assigned'
+        if not (user.get('email') or '').strip():
+            return False, 'User has no email'
+
+        since_iso = _since_iso_perth_midnight()
+        sections = _build_sections(suburb_rows, user_id, since_iso)
+
+        base = (os.environ.get('BACKEND_PUBLIC_URL')
+                or 'https://marketscraper-backend.onrender.com').rstrip('/')
+        today_iso = perth_now().strftime('%Y-%m-%d')
+        try:
+            from signals.brief_builder import persist_brief
+            prospect_items, pixel = persist_brief(conn, user, today_iso, base)
+        except Exception:
+            logger.exception("persist_brief failed for user_id=%s (suppressed)", user_id)
+            prospect_items, pixel = [], None
+
+        today_au = _today_au()
+        weekday = _weekday_perth()
+        hv_n = len(sections['hot_vendor_alerts'])
+        pn = len(prospect_items)
+        if hv_n > 0:
+            subject = f"SuburbDesk — Hot vendor listed · {today_au}"
+        elif pn > 0:
+            subject = f"SuburbDesk Daily — {pn} to prospect · {weekday}, {today_au}"
+        elif len(sections['new_listings']) + len(sections['status_changes']) > 0:
+            subject = f"SuburbDesk Daily — {weekday}, {today_au}"
+        else:
+            subject = f"SuburbDesk Daily — {weekday}, {today_au} · Quiet day"
+
+        html = _build_daily_html(user, sections, prospect_items, pixel, suburb_names, today_au)
+        text = _build_daily_text(user, sections, prospect_items, suburb_names, today_au)
+        try:
+            from email_service import unsubscribe_url
+            reply_to = _support_reply_to()
+            ok, info = _send(user['email'], subject, html, text=text,
+                             reply_to=reply_to,
+                             list_unsubscribe=unsubscribe_url(user_id))
+        except Exception as e:
+            logger.exception("Daily send crashed for user_id=%s", user_id)
+            ok, info = False, str(e)
+        _log_digest_attempt(user_id, suburb_names, sections,
+                            status='sent' if ok else 'failed',
+                            error=None if ok else str(info)[:300])
+        return ok, info
+    except Exception as e:
+        logger.exception("send_daily failed for user_id=%s", user_id)
+        return False, str(e)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def send_daily_all():
+    """Cron entry point — send the one combined daily email to every
+    opted-in user (users.digest_enabled). Replaces the old
+    send_morning_briefs() + send_morning_digest() pair."""
+    sent, skipped, failed = 0, 0, 0
+    try:
+        conn = get_db()
+        users = conn.execute(
+            "SELECT id FROM users "
+            "WHERE digest_enabled = 1 AND email IS NOT NULL AND email <> ''"
+        ).fetchall()
+        conn.close()
+    except Exception:
+        logger.exception("send_daily_all: user lookup failed")
+        return {'sent': 0, 'skipped': 0, 'failed': 0, 'fatal': True}
+    for u in users:
+        try:
+            ok, _ = send_daily(u['id'])
+            if ok:
+                sent += 1
+            else:
+                skipped += 1
+        except Exception:
+            logger.exception("send_daily_all: per-user crash uid=%s", u['id'])
+            failed += 1
+    logger.info("[daily] pass complete: %d sent, %d skipped, %d failed",
+                sent, skipped, failed)
     return {'sent': sent, 'skipped': skipped, 'failed': failed, 'fatal': False}

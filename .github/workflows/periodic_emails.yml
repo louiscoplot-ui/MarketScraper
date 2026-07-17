@@ -1,0 +1,61 @@
+name: Periodic market emails
+
+# Runs once a day at 20:00 UTC = 04:00 Perth (AWST = UTC+8, no DST) the
+# NEXT Perth day. The script (scripts/run_periodic_emails.py) self-selects
+# which cadences are due for that Perth date:
+#   Monday        -> weekly recap
+#   1st of month  -> monthly report
+#   1st of Q       -> quarterly report (Jan/Apr/Jul/Oct)
+#   1 January      -> year in review
+# Most days nothing is due and the job exits in under a second. Every
+# cadence reads only the previous, already-completed period, so this does
+# NOT depend on the nightly scrape and needs no browser/proxy.
+on:
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+    inputs:
+      cadence:
+        description: 'Force a cadence (weekly|monthly|quarterly|annual). Leave blank to honour the date.'
+        required: false
+        default: ''
+
+concurrency:
+  group: periodic-emails
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Send periodic emails
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Same email config as the daily digest. Without EMAIL_FROM the
+          # script logs a skip and exits (no silent 403 storm).
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Optional: overrides the Reply-To/List-Unsubscribe address
+          # (defaults to suburbdesk@gmail.com in email_service).
+          SUPPORT_EMAIL: ${{ secrets.SUPPORT_EMAIL }}
+        run: |
+          python scripts/run_periodic_emails.py ${{ github.event.inputs.cadence }}
