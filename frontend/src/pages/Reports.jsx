@@ -12,7 +12,7 @@
 
 import { useState } from 'react'
 import { MultiSelect } from '../components/ui'
-import { BACKEND_DIRECT, getAccessKey } from '../lib/api'
+import { BACKEND_DIRECT, getAccessKey, fetchWithRetry } from '../lib/api'
 
 const REPORT_TYPES = [
   {
@@ -56,14 +56,18 @@ export default function Reports({ suburbs }) {
     setError(null)
     setDone(null)
     try {
-      const res = await fetch(`${BACKEND_DIRECT}/api/reports/generate`, {
+      // fetchWithRetry (2 attempts): a mid-deploy Render restart or a
+      // waking dyno drops the first connection with a bare network error
+      // ("Failed to fetch") — the second attempt lands once it's up.
+      // Retrying this POST is safe: generation is a pure read + build.
+      const res = await fetchWithRetry(`${BACKEND_DIRECT}/api/reports/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Access-Key': getAccessKey(),
         },
         body: JSON.stringify({ type, suburbs: selected }),
-      })
+      }, 2)
       if (!res.ok) {
         let msg = `Server error ${res.status}`
         try {
@@ -89,7 +93,14 @@ export default function Reports({ suburbs }) {
       setDone(filename)
     } catch (e) {
       console.error('Report generation failed:', e)
-      setError(e.message || 'Could not generate the report — please try again.')
+      // A bare TypeError('Failed to fetch') means the connection never
+      // completed (backend redeploying / waking / worker killed) — say
+      // that instead of leaking the cryptic browser message.
+      const network = e instanceof TypeError || /failed to fetch/i.test(e.message || '')
+      setError(network
+        ? 'Could not reach the report server — it may be redeploying or '
+          + 'waking up. Wait a minute and try again.'
+        : (e.message || 'Could not generate the report — please try again.'))
     } finally {
       setGenerating(null)
     }
