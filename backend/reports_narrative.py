@@ -87,17 +87,26 @@ def build_narratives(report_type, metrics):
                        "unavailable or refused) — shipping numbers-only",
                        report_type)
         return {}
-    # Model was told to output bare JSON, but tolerate a stray fence.
+    # Model was asked for bare JSON, but be tolerant: strip a ```json
+    # fence AND slice from the first '{' to the last '}' so any prose the
+    # model wraps around the object ("Here is the JSON: {...}") still
+    # parses instead of silently dropping the whole narrative.
     cleaned = text.strip()
     if cleaned.startswith('```'):
         cleaned = cleaned.strip('`')
-        if cleaned.startswith('json'):
+        if cleaned[:4].lower() == 'json':
             cleaned = cleaned[4:]
+    start, end = cleaned.find('{'), cleaned.rfind('}')
+    if start != -1 and end > start:
+        cleaned = cleaned[start:end + 1]
     try:
         data = json.loads(cleaned)
     except (ValueError, TypeError):
+        # Log a snippet of what actually came back so Render logs show
+        # WHY it fell back (truncation, prose, wrong shape…).
         logger.warning("reports_narrative: unparseable narrative JSON for "
-                       "%s — shipping numbers-only", report_type)
+                       "%s — shipping numbers-only. Raw head: %r",
+                       report_type, text[:300])
         return {}
     if not isinstance(data, dict):
         return {}

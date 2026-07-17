@@ -1145,6 +1145,59 @@ def list_scrape_logs():
 
 # --- REPORTS (branded Word intelligence pack) ---
 
+@app.route('/api/reports/diagnostics', methods=['GET'])
+def reports_diagnostics():
+    """Admin-only self-check for the AI narrative path — the fastest way
+    to tell WHY a report shipped numbers-only. Reports whether
+    ANTHROPIC_API_KEY is set (never echoes it) and fires ONE minimal live
+    call so you can see the real Anthropic status:
+      * anthropic_key_present=false          → key not on Render (add it)
+      * live_status=401                      → key present but wrong/expired
+      * live_status=404 + model in body      → BRIEF_MODEL id not available
+      * live_status=200, live_call_ok=true   → path works; a prior
+        numbers-only report was a transient/parse issue, now more tolerant
+    """
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
+    import os as _os
+    from signals.brief_builder import BRIEF_MODEL
+    key = (_os.environ.get('ANTHROPIC_API_KEY') or '').strip()
+    info = {
+        'anthropic_key_present': bool(key),
+        'key_length': len(key),
+        'model': BRIEF_MODEL,
+    }
+    if not key:
+        info['hint'] = ('Add ANTHROPIC_API_KEY on Render → Environment, then '
+                        'redeploy. Reports still generate without it, '
+                        'numbers + deterministic observations only.')
+        return jsonify(info)
+    try:
+        import requests as _rq
+        resp = _rq.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={'x-api-key': key,
+                     'anthropic-version': '2023-06-01',
+                     'content-type': 'application/json'},
+            json={'model': BRIEF_MODEL, 'max_tokens': 8,
+                  'messages': [{'role': 'user',
+                                'content': 'Reply with the single word OK.'}]},
+            timeout=20,
+        )
+        info['live_status'] = resp.status_code
+        info['live_call_ok'] = resp.status_code == 200
+        # Body only on error (a 200 body carries no secret but no value
+        # either) — trimmed, and it never contains the API key.
+        if resp.status_code != 200:
+            info['live_body'] = resp.text[:300]
+    except Exception as e:
+        info['live_call_ok'] = False
+        info['live_error'] = str(e)[:200]
+    return jsonify(info)
+
+
 @app.route('/api/reports/generate', methods=['POST'])
 def generate_report():
     """Build one of the 4 branded .docx reports for the selected suburbs
