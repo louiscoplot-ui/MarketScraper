@@ -191,10 +191,13 @@ def _sold_stats(conn, suburb_ids, start, end):
     window. Sold price parses sold_price, falling back to price_text.
     DOM is last_seen - first_seen in days, only when both parse."""
     ph = ','.join(['?'] * len(suburb_ids))
+    # Homes that BECAME sold within the window (status_changed_at), not every
+    # sold row re-seen in it — otherwise a sale from months ago re-counts
+    # every period.
     rows = conn.execute(
-        f"SELECT sold_price, price_text, first_seen, last_seen FROM listings "
+        f"SELECT sold_price, price_text, first_seen, status_changed_at FROM listings "
         f"WHERE suburb_id IN ({ph}) AND status = 'sold' "
-        f"AND last_seen >= ? AND last_seen < ?",
+        f"AND status_changed_at >= ? AND status_changed_at < ?",
         (*suburb_ids, start.isoformat(), end.isoformat())
     ).fetchall()
     prices, doms = [], []
@@ -203,7 +206,8 @@ def _sold_stats(conn, suburb_ids, start, end):
         p = _price_to_int(d.get('sold_price')) or _price_to_int(d.get('price_text'))
         if p:
             prices.append(p)
-        dom = _days_on_market(d.get('first_seen'), d.get('last_seen'))
+        # Days on market = first seen → the moment it flipped to sold.
+        dom = _days_on_market(d.get('first_seen'), d.get('status_changed_at'))
         if dom is not None:
             doms.append(dom)
     return len(rows), _median(prices), _median(doms)

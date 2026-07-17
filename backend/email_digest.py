@@ -118,16 +118,20 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
             (*suburb_ids, since_iso)
         ).fetchall()
 
+    # Only listings whose STATUS actually changed in the window — keyed on
+    # status_changed_at (stamped by the scraper on a real flip), never
+    # last_seen (which updates every scrape and flooded the email with the
+    # whole standing list of sold/under-offer properties every day).
     status_changes = conn.execute(
         f"SELECT l.address, l.price_text, l.sold_price, l.status, "
         f"l.reiwa_url, s.name AS suburb "
         f"FROM listings l "
         f"JOIN suburbs s ON s.id = l.suburb_id "
         f"WHERE l.suburb_id IN ({placeholders}) "
-        f"AND l.last_seen >= ? "
+        f"AND l.status_changed_at >= ? "
         f"AND l.status IN ('under_offer', 'sold', 'withdrawn') "
         f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
-        f"ORDER BY s.name, l.last_seen DESC",
+        f"ORDER BY s.name, l.status_changed_at DESC",
         (*suburb_ids, since_iso, since_iso)
     ).fetchall()
 

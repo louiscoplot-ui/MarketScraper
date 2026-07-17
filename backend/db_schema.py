@@ -310,6 +310,10 @@ def init_db():
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT",
+        # When the status last actually CHANGED (not merely re-seen). The
+        # daily email filters status changes on this so it shows only what
+        # moved overnight, never the whole standing list of sold/under-offer.
+        "ALTER TABLE listings ADD COLUMN IF NOT EXISTS status_changed_at TEXT",
     ]:
         if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),
