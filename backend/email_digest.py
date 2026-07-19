@@ -746,8 +746,17 @@ def send_digest(user_id):
         subject = f"SuburbDesk Morning Brief — {weekday}, {today} — Quiet day"
     html = _build_digest_html(user_dict, sections, suburb_names, today)
     text = _build_digest_text(user_dict, sections, suburb_names, today)
+    # Deliverability headers — the digest is recurring bulk mail, so
+    # Gmail/Yahoo now REQUIRE a machine-readable one-click unsubscribe
+    # (List-Unsubscribe + List-Unsubscribe-Post); without it they down-rank
+    # to spam. The welcome email already set these — the digest didn't,
+    # which is exactly the kind of mail that lands in spam. Reply-To makes
+    # it read as reachable 1:1 mail rather than an unanswerable no-reply.
+    # Address defaults to the one already shown in the digest footer.
+    contact = (os.environ.get('SUPPORT_EMAIL') or '').strip() or 'suburbdesk@gmail.com'
     try:
-        ok, info = _send(user_dict['email'], subject, html, text=text)
+        ok, info = _send(user_dict['email'], subject, html, text=text,
+                         reply_to=contact, list_unsubscribe=contact)
     except Exception as e:
         logger.exception("Digest send crashed for user_id=%s", user_id)
         ok, info = False, str(e)
