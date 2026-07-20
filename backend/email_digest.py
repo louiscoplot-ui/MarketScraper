@@ -259,10 +259,14 @@ def _status_label(row):
             return f"Sold for {sp}"
         # REIWA often discloses the sale price days after the sale. Until
         # then, anchor on the last listed price rather than a bare "Sold"
-        # — never fabricate a sale figure.
+        # — never fabricate a sale figure. Only fall back when the listed
+        # text is an actual price (has a digit): "last listed Contact form"
+        # or "Contact agent" reads as broken, so those become the generic
+        # "price not yet disclosed".
         listed = (row.get('price_text') or '').strip()
-        return (f"Sold — last listed {listed}" if listed
-                else 'Sold — price not yet disclosed')
+        if listed and any(c.isdigit() for c in listed):
+            return f"Sold — last listed {listed}"
+        return 'Sold — price not yet disclosed'
     return _STATUS_LABELS.get(s, s.title() if s else 'Updated')
 
 
@@ -406,25 +410,42 @@ def _render_new_listing_html(r):
             f'{inner}</div>')
 
 
+# Status → card colour grammar, mirrored from the frontend STATUS_COLORS
+# (App.jsx:31): sold = blue, under_offer = orange (amber). Each card is
+# colour-coded on its left rail + status word + link + a faint tint so a
+# glance down the section separates sales (blue) from under-offers (orange).
+_CHANGE_COLORS = {
+    'sold': {'accent': '#2563eb', 'tint': '#eff6ff', 'link': '#1e40af'},
+    'under_offer': {'accent': '#d97706', 'tint': '#fff7ed', 'link': '#b45309'},
+}
+_CHANGE_DEFAULT = {'accent': '#386350', 'tint': '#ffffff', 'link': '#386350'}
+
+
 def _render_change_html(r):
+    status = (r.get('status') or '').lower()
+    c = _CHANGE_COLORS.get(status, _CHANGE_DEFAULT)
     label = _status_label(r)
-    price_extra = r.get('price_text') if (r.get('status') or '').lower() != 'sold' else ''
+    # Sold carries its price inside the label; under-offer shows the last
+    # asking price as a separate context line.
+    price_extra = r.get('price_text') if status != 'sold' else ''
     parts = [
         f'<div style="margin:0 0 4px;font-weight:600;color:#1a1a1a;font-size:14px;">'
         f'{_esc(r.get("address"))} — <span style="color:#555;font-weight:500;">{_esc(r.get("suburb"))}</span>'
         f'</div>',
-        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Now: <strong>{_esc(label)}</strong></div>',
+        f'<div style="margin:0 0 4px;color:#444;font-size:13px;">Now: '
+        f'<strong style="color:{c["link"]};">{_esc(label)}</strong></div>',
     ]
     if price_extra:
         parts.append(f'<div style="margin:0 0 4px;color:#666;font-size:12px;">{_esc(price_extra)}</div>')
     if r.get('reiwa_url'):
         parts.append(
             f'<a href="{_esc(r["reiwa_url"])}" '
-            f'style="color:#386350;font-size:12px;text-decoration:none;">View on REIWA →</a>'
+            f'style="color:{c["link"]};font-size:12px;text-decoration:none;font-weight:600;">'
+            f'View on REIWA →</a>'
         )
     inner = ''.join(parts)
-    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:#fff;'
-            f'border-left:3px solid #386350;border-radius:0 4px 4px 0;">'
+    return (f'<div style="margin:0 0 8px;padding:8px 12px;background:{c["tint"]};'
+            f'border-left:4px solid {c["accent"]};border-radius:0 4px 4px 0;">'
             f'{inner}</div>')
 
 
@@ -556,11 +577,25 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             if sections['new_listings']
             else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No new listings in your suburbs yesterday.</p>'
         )
-        change_html = (
-            ''.join(_render_change_html(r) for r in sections['status_changes'])
-            if sections['status_changes']
-            else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No status changes yesterday.</p>'
-        )
+        # Split the status changes into two colour-coded sections — Under
+        # Offer (orange) and Sold (blue) — so the section headers match the
+        # per-card colour grammar instead of one mixed "Under Offer / Sold".
+        under_offers = [r for r in sections['status_changes']
+                        if (r.get('status') or '').lower() == 'under_offer']
+        solds = [r for r in sections['status_changes']
+                 if (r.get('status') or '').lower() == 'sold']
+        under_offer_section = ''
+        if under_offers:
+            under_offer_section = (
+                _section_header('Under Offer', bg='#d97706', count=len(under_offers))
+                + ''.join(_render_change_html(r) for r in under_offers)
+            )
+        sold_section = ''
+        if solds:
+            sold_section = (
+                _section_header('Sold', bg='#2563eb', count=len(solds))
+                + ''.join(_render_change_html(r) for r in solds)
+            )
         orphan_section = ''
         if sections.get('withdrawn_orphans'):
             orphan_section = (
@@ -600,9 +635,8 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             _section_header('New Listings', count=len(sections['new_listings']))
             + new_html
             + withdrawn_section
-            + _section_header('Under Offer / Sold',
-                              count=len(sections['status_changes']))
-            + change_html
+            + under_offer_section
+            + sold_section
             + orphan_section
             + reveal_section
             + strata_section

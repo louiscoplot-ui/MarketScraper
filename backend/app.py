@@ -1198,6 +1198,62 @@ def reports_diagnostics():
     return jsonify(info)
 
 
+@app.route('/api/email/diagnostics', methods=['GET'])
+def email_diagnostics():
+    """Admin-only — pinpoint why the morning digest lands in spam.
+
+    The #1 cause is sender-domain authentication: if EMAIL_FROM is a free
+    mailbox (gmail/outlook/yahoo) or the Resend sandbox (resend.dev),
+    Resend cannot DKIM-sign it for that domain, DMARC fails, and Gmail/
+    Yahoo route it to spam no matter what the content is. This reports the
+    actual From address (which is public — it's on every email) and flags
+    whether it's authenticatable, without leaking any secret."""
+    from admin_api import _require_admin
+    _u, err = _require_admin()
+    if err:
+        return err
+    import os as _os
+    import re as _re
+    sender = (_os.environ.get('EMAIL_FROM') or '').strip()
+    # Extract the domain from "Name <addr@domain>" or a bare "addr@domain".
+    m = _re.search(r'@([^>\s]+)', sender)
+    domain = (m.group(1).lower() if m else '')
+    FREE = {'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com',
+            'live.com', 'yahoo.com', 'yahoo.com.au', 'icloud.com', 'me.com'}
+    is_sandbox = 'resend.dev' in sender.lower()
+    is_free = domain in FREE
+    authenticatable = bool(domain) and not is_sandbox and not is_free
+    info = {
+        'email_from': sender or '(not set)',
+        'sender_domain': domain or '(none)',
+        'resend_configured': bool((_os.environ.get('RESEND_API_KEY') or '').strip()),
+        'support_email': (_os.environ.get('SUPPORT_EMAIL') or '').strip()
+                         or 'suburbdesk@gmail.com (default)',
+        'looks_authenticatable': authenticatable,
+    }
+    if is_sandbox:
+        info['verdict'] = ('SPAM CAUSE: using the Resend sandbox sender '
+                           '(resend.dev) — zero reputation. Verify your own '
+                           'domain in Resend and set EMAIL_FROM.')
+    elif is_free:
+        info['verdict'] = (f'SPAM CAUSE: EMAIL_FROM is a free mailbox '
+                           f'(@{domain}). Resend cannot DKIM-sign a domain '
+                           f'you do not control, so DMARC fails and Gmail/'
+                           f'Yahoo mark it spam. Verify suburbdesk.com in '
+                           f'Resend and set EMAIL_FROM=SuburbDesk '
+                           f'<noreply@suburbdesk.com>.')
+    elif not sender:
+        info['verdict'] = ('EMAIL_FROM is not set — the digest pass '
+                           'short-circuits and no email is sent at all.')
+    else:
+        info['verdict'] = (f'EMAIL_FROM domain (@{domain}) is authenticatable. '
+                           f'Confirm SPF/DKIM/DMARC are verified GREEN in the '
+                           f'Resend dashboard for this domain; if they are and '
+                           f'mail still spams, the cause is content/reputation, '
+                           f'not the sender.')
+    return jsonify(info)
+
+
 @app.route('/api/reports/generate', methods=['POST'])
 def generate_report():
     """Build one of the 4 branded .docx reports for the selected suburbs
