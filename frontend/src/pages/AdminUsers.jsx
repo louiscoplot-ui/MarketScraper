@@ -91,6 +91,49 @@ function PasswordCard({ me }) {
   )
 }
 
+// Email deliverability check — surfaces GET /api/email/diagnostics in the
+// Admin page so the "why do my briefs go to spam?" answer is visible on
+// any device (the app injects the access key, so no fiddling with URLs).
+function EmailHealthCard() {
+  const [data, setData] = useState(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(true)
+  const load = async () => {
+    setBusy(true); setErr('')
+    try {
+      const res = await fetch(`${BACKEND_DIRECT}/api/email/diagnostics`, {
+        headers: { 'X-Access-Key': getAccessKey() },
+      })
+      if (!res.ok) { setErr(`Server error ${res.status}`); setBusy(false); return }
+      setData(await res.json()); setBusy(false)
+    } catch { setErr('Could not reach the server'); setBusy(false) }
+  }
+  useEffect(() => { load() }, [])
+  const bad = !!data && (String(data.verdict || '').startsWith('SPAM')
+    || !data.looks_authenticatable)
+  const barColor = err ? '#9ca3af' : (bad ? '#dc2626' : '#16a34a')
+  return (
+    <div className="admin-keybox" style={{ marginTop: 12, borderLeft: `4px solid ${barColor}` }}>
+      <label className="admin-keylabel">
+        Email deliverability
+        <button className="btn btn-sm" style={{ marginLeft: 10, fontWeight: 500 }}
+          onClick={load} disabled={busy}>{busy ? '…' : 'Re-check'}</button>
+      </label>
+      {err && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{err}</div>}
+      {data && (
+        <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>
+          <div><strong>From:</strong> {data.email_from}</div>
+          <div style={{ marginTop: 6, padding: '8px 10px', borderRadius: 6,
+            background: bad ? '#fef2f2' : '#f0fdf4',
+            color: bad ? '#991b1b' : '#166534' }}>
+            {bad ? '⚠ ' : '✓ '}{data.verdict}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Backend stores timestamps as naive UTC (datetime.utcnow().isoformat()
 // or SQLite datetime('now')). JS new Date() treats a naive ISO string
 // as *local* time, which is why "Last seen 2:46 AM" looked random for
@@ -739,6 +782,8 @@ export default function AdminUsers() {
       </div>
 
       <PasswordCard me={me} />
+
+      {me && (me.role || '').toLowerCase() === 'admin' && <EmailHealthCard />}
 
       {me && (
         <div className="admin-me">
