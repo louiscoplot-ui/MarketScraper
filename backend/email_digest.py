@@ -564,6 +564,25 @@ def _section_header(text, bg='#386350', count=None):
             f'{badge}{_esc(text)}</div>')
 
 
+# Cap how many rows each section prints in the email. A digest with
+# 130+ status changes = hundreds of external links: an unreadable wall on
+# a phone AND a strong Promotions/spam signal for Gmail. The overflow is
+# summarised with a "+N more — open SuburbDesk" link; the full list always
+# lives in the app.
+DIGEST_SECTION_CAP = 25
+
+
+def _capped_html(render_fn, items, app, cap=DIGEST_SECTION_CAP):
+    """Render at most `cap` items; append a link to the app for the rest."""
+    html = ''.join(render_fn(r) for r in items[:cap])
+    if len(items) > cap:
+        html += (f'<div style="margin:2px 0 10px;font-size:12px;color:#666;">'
+                 f'+ {len(items) - cap} more — '
+                 f'<a href="{_esc(app)}" style="color:#386350;font-weight:600;'
+                 f'text-decoration:none;">open SuburbDesk →</a></div>')
+    return html
+
+
 def _build_digest_html(user, sections, suburb_names, today_au):
     name = (user.get('first_name') or 'there').strip()
     app = _app_url()
@@ -573,7 +592,7 @@ def _build_digest_html(user, sections, suburb_names, today_au):
                 'to add some.</p>')
     else:
         new_html = (
-            ''.join(_render_new_listing_html(r) for r in sections['new_listings'])
+            _capped_html(_render_new_listing_html, sections['new_listings'], app)
             if sections['new_listings']
             else '<p style="color:#666;font-size:13px;margin:0 0 8px;">No new listings in your suburbs yesterday.</p>'
         )
@@ -588,13 +607,13 @@ def _build_digest_html(user, sections, suburb_names, today_au):
         if under_offers:
             under_offer_section = (
                 _section_header('Under Offer', bg='#d97706', count=len(under_offers))
-                + ''.join(_render_change_html(r) for r in under_offers)
+                + _capped_html(_render_change_html, under_offers, app)
             )
         sold_section = ''
         if solds:
             sold_section = (
                 _section_header('Sold', bg='#2563eb', count=len(solds))
-                + ''.join(_render_change_html(r) for r in solds)
+                + _capped_html(_render_change_html, solds, app)
             )
         orphan_section = ''
         if sections.get('withdrawn_orphans'):
@@ -629,7 +648,7 @@ def _build_digest_html(user, sections, suburb_names, today_au):
             withdrawn_section = (
                 _section_header('Withdrawn · motivated vendors', bg='#c2410c',
                                 count=len(sections['withdrawn']))
-                + ''.join(_render_withdrawn_html(r) for r in sections['withdrawn'])
+                + _capped_html(_render_withdrawn_html, sections['withdrawn'], app)
             )
         body = (
             _section_header('New Listings', count=len(sections['new_listings']))
