@@ -1,0 +1,86 @@
+name: Test REA access (throwaway)
+
+# Test ponctuel : peut-on lire une page de résultats realestate.com.au
+# depuis un runner GitHub Actions, SANS proxy — exactement les conditions
+# du scraper REIWA actuel. Déclenchement manuel uniquement, jamais planifié,
+# jamais sur push. Lecture seule : aucune écriture DB, aucun INSERT.
+on:
+  workflow_dispatch:
+    inputs:
+      suburb:
+        description: 'Suburb slug REA (ex: ellenbrook, mount+lawley)'
+        required: false
+        default: 'ellenbrook'
+      postcode:
+        description: 'Code postal WA'
+        required: false
+        default: '6069'
+
+jobs:
+  test-rea:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Même méthode d'install que scrape_sales.yml (scraper REIWA).
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright Chromium
+        working-directory: backend
+        run: |
+          python -m playwright install --with-deps chromium
+
+      # Une seule requête REA. Aucun secret, aucun proxy injecté.
+      - name: Run REA access test
+        env:
+          SUBURB: ${{ github.event.inputs.suburb }}
+          POSTCODE: ${{ github.event.inputs.postcode }}
+        run: |
+          set -o pipefail
+          python scripts/test_rea_access.py \
+            --suburb "$SUBURB" \
+            --postcode "$POSTCODE" \
+            --screenshot /tmp/rea_test.png | tee /tmp/rea_out.log
+          code=${PIPESTATUS[0]}
+
+          verdict=$(grep -m1 '^VERDICT' /tmp/rea_out.log | sed 's/^VERDICT : //')
+          http=$(grep -m1 'HTTP status' /tmp/rea_out.log | sed 's/.*: //')
+          ip=$(grep -m1 'IP publique de sortie' /tmp/rea_out.log | sed 's/.*: //')
+          ptitle=$(grep -A1 -m1 'TITLE (300 chars)' /tmp/rea_out.log | tail -1 | sed 's/^[[:space:]]*//')
+
+          {
+            echo "## Test d'accès realestate.com.au"
+            echo ""
+            echo "| Champ | Valeur |"
+            echo "|---|---|"
+            echo "| Verdict | ${verdict:-?} |"
+            echo "| HTTP status | ${http:-?} |"
+            echo "| IP utilisée | ${ip:-?} |"
+            echo "| Titre page | ${ptitle:-?} |"
+            echo ""
+            echo "Screenshot en artifact (\`rea-screenshot\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit $code
+
+      - name: Upload screenshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-screenshot
+          path: /tmp/rea_test.png
+          if-no-files-found: warn
