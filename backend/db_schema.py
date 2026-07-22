@@ -310,6 +310,12 @@ def init_db():
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT",
+        # status_changed_at — the moment the scraper saw the status flip.
+        # last_seen can't play this role: it's refreshed on every scrape for
+        # as long as REIWA keeps the card visible (weeks for under_offer /
+        # sold), which made the digest re-list the entire stock every morning.
+        # NULL = changed before tracking started → excluded from the digest.
+        "ALTER TABLE listings ADD COLUMN IF NOT EXISTS status_changed_at TEXT",
     ]:
         if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),

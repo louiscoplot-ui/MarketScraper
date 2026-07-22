@@ -115,16 +115,21 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
     # Under-offer + sold only — withdrawn gets its own prominent section
     # below (it's the motivated-vendor signal, the core value), instead
     # of being buried in a mixed "status changes" list.
+    # Filter on status_changed_at, NOT last_seen: REIWA keeps under-offer
+    # and sold cards visible for weeks, so last_seen bumps every night and
+    # the digest re-listed the entire stock (44 UO / 112 sold) instead of
+    # the overnight transitions. NULL status_changed_at = flipped before
+    # tracking existed → already announced, stays out.
     status_changes = conn.execute(
         f"SELECT l.address, l.price_text, l.sold_price, l.status, "
         f"l.reiwa_url, s.name AS suburb "
         f"FROM listings l "
         f"JOIN suburbs s ON s.id = l.suburb_id "
         f"WHERE l.suburb_id IN ({placeholders}) "
-        f"AND l.last_seen >= ? "
+        f"AND l.status_changed_at >= ? "
         f"AND l.status IN ('under_offer', 'sold') "
         f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
-        f"ORDER BY s.name, l.last_seen DESC",
+        f"ORDER BY s.name, l.status_changed_at DESC",
         (*suburb_ids, since_iso, since_iso)
     ).fetchall()
 

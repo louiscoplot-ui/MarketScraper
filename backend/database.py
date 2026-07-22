@@ -480,6 +480,19 @@ def upsert_listing(suburb_id, reiwa_url, data):
             else (now if stamp_withdrawn else existing['withdrawn_date'])
         )
 
+        # Stamp only real transitions — a listing re-seen with the same
+        # status keeps its original changed-at, so the digest can tell
+        # "went under offer last night" from "still under offer since
+        # last month" (last_seen can't: it bumps every scrape).
+        try:
+            prev_status_changed_at = existing['status_changed_at']
+        except (KeyError, IndexError):
+            prev_status_changed_at = None
+        new_status_changed_at = (
+            now if (existing['status'] or '') != effective_status
+            else prev_status_changed_at
+        )
+
         conn.execute("""
             UPDATE listings SET
                 address = COALESCE(NULLIF(?, ''), address),
@@ -493,6 +506,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 agency = COALESCE(NULLIF(?, ''), agency),
                 agent = COALESCE(NULLIF(?, ''), agent),
                 status = ?,
+                status_changed_at = ?,
                 withdrawn_date = ?,
                 last_seen = ?,
                 sold_price = COALESCE(NULLIF(?, ''), sold_price),
@@ -506,7 +520,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            effective_status, new_withdrawn_date, now,
+            effective_status, new_status_changed_at, new_withdrawn_date, now,
             data.get('sold_price'), data.get('sold_date'),
             data.get('listing_type'), data.get('listing_date'),
             data.get('source'),
@@ -520,15 +534,16 @@ def upsert_listing(suburb_id, reiwa_url, data):
             INSERT INTO listings (
                 suburb_id, address, normalized_address, reiwa_url, price_text,
                 bedrooms, bathrooms, parking, land_size, internal_size,
-                agency, agent, status, withdrawn_date, first_seen, last_seen,
+                agency, agent, status, status_changed_at, withdrawn_date,
+                first_seen, last_seen,
                 sold_price, sold_date, listing_type, listing_date, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             suburb_id, final_address, norm_addr, reiwa_url, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            new_status,
+            new_status, now,
             now if new_status == 'withdrawn' else None,
             now, now,
             data.get('sold_price'), data.get('sold_date'),
@@ -565,8 +580,8 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
         if listing['reiwa_url'].rstrip('/') not in all_seen:
             conn.execute(
                 "UPDATE listings SET status = 'withdrawn', withdrawn_date = ?, "
-                "last_seen = ? WHERE id = ?",
-                (now, now, listing['id'])
+                "status_changed_at = ?, last_seen = ? WHERE id = ?",
+                (now, now, now, listing['id'])
             )
             withdrawn_count += 1
 
