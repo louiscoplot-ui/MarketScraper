@@ -119,6 +119,7 @@ export function AddSuburbModal({ onClose, onAdded }) {
   const [q, setQ] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState('')
   const [err, setErr] = useState('')
   const [added, setAdded] = useState([])
 
@@ -132,6 +133,7 @@ export function AddSuburbModal({ onClose, onAdded }) {
     const name = (raw || '').trim()
     if (!name || busy) return
     setBusy(true)
+    setPending(name)
     setErr('')
     let res
     try {
@@ -169,7 +171,11 @@ export function AddSuburbModal({ onClose, onAdded }) {
           <h2>Add a suburb</h2>
           <button className="btn btn-icon" onClick={onClose}>×</button>
         </div>
-        <p style={{ margin: '4px 0 14px', color: 'var(--text-muted, #666)', fontSize: 14, lineHeight: 1.5 }}>
+        {/* .modal brings no padding of its own — only .modal-header and
+            .modal-footer carry their own (index.css). Without this wrapper
+            the copy and the input ran edge to edge. */}
+        <div style={{ padding: '16px 20px' }}>
+        <p style={{ margin: '0 0 14px', color: 'var(--text-muted, #666)', fontSize: 14, lineHeight: 1.5 }}>
           The suburb goes live straight away and the nightly scrape picks it
           up on its next run (midnight Perth). Add it before then to have the
           listings waiting for you in the morning.
@@ -189,7 +195,6 @@ export function AddSuburbModal({ onClose, onAdded }) {
               type="text" autoFocus value={q} autoComplete="off"
               onChange={(e) => onInput(e.target.value)}
               placeholder="Type suburb name…"
-              disabled={busy}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '10px 12px',
                 fontSize: 15, border: '1px solid var(--border, #d4d4d4)',
@@ -235,15 +240,28 @@ export function AddSuburbModal({ onClose, onAdded }) {
             )}
           </div>
         </form>
+        {/* Render's free tier hibernates after 15min idle; the first call
+            back can take 30-60s. Say so, otherwise a dead "Adding…" reads
+            as a frozen app and the operator clicks again and again. */}
+        {busy && (
+          <div style={{ color: 'var(--text-muted, #666)', fontSize: 13, margin: '0 0 10px', lineHeight: 1.5 }}>
+            Adding {pending}… if the server was idle it can take up to a
+            minute to wake up. You can leave this open.
+          </div>
+        )}
         {err && <div style={{ color: '#b91c1c', fontSize: 13, margin: '0 0 10px' }}>{err}</div>}
         {added.length > 0 && (
           <div style={{ color: '#166534', fontSize: 13, margin: '0 0 10px', lineHeight: 1.5 }}>
             Added: {added.join(', ')} — scraping tonight.
           </div>
         )}
+        </div>
         <div className="modal-footer">
-          <button type="button" className="btn btn-primary" onClick={onClose} disabled={busy}>
-            {busy ? 'Adding…' : 'Done'}
+          {/* Never disabled: the add keeps running and the suburb is already
+              committed server-side, so there's no reason to trap the operator
+              in the modal while Render wakes up. */}
+          <button type="button" className="btn btn-primary" onClick={onClose}>
+            Done
           </button>
         </div>
       </div>

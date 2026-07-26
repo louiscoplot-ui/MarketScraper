@@ -860,10 +860,27 @@ function App() {
         <AddSuburbModal
           onClose={() => setShowAddSuburbModal(false)}
           onAdded={(s) => {
-            // Same post-add behaviour as the old sidebar form: tick the new
-            // suburb so it lands in the scope chips immediately, then refetch
-            // the list so its listing counts appear.
-            if (s && s.id) setCheckedSuburbs(prev => new Set([...prev, s.id]))
+            if (!s || !s.id) { fetchSuburbs(); return }
+            // Tick it so it lands in the scope chips immediately.
+            setCheckedSuburbs(prev => new Set([...prev, s.id]))
+            // Insert it into the cached snapshot RIGHT NOW rather than
+            // waiting for the refetch below. Every reload paints from that
+            // cache first and the network refresh rides a 30-60s Render
+            // cold start — until this, a freshly added suburb vanished on
+            // each refresh and only came back once the fetch landed.
+            // Counts start at 0 and are corrected by fetchSuburbs().
+            if (!suburbs.some(x => x.id === s.id)) {
+              const next = [...suburbs, {
+                active_count: 0, under_offer_count: 0,
+                sold_count: 0, withdrawn_count: 0, ...s,
+              }].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+              setSuburbs(next)
+              // Evict cached reports if storage is full: the suburb list is
+              // tiny and structural, a report is regenerable. A silent
+              // quota failure here is exactly what leaves a stale snapshot
+              // on disk and makes the suburb flicker away on every reload.
+              writeCacheEvicting(SUBURBS_CACHE, next, 'report_')
+            }
             fetchSuburbs()
           }}
         />
