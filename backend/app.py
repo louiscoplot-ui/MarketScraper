@@ -201,24 +201,27 @@ def create_suburb():
                     conn.close()
                     return jsonify({'error': 'Suburb already exists'}), 409
                 suburb = dict(row)
-                # Sidebar + autocomplete add path = "I want to see and
-                # scrape this suburb". If the row exists but was
-                # created via /suburbs/custom (active=0, scoped-only),
-                # promote it to active=1 here so GET /api/suburbs
-                # (which filters WHERE active=1) actually returns it.
-                # Without this, clicking + on a previously custom-
-                # assigned suburb looked like a no-op because the
-                # follow-up fetchSuburbs filtered it out.
-                if not suburb.get('active'):
-                    conn.execute(
-                        "UPDATE suburbs SET active = 1 WHERE id = ?",
-                        (suburb['id'],)
-                    )
-                    conn.commit()
-                    suburb['active'] = 1
             finally:
                 conn.close()
             status = 200
+        # Whichever path produced the row, it MUST come back active — this
+        # endpoint means "I want to see and scrape this suburb", and
+        # get_suburbs() filters on `WHERE active = 1`. Rows can arrive here
+        # inactive two ways: created via /suburbs/custom (deliberately
+        # active=0, scoped-only), or inserted by an older add_suburb that
+        # omitted the column on a table whose default isn't 1. Both looked
+        # like a successful add that then vanished from every list fetch.
+        if not suburb.get('active'):
+            conn = get_db()
+            try:
+                conn.execute(
+                    "UPDATE suburbs SET active = 1 WHERE id = ?",
+                    (suburb['id'],)
+                )
+                conn.commit()
+                suburb['active'] = 1
+            finally:
+                conn.close()
         # `user` already resolved by the permission gate above.
         if user and user.get('role') != 'admin':
             try:

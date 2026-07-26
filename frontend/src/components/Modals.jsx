@@ -115,13 +115,44 @@ export function AccountModal({ me, onClose }) {
 // fetchWithRetry — a cold start would 504 through Vercel's 25s edge proxy.
 // The backend gate (app.py create_suburb) is the real authority: admin or
 // can_add_suburbs only. This modal is just the reachable surface for it.
-export function AddSuburbModal({ onClose, onAdded }) {
+export function AddSuburbModal({ suburbs = [], onClose, onAdded, onDeleted }) {
   const [q, setQ] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState('')
   const [err, setErr] = useState('')
   const [added, setAdded] = useState([])
+  const [removing, setRemoving] = useState(0)
+
+  // Hard delete — the backend drops the suburb plus every listing, note
+  // and scrape log hanging off it (app.py delete_suburb, admins only).
+  // Irreversible, hence the spelled-out confirm.
+  const remove = async (s) => {
+    if (removing || busy) return
+    const ok = window.confirm(
+      `Remove ${s.name}?\n\n` +
+      'This deletes the suburb and every listing, note and scrape log ' +
+      'attached to it, and stops it being scraped. This cannot be undone.'
+    )
+    if (!ok) return
+    setRemoving(s.id)
+    setErr('')
+    try {
+      const res = await fetchWithRetry(
+        `${BACKEND_DIRECT}/api/suburbs/${s.id}`, { method: 'DELETE' }, 4
+      )
+      if (!res.ok) {
+        let d = null
+        try { d = await res.json() } catch { /* HTML 502 */ }
+        setErr((d && d.error) || `Could not remove ${s.name} (HTTP ${res.status})`)
+      } else if (onDeleted) {
+        onDeleted(s)
+      }
+    } catch (e) {
+      setErr(`Could not reach the server — ${e.message || 'network error'}.`)
+    }
+    setRemoving(0)
+  }
 
   const onInput = (val) => {
     setQ(val)
@@ -255,6 +286,56 @@ export function AddSuburbModal({ onClose, onAdded }) {
             Added: {added.join(', ')} — scraping tonight.
           </div>
         )}
+
+        {/* Current coverage — also the honest answer to "did my add stick?".
+            This list comes from GET /api/suburbs, the same source the chips
+            and the nightly cron read. */}
+        <div style={{ marginTop: 4 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, textTransform: 'uppercase',
+            letterSpacing: '.05em', color: 'var(--text-muted, #666)',
+            marginBottom: 6,
+          }}>
+            Scraped suburbs ({suburbs.length})
+          </div>
+          <div style={{
+            maxHeight: 190, overflowY: 'auto',
+            border: '1px solid var(--border, #d4d4d4)', borderRadius: 6,
+          }}>
+            {suburbs.length === 0 && (
+              <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--text-muted, #666)' }}>
+                None yet.
+              </div>
+            )}
+            {suburbs.map(s => (
+              <div key={s.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '7px 12px', fontSize: 13,
+                borderBottom: '1px solid var(--border, #ececec)',
+              }}>
+                <span style={{ flex: 1 }}>{s.name}</span>
+                <span style={{
+                  fontSize: 11, color: 'var(--text-muted, #888)',
+                  fontFeatureSettings: '"tnum"',
+                }}>
+                  {(s.active_count || 0) + (s.under_offer_count || 0)} live
+                </span>
+                <button
+                  type="button"
+                  onClick={() => remove(s)}
+                  disabled={removing === s.id}
+                  title={`Remove ${s.name} and all its data`}
+                  style={{
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    color: '#b91c1c', fontSize: 12, padding: '2px 4px',
+                  }}
+                >
+                  {removing === s.id ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
         </div>
         <div className="modal-footer">
           {/* Never disabled: the add keeps running and the suburb is already

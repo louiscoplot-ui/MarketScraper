@@ -240,8 +240,16 @@ def add_suburb(name):
     conn = get_db()
     try:
         try:
+            # `active` written EXPLICITLY rather than left to the column
+            # default. db_schema declares DEFAULT 1, but that DDL only ever
+            # runs for a table it creates itself — a prod Postgres table
+            # carried over from an earlier schema can have no default, and
+            # the row then lands inactive. get_suburbs() filters on
+            # `WHERE s.active = 1`, so such a suburb is created, returned to
+            # the caller by the SELECT below (it looks like it worked), and
+            # then missing from every later list fetch.
             conn.execute(
-                "INSERT INTO suburbs (name, slug) VALUES (?, ?)",
+                "INSERT INTO suburbs (name, slug, active) VALUES (?, ?, 1)",
                 (name.strip().title(), slug)
             )
             conn.commit()

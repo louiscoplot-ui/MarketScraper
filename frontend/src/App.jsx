@@ -858,7 +858,20 @@ function App() {
 
       {showAddSuburbModal && (
         <AddSuburbModal
+          suburbs={suburbs}
           onClose={() => setShowAddSuburbModal(false)}
+          onDeleted={(s) => {
+            const next = suburbs.filter(x => x.id !== s.id)
+            setSuburbs(next)
+            writeCacheEvicting(SUBURBS_CACHE, next, 'report_')
+            setCheckedSuburbs(prev => {
+              const n = new Set(prev)
+              n.delete(s.id)
+              return n
+            })
+            fetchSuburbs()
+            fetchListings()
+          }}
           onAdded={(s) => {
             if (!s || !s.id) { fetchSuburbs(); return }
             // Tick it so it lands in the scope chips immediately.
