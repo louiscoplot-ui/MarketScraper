@@ -481,6 +481,22 @@ def upsert_listing(suburb_id, reiwa_url, data):
                  datetime.utcnow().isoformat())
             )
 
+        # Stamp the exact moment the status flipped, and ONLY then. This is
+        # what the morning digest filters on: last_seen is refreshed on every
+        # scrape for every listing still on the grid, so filtering on it
+        # resent the entire under-offer/sold stock every night instead of the
+        # overnight changes. Carry the previous stamp forward untouched when
+        # the status is unchanged. The try/except covers a row read before
+        # the migration ran (sqlite3.Row raises IndexError, psycopg2's
+        # RealDictRow raises KeyError).
+        try:
+            prev_status_changed = existing['status_changed_at']
+        except (KeyError, IndexError):
+            prev_status_changed = None
+        new_status_changed_at = (
+            now if effective_status != existing['status'] else prev_status_changed
+        )
+
         clear_withdrawn = existing['status'] == 'withdrawn' and effective_status != 'withdrawn'
         stamp_withdrawn = existing['status'] != 'withdrawn' and effective_status == 'withdrawn'
         new_withdrawn_date = (
@@ -502,6 +518,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
                 agent = COALESCE(NULLIF(?, ''), agent),
                 status = ?,
                 withdrawn_date = ?,
+                status_changed_at = ?,
                 last_seen = ?,
                 sold_price = COALESCE(NULLIF(?, ''), sold_price),
                 sold_date = COALESCE(NULLIF(?, ''), sold_date),
@@ -514,7 +531,7 @@ def upsert_listing(suburb_id, reiwa_url, data):
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
             data.get('land_size'), data.get('internal_size'),
             data.get('agency'), data.get('agent'),
-            effective_status, new_withdrawn_date, now,
+            effective_status, new_withdrawn_date, new_status_changed_at, now,
             data.get('sold_price'), data.get('sold_date'),
             data.get('listing_type'), data.get('listing_date'),
             data.get('source'),
@@ -528,9 +545,10 @@ def upsert_listing(suburb_id, reiwa_url, data):
             INSERT INTO listings (
                 suburb_id, address, normalized_address, reiwa_url, price_text,
                 bedrooms, bathrooms, parking, land_size, internal_size,
-                agency, agent, status, withdrawn_date, first_seen, last_seen,
+                agency, agent, status, withdrawn_date, status_changed_at,
+                first_seen, last_seen,
                 sold_price, sold_date, listing_type, listing_date, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             suburb_id, final_address, norm_addr, reiwa_url, data.get('price_text'),
             data.get('bedrooms'), data.get('bathrooms'), data.get('parking'),
@@ -538,6 +556,11 @@ def upsert_listing(suburb_id, reiwa_url, data):
             data.get('agency'), data.get('agent'),
             new_status,
             now if new_status == 'withdrawn' else None,
+            # A brand-new row's status was established now. It can't leak into
+            # the digest's status sections anyway — those exclude rows whose
+            # first_seen falls inside the same window (they belong to the
+            # "new listings" section).
+            now,
             now, now,
             data.get('sold_price'), data.get('sold_date'),
             data.get('listing_type'), data.get('listing_date'),
@@ -571,10 +594,15 @@ def mark_withdrawn(suburb_id, seen_urls, sold_urls, confident=False):
     withdrawn_count = 0
     for listing in current_active:
         if listing['reiwa_url'].rstrip('/') not in all_seen:
+            # status_changed_at: this is a real active/UO → withdrawn flip
+            # detected by tonight's scrape, so it must land in tomorrow's
+            # digest. (The admin repair sweeps in app.py deliberately do NOT
+            # stamp it — they flip hundreds of rows at once and would recreate
+            # exactly the flood this column exists to stop.)
             conn.execute(
                 "UPDATE listings SET status = 'withdrawn', withdrawn_date = ?, "
-                "last_seen = ? WHERE id = ?",
-                (now, now, listing['id'])
+                "status_changed_at = ?, last_seen = ? WHERE id = ?",
+                (now, now, now, listing['id'])
             )
             withdrawn_count += 1
 

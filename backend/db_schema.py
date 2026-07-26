@@ -310,6 +310,16 @@ def init_db():
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'reiwa'",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS withdrawn_date TEXT",
         "ALTER TABLE listings ADD COLUMN IF NOT EXISTS normalized_address TEXT",
+        # UTC ISO stamp of the last REAL status flip (active → under_offer →
+        # sold / withdrawn). last_seen is rewritten on EVERY scrape for every
+        # listing still on the grid, so it can't answer "what changed last
+        # night" — the morning digest used it and re-sent the whole
+        # under-offer/sold stock every day. Written by database.upsert_listing
+        # and database.mark_withdrawn only. Left NULL on existing rows on
+        # purpose: no backfill value is trustworthy (last_seen would replay
+        # the flood, sold_date has no time part and would break the ISO
+        # string compare), and NULL simply means "no flip observed yet".
+        "ALTER TABLE listings ADD COLUMN IF NOT EXISTS status_changed_at TEXT",
     ]:
         if not _safe_exec(conn, col_sql, label='listings ADD COLUMN'):
             _safe_exec(conn, col_sql.replace(" IF NOT EXISTS", ""),

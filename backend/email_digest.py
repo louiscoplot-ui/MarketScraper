@@ -115,16 +115,26 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
     # Under-offer + sold only — withdrawn gets its own prominent section
     # below (it's the motivated-vendor signal, the core value), instead
     # of being buried in a mixed "status changes" list.
+    #
+    # Filtered on status_changed_at, NOT last_seen. last_seen is rewritten
+    # on every scrape for every listing still on the REIWA grid, so
+    # "last_seen >= yesterday" matched the ENTIRE standing under-offer/sold
+    # stock — the digest re-sent the same 41 under-offers and 65 solds every
+    # single morning instead of the overnight flips. status_changed_at is
+    # only written when the status actually changes (database.upsert_listing
+    # / mark_withdrawn). NULL (never flipped since the column shipped) is
+    # excluded by the comparison, which is the intended behaviour.
     status_changes = conn.execute(
         f"SELECT l.address, l.price_text, l.sold_price, l.status, "
         f"l.reiwa_url, s.name AS suburb "
         f"FROM listings l "
         f"JOIN suburbs s ON s.id = l.suburb_id "
         f"WHERE l.suburb_id IN ({placeholders}) "
-        f"AND l.last_seen >= ? "
+        f"AND l.status_changed_at IS NOT NULL "
+        f"AND l.status_changed_at >= ? "
         f"AND l.status IN ('under_offer', 'sold') "
         f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
-        f"ORDER BY s.name, l.last_seen DESC",
+        f"ORDER BY s.name, l.status_changed_at DESC",
         (*suburb_ids, since_iso, since_iso)
     ).fetchall()
 
@@ -139,10 +149,11 @@ def _build_sections_impl(conn, suburb_ids, placeholders, since_iso, user_id, sub
         f"FROM listings l "
         f"JOIN suburbs s ON s.id = l.suburb_id "
         f"WHERE l.suburb_id IN ({placeholders}) "
-        f"AND l.last_seen >= ? "
+        f"AND l.status_changed_at IS NOT NULL "
+        f"AND l.status_changed_at >= ? "
         f"AND l.status = 'withdrawn' "
         f"AND (l.first_seen IS NULL OR l.first_seen < ?) "
-        f"ORDER BY s.name, l.last_seen DESC",
+        f"ORDER BY s.name, l.status_changed_at DESC",
         (*suburb_ids, since_iso, since_iso)
     ).fetchall()
 
