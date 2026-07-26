@@ -1,8 +1,9 @@
-// Theme + Scrape progress + Account modals — extracted from App.jsx to
-// keep modules under the MCP push size limit.
+// Theme + Scrape progress + Account + Add-suburb modals — extracted from
+// App.jsx to keep modules under the MCP push size limit.
 
 import { useState } from 'react'
-import { BACKEND_DIRECT } from '../lib/api'
+import { BACKEND_DIRECT, fetchWithRetry } from '../lib/api'
+import { searchSuburbs } from '../lib/waSuburbs'
 
 // Deliberate account/security modal — set or change the password for the
 // currently authenticated user. Unlike the forced SetPasswordModal, this
@@ -96,6 +97,133 @@ export function AccountModal({ me, onClose }) {
             </div>
           </form>
         )}
+      </div>
+    </div>
+  )
+}
+
+// Add a suburb to the scraped coverage. The classic sidebar carried this
+// form, but the Morning Desk redesign hides that column
+// (desk.css `.app.desk .layout > .sidebar { display:none }`) and desk mode
+// is forced everywhere since ALLOW_CLASSIC went false — so the create path
+// became unreachable in prod. The chips row in ListingsView only toggles
+// the VISIBILITY of suburbs that already exist; it never creates one.
+//
+// Same contract as the old form: local autocomplete against the bundled WA
+// list (no round-trip to a cold Render), then POST /api/suburbs, which
+// inserts with active=1 so the nightly cron picks it up. Direct to Render +
+// fetchWithRetry — a cold start would 504 through Vercel's 25s edge proxy.
+// The backend gate (app.py create_suburb) is the real authority: admin or
+// can_add_suburbs only. This modal is just the reachable surface for it.
+export function AddSuburbModal({ onClose, onAdded }) {
+  const [q, setQ] = useState('')
+  const [suggestions, setSuggestions] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [added, setAdded] = useState([])
+
+  const onInput = (val) => {
+    setQ(val)
+    setErr('')
+    setSuggestions(val.trim().length < 2 ? [] : searchSuburbs(val))
+  }
+
+  const add = async (raw) => {
+    const name = (raw || '').trim()
+    if (!name || busy) return
+    setBusy(true)
+    setErr('')
+    let res
+    try {
+      res = await fetchWithRetry(`${BACKEND_DIRECT}/api/suburbs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }, 4)
+    } catch (e) {
+      setErr(`Could not reach the server — ${e.message || 'network error'}. Try again.`)
+      setBusy(false)
+      return
+    }
+    let data = null
+    try { data = await res.json() } catch { /* HTML 502 from a cold dyno */ }
+    // 200 = the suburb already existed and was (re)assigned to the caller —
+    // the backend promotes it back to active=1. Treat it as a success, same
+    // as the old sidebar form did.
+    if (!res.ok && !(data && data.error === 'Suburb already exists')) {
+      setErr((data && (data.detail || data.error)) || `Server error ${res.status}`)
+      setBusy(false)
+      return
+    }
+    setAdded(prev => (prev.includes(data?.name || name) ? prev : [...prev, data?.name || name]))
+    setQ('')
+    setSuggestions([])
+    setBusy(false)
+    if (onAdded) onAdded(data)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal">
+        <div className="modal-header">
+          <h2>Add a suburb</h2>
+          <button className="btn btn-icon" onClick={onClose}>×</button>
+        </div>
+        <p style={{ margin: '4px 0 14px', color: 'var(--text-muted, #666)', fontSize: 14, lineHeight: 1.5 }}>
+          The suburb goes live straight away and the nightly scrape picks it
+          up on its next run (midnight Perth). Add it before then to have the
+          listings waiting for you in the morning.
+        </p>
+        <form
+          onSubmit={(e) => { e.preventDefault(); add(q) }}
+          className="autocomplete-wrapper"
+          style={{ marginBottom: 12 }}
+        >
+          <input
+            type="text" autoFocus value={q} autoComplete="off"
+            onChange={(e) => onInput(e.target.value)}
+            placeholder="Type suburb name…"
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+              fontSize: 15, border: '1px solid var(--border, #d4d4d4)',
+              borderRadius: 6, outline: 'none',
+            }}
+          />
+          {suggestions.length > 0 && (
+            <div className="suggestions-dropdown">
+              {suggestions.map(s => {
+                const name = s.name || s
+                const postcode = s.postcode || ''
+                return (
+                  <div
+                    key={name}
+                    className="suggestion-item"
+                    onClick={() => add(name)}
+                    style={{ display: 'flex', justifyContent: 'space-between' }}
+                  >
+                    <span>{name}</span>
+                    {postcode && (
+                      <span style={{ fontSize: 11, opacity: 0.6, fontFeatureSettings: '"tnum"' }}>
+                        {postcode}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </form>
+        {err && <div style={{ color: '#b91c1c', fontSize: 13, margin: '0 0 10px' }}>{err}</div>}
+        {added.length > 0 && (
+          <div style={{ color: '#166534', fontSize: 13, margin: '0 0 10px', lineHeight: 1.5 }}>
+            Added: {added.join(', ')} — scraping tonight.
+          </div>
+        )}
+        <div className="modal-footer">
+          <button type="button" className="btn btn-primary" onClick={onClose} disabled={busy}>
+            {busy ? 'Adding…' : 'Done'}
+          </button>
+        </div>
       </div>
     </div>
   )

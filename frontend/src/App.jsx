@@ -16,7 +16,7 @@ import RentalView from './pages/RentalView'
 import TermsPage from './pages/TermsPage'
 import PrivacyPage from './pages/PrivacyPage'
 import Footer from './components/Footer'
-import { ThemeModal, ScrapeModal, AccountModal } from './components/Modals'
+import { ThemeModal, ScrapeModal, AccountModal, AddSuburbModal } from './components/Modals'
 import Header from './components/Header'
 import Rail from './components/Rail'
 import { useListings, calcDOM, formatIsoDate } from './hooks/useListings'
@@ -202,6 +202,7 @@ function App() {
   const [selectedAgency, setSelectedAgency] = useState('')
   const [showThemeModal, setShowThemeModal] = useState(false)
   const [showAccountModal, setShowAccountModal] = useState(false)
+  const [showAddSuburbModal, setShowAddSuburbModal] = useState(false)
   // Prefetch/warm the whole app: once this flips true (shortly after the
   // first paint) every heavy tab is mounted in the background so its data
   // loads while the operator reads Listings, and every later tab switch is
@@ -845,12 +846,27 @@ function App() {
         reportSuburbs={reportSuburbs} hasReport={!!report}
         setShowThemeModal={setShowThemeModal}
         setShowAccountModal={setShowAccountModal}
+        setShowAddSuburbModal={setShowAddSuburbModal}
+        canAddSuburb={me?.role === 'admin' || !!me?.can_add_suburbs}
         railMode={isDesk}
         onEnterDesk={enterDesk}
       />
 
       {showAccountModal && (
         <AccountModal me={me} onClose={() => setShowAccountModal(false)} />
+      )}
+
+      {showAddSuburbModal && (
+        <AddSuburbModal
+          onClose={() => setShowAddSuburbModal(false)}
+          onAdded={(s) => {
+            // Same post-add behaviour as the old sidebar form: tick the new
+            // suburb so it lands in the scope chips immediately, then refetch
+            // the list so its listing counts appear.
+            if (s && s.id) setCheckedSuburbs(prev => new Set([...prev, s.id]))
+            fetchSuburbs()
+          }}
+        />
       )}
 
       {showThemeModal && (

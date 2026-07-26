@@ -74,6 +74,10 @@ export default function Header({
   setReportSuburbs, fetchReport, reportSuburbs, hasReport,
   setShowThemeModal,
   setShowAccountModal,
+  // Add-suburb — the classic sidebar form is hidden by the desk redesign
+  // (desk.css), so the create path lives in the action cluster now.
+  // canAddSuburb mirrors the backend gate in app.py create_suburb.
+  setShowAddSuburbModal, canAddSuburb = false,
   me,
   // Desk redesign: in railMode the vertical Rail owns navigation, so the
   // header collapses to just its action cluster (Scrape / Export /
@@ -189,6 +193,15 @@ export default function Header({
             title="Preview the new 'The Morning Desk' interface (one-click reversible)"
           >
             ✦ New design
+          </button>
+        )}
+        {canAddSuburb && setShowAddSuburbModal && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowAddSuburbModal(true)}
+            title="Add a suburb to the nightly scrape"
+          >
+            + Suburb
           </button>
         )}
         <button
