@@ -174,44 +174,66 @@ export function AddSuburbModal({ onClose, onAdded }) {
           up on its next run (midnight Perth). Add it before then to have the
           listings waiting for you in the morning.
         </p>
+        {/* NOT .autocomplete-wrapper — that class carries `flex: 1` for its
+            home in the sidebar's .add-form row. As a direct child of .modal
+            (display:flex; flex-direction:column) the flex-basis:0 collapsed
+            this box to ~0 height, so the dropdown's `top: 100%` landed on
+            top of the input instead of under it and most clicks missed the
+            row they were aimed at. Plain relative box, explicit width. */}
         <form
           onSubmit={(e) => { e.preventDefault(); add(q) }}
-          className="autocomplete-wrapper"
           style={{ marginBottom: 12 }}
         >
-          <input
-            type="text" autoFocus value={q} autoComplete="off"
-            onChange={(e) => onInput(e.target.value)}
-            placeholder="Type suburb name…"
-            style={{
-              width: '100%', boxSizing: 'border-box', padding: '10px 12px',
-              fontSize: 15, border: '1px solid var(--border, #d4d4d4)',
-              borderRadius: 6, outline: 'none',
-            }}
-          />
-          {suggestions.length > 0 && (
-            <div className="suggestions-dropdown">
-              {suggestions.map(s => {
-                const name = s.name || s
-                const postcode = s.postcode || ''
-                return (
-                  <div
-                    key={name}
-                    className="suggestion-item"
-                    onClick={() => add(name)}
-                    style={{ display: 'flex', justifyContent: 'space-between' }}
-                  >
-                    <span>{name}</span>
-                    {postcode && (
-                      <span style={{ fontSize: 11, opacity: 0.6, fontFeatureSettings: '"tnum"' }}>
-                        {postcode}
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <div style={{ position: 'relative', width: '100%' }}>
+            <input
+              type="text" autoFocus value={q} autoComplete="off"
+              onChange={(e) => onInput(e.target.value)}
+              placeholder="Type suburb name…"
+              disabled={busy}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+                fontSize: 15, border: '1px solid var(--border, #d4d4d4)',
+                borderRadius: 6, outline: 'none',
+              }}
+            />
+            {suggestions.length > 0 && !busy && (
+              <div className="suggestions-dropdown">
+                {suggestions.map(s => {
+                  const name = s.name || s
+                  const postcode = s.postcode || ''
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      className="suggestion-item"
+                      // onMouseDown, not onClick: it fires before the input
+                      // blurs and before any re-render can move the row out
+                      // from under the cursor.
+                      onMouseDown={(e) => { e.preventDefault(); add(name) }}
+                      // Hover inline rather than via .suggestion-item:hover —
+                      // the inline `background` below would outrank the
+                      // stylesheet rule and the row would never light up.
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--primary)'; e.currentTarget.style.color = '#fff' }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text)' }}
+                      style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        alignItems: 'center', width: '100%', textAlign: 'left',
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        font: 'inherit',
+                      }}
+                    >
+                      <span>{name}</span>
+                      {postcode && (
+                        <span style={{ fontSize: 11, opacity: 0.6, fontFeatureSettings: '"tnum"' }}>
+                          {postcode}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </form>
         {err && <div style={{ color: '#b91c1c', fontSize: 13, margin: '0 0 10px' }}>{err}</div>}
         {added.length > 0 && (
