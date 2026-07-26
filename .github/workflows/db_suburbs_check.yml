@@ -1,0 +1,51 @@
+name: Check suburbs table
+
+# Dispatch-only diagnostic. READ-ONLY: prints every row of `suburbs` with
+# its active flag, so we can tell a suburb that was never created from one
+# that exists but is filtered out by `WHERE active = 1` (the clause both
+# get_suburbs() and the nightly cron use to pick what gets scraped).
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install driver
+        run: python -m pip install --quiet psycopg2-binary
+
+      - name: List suburbs
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os, psycopg2
+          url = os.environ.get('DATABASE_URL')
+          if not url:
+              raise SystemExit('DATABASE_URL secret is not set')
+          conn = psycopg2.connect(url)
+          cur = conn.cursor()
+          cur.execute("""
+              SELECT column_default, is_nullable
+              FROM information_schema.columns
+              WHERE table_name = 'suburbs' AND column_name = 'active'
+          """)
+          print('active column default/nullable:', cur.fetchone())
+          cur.execute("SELECT id, name, slug, active FROM suburbs ORDER BY name")
+          rows = cur.fetchall()
+          print(f'--- {len(rows)} rows in suburbs ---')
+          for r in rows:
+              flag = 'ACTIVE ' if r[3] == 1 else f'INACTIVE({r[3]!r}) '
+              print(f'{flag}id={r[0]:<5} {r[1]}  [{r[2]}]')
+          active = sum(1 for r in rows if r[3] == 1)
+          print(f'--- {active} will be scraped tonight, {len(rows) - active} will NOT ---')
+          conn.close()
+          PY
