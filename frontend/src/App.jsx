@@ -337,7 +337,15 @@ function App() {
     if (res.ok) {
       const data = await res.json()
       setSuburbs(data)
-      writeCache(SUBURBS_CACHE, data)
+      // writeCacheEvicting, not writeCache: the plain version swallows a
+      // QuotaExceeded silently, and localStorage fills up fast (a cached
+      // Hot Vendors report runs to several MB). When that happens the
+      // PREVIOUS snapshot stays on disk forever, so every reload paints a
+      // suburb list that predates the last add — the suburb "disappears"
+      // on each refresh and only comes back once this fetch lands. Evict
+      // cached reports instead: they're big and regenerable, the suburb
+      // list is tiny and structural.
+      writeCacheEvicting(SUBURBS_CACHE, data, 'report_')
       // Seed "all checked" ONLY on the very first load (guarded by the same
       // ref as the mount effect). Without this guard, any later refresh
       // (scrape-poll, add/delete suburb) that ran while the user had
