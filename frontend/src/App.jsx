@@ -40,6 +40,13 @@ const STATUS_COLORS = {
 // 504 to the browser and the sidebar stays blank.
 const BOOT_API = `${BACKEND_DIRECT}/api`
 const SUBURBS_CACHE = 'suburbs'
+// Eviction order for the suburb-list cache write, biggest and most
+// disposable first. This list is a few KB and structural — losing it to a
+// full localStorage is what made a freshly added suburb vanish on every
+// reload — while every entry below is regenerable from the network.
+// `hv_report_*` / `hv_last_report` are the real hogs (multi-MB Hot Vendors
+// reports), so they get swept before anything else.
+const SUBURBS_EVICT = ['hv_report_', 'hv_last_report', 'report_', 'listings']
 
 const VALID_VIEWS = ['today', 'listings', 'signals', 'fallen', 'pipeline', 'report', 'reports', 'hot-vendors', 'rentals', 'logs', 'admin', 'terms', 'privacy']
 
@@ -345,7 +352,7 @@ function App() {
       // on each refresh and only comes back once this fetch lands. Evict
       // cached reports instead: they're big and regenerable, the suburb
       // list is tiny and structural.
-      writeCacheEvicting(SUBURBS_CACHE, data, 'report_')
+      writeCacheEvicting(SUBURBS_CACHE, data, SUBURBS_EVICT)
       // Seed "all checked" ONLY on the very first load (guarded by the same
       // ref as the mount effect). Without this guard, any later refresh
       // (scrape-poll, add/delete suburb) that ran while the user had
@@ -871,7 +878,7 @@ function App() {
           onDeleted={(s) => {
             const next = suburbs.filter(x => x.id !== s.id)
             setSuburbs(next)
-            writeCacheEvicting(SUBURBS_CACHE, next, 'report_')
+            writeCacheEvicting(SUBURBS_CACHE, next, SUBURBS_EVICT)
             setCheckedSuburbs(prev => {
               const n = new Set(prev)
               n.delete(s.id)
@@ -900,7 +907,7 @@ function App() {
               // tiny and structural, a report is regenerable. A silent
               // quota failure here is exactly what leaves a stale snapshot
               // on disk and makes the suburb flicker away on every reload.
-              writeCacheEvicting(SUBURBS_CACHE, next, 'report_')
+              writeCacheEvicting(SUBURBS_CACHE, next, SUBURBS_EVICT)
             }
             fetchSuburbs()
           }}

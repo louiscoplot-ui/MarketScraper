@@ -158,22 +158,34 @@ export function writeCache(suffix, value) {
 // suburbs are exactly where the instant-cache matters most, so failing
 // silently defeated the cache where it was most needed. Returns whether
 // the value was stored.
+// `evictPrefix` accepts a string OR an array of prefixes tried in order,
+// retrying the write after each sweep and stopping as soon as one frees
+// enough room. The array form matters for small structural values: the
+// suburb list is a few KB but was losing to multi-MB `hv_report_*`
+// entries, and a single-prefix sweep of `report_` doesn't match those —
+// the write kept failing, the stale snapshot survived, and a freshly
+// added suburb vanished on every reload. Order the prefixes biggest and
+// most disposable first.
 export function writeCacheEvicting(suffix, value, evictPrefix) {
   let raw
   try { raw = JSON.stringify(value) } catch { return false }
   const key = _cacheKey(suffix)
   try { localStorage.setItem(key, raw); return true } catch { /* quota */ }
-  try {
-    if (evictPrefix) {
-      const pfx = _cacheKey(evictPrefix)
+  const prefixes = Array.isArray(evictPrefix)
+    ? evictPrefix
+    : (evictPrefix ? [evictPrefix] : [])
+  for (const p of prefixes) {
+    try {
+      const pfx = _cacheKey(p)
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i)
         if (k && k.startsWith(pfx) && k !== key) localStorage.removeItem(k)
       }
+      localStorage.setItem(key, raw)
+      return true
+    } catch {
+      // Still over quota — fall through and sweep the next prefix.
     }
-    localStorage.setItem(key, raw)
-    return true
-  } catch {
-    return false
   }
+  return false
 }
