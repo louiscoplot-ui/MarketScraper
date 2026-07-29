@@ -1,0 +1,101 @@
+name: Audit users access
+
+# Dispatch-only. READ-ONLY audit of who can currently authenticate.
+#
+# Access control has no sessions and no tokens: every request resolves
+# `SELECT * FROM users WHERE access_key = ?` (admin_api.get_current_user).
+# So this table IS the access list — a row here means access, no row means
+# none, whatever any browser is still displaying from cache.
+#
+# Emails are MASKED in the output: this repository is public, so its
+# Actions logs are public too. First character + domain is enough to
+# identify an account without publishing harvestable addresses.
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install driver
+        run: python -m pip install --quiet psycopg2-binary
+
+      - name: Audit
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os, psycopg2
+          url = os.environ.get('DATABASE_URL')
+          if not url:
+              raise SystemExit('DATABASE_URL secret is not set')
+
+          def mask(email):
+              e = (email or '').strip()
+              if '@' not in e:
+                  return '(no email)'
+              local, _, domain = e.partition('@')
+              head = local[0] if local else '?'
+              return f'{head}{"*" * max(len(local) - 1, 1)}@{domain}'
+
+          conn = psycopg2.connect(url)
+          cur = conn.cursor()
+          cur.execute("""
+              SELECT u.id, u.email, u.first_name, u.last_name, u.role,
+                     u.all_suburbs, u.can_add_suburbs, u.rental_access,
+                     u.digest_enabled, u.last_seen, u.created_at,
+                     (u.password_hash IS NOT NULL) AS has_pw,
+                     (u.access_key IS NOT NULL AND u.access_key != '') AS has_key,
+                     (SELECT COUNT(*) FROM user_suburbs s WHERE s.user_id = u.id) AS n_subs
+              FROM users u
+              ORDER BY u.id
+          """)
+          rows = cur.fetchall()
+          print(f'=== {len(rows)} account(s) can currently authenticate ===')
+          print()
+          for r in rows:
+              (uid, email, fn, ln, role, allsub, canadd, rental,
+               digest, seen, created, has_pw, has_key, n_subs) = r
+              name = ' '.join(x for x in (fn, ln) if x) or '-'
+              flags = []
+              if allsub: flags.append('ALL_SUBURBS')
+              if canadd: flags.append('CAN_ADD_SUBURBS')
+              if rental: flags.append('RENTAL')
+              if digest: flags.append('DIGEST')
+              if has_pw: flags.append('PASSWORD_SET')
+              if has_key: flags.append('HAS_KEY')
+              print(f'id={uid:<4} {mask(email):<34} {name:<22} role={role or "-":<6} '
+                    f'suburbs={n_subs:<3} last_seen={seen}')
+              print(f'       flags: {", ".join(flags) or "none"}')
+              print()
+
+          # Domain roll-up: the fastest way to confirm an ex-colleague's
+          # whole organisation is gone, not just one address.
+          print('=== accounts per email domain ===')
+          cur.execute("""
+              SELECT LOWER(SPLIT_PART(email, '@', 2)) AS domain, COUNT(*)
+              FROM users WHERE email IS NOT NULL AND email != ''
+              GROUP BY 1 ORDER BY 2 DESC, 1
+          """)
+          for domain, n in cur.fetchall():
+              print(f'  {domain}: {n}')
+
+          # Orphaned scope rows would be a leftover, not access — the auth
+          # path never reads them without a users row. Reported so a stale
+          # assignment can't be mistaken for a live account.
+          print()
+          cur.execute("""
+              SELECT COUNT(*) FROM user_suburbs us
+              LEFT JOIN users u ON u.id = us.user_id WHERE u.id IS NULL
+          """)
+          print(f'orphaned user_suburbs rows (no matching user): {cur.fetchone()[0]}')
+          conn.close()
+          PY
