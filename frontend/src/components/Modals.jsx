@@ -2,7 +2,7 @@
 // App.jsx to keep modules under the MCP push size limit.
 
 import { useState } from 'react'
-import { BACKEND_DIRECT, fetchWithRetry } from '../lib/api'
+import { BACKEND_DIRECT, fetchWithRetry, signOut } from '../lib/api'
 import { searchSuburbs } from '../lib/waSuburbs'
 
 // Deliberate account/security modal — set or change the password for the
@@ -90,6 +90,17 @@ export function AccountModal({ me, onClose }) {
             />
             {err && <div style={{ color: '#b91c1c', fontSize: 13, margin: '2px 0 10px' }}>{err}</div>}
             <div className="modal-footer">
+              {/* Second entry point to sign-out (the rail user block is the
+                  first), so the classic header — where there is no rail —
+                  also has a way out of a session. */}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ marginRight: 'auto' }}
+                onClick={signOut}
+              >
+                Sign out
+              </button>
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={busy}>
                 {busy ? 'Saving…' : 'Save password'}

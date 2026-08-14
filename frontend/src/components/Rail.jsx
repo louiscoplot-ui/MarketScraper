@@ -11,6 +11,7 @@
 // (see the note above PALETTES).
 import { useMemo, useState } from 'react'
 import { DESK_TONES, getDeskCustomColor, setDeskCustomColor, isClassicAllowed } from '../lib/deskFlag'
+import { signOut } from '../lib/api'
 
 // Tone palettes — from SuburbDeskRail.dc.html palette(tone), with the
 // text tokens faint/stext/usub/bofff (and bone's muted) lifted just
@@ -379,6 +380,25 @@ export default function Rail({
             {me?.agency || (isAdmin ? 'Admin' : 'Agent')}
           </div>
         </div>
+        {/* The only exit from a session. Signing in on the wrong account
+            used to be a dead end — no logout anywhere in the app, so the
+            access key had to be cleared from devtools by hand. */}
+        <button
+          type="button"
+          onClick={signOut}
+          onMouseEnter={() => setHovered('signout')}
+          onMouseLeave={() => setHovered(null)}
+          title={me?.email ? `Sign out of ${me.email}` : 'Sign out'}
+          style={{
+            flexShrink: 0, cursor: 'pointer', fontFamily: UI, fontSize: 10.5,
+            fontWeight: 600, color: hovered === 'signout' ? p.fg : p.usub,
+            background: hovered === 'signout' ? p.hover : 'transparent',
+            border: `1px solid ${p.sbd}`, borderRadius: 7, padding: '5px 8px',
+            lineHeight: 1.2, whiteSpace: 'nowrap',
+          }}
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   )

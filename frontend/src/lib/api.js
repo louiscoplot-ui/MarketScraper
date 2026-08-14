@@ -43,6 +43,31 @@ export function setAccessKey(key) {
   catch {}
 }
 
+// Sign out: drop the access key AND every cached payload written under
+// it. Without a way to do this there was no exit from a session — an
+// operator signed in on the wrong account was stuck until they cleared
+// localStorage by hand from devtools.
+//
+// The cache sweep matters as much as the key: `sd_cache_*` entries hold
+// listings, pipeline rows and the `admin_me` profile of the account
+// being left. They're prefixed by the key so the NEXT user can't read
+// them, but leaving a departed user's data on a shared browser is
+// exactly the kind of residue a sign-out is expected to remove.
+//
+// Redirect via location.replace('/') rather than reload(): it drops any
+// #hash (a deep link into an admin-only tab) and keeps the signed-out
+// session out of the back-button history.
+export function signOut() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith('sd_cache_')) localStorage.removeItem(k)
+    }
+  } catch {}
+  try { localStorage.removeItem(ACCESS_KEY_STORAGE) } catch {}
+  window.location.replace('/')
+}
+
 export async function api(url, options = {}) {
   // Rewrite bare /api/ paths to hit Render directly. The Vercel edge
   // proxy adds 25s of timeout headroom we don't need and a Render
